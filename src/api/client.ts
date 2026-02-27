@@ -3,36 +3,37 @@
  */
 
 export interface TrustAnswer {
+  packageId?: string;
   name: string;
-  type: string;
-  found: boolean;
-  verdict: string;
+  type?: string;
+  packageType?: string;
   trustLevel: number;
   trustScore: number;
-  cveCount: number;
-  recommendation: string;
-  profile?: SecurityProfile;
+  verdict: string;
+  scanStatus?: string;
+  communityScans?: number;
+  cveCount?: number;
+  recommendation?: string;
   dependencies?: DependencyInfo;
+  // Computed by CLI
+  found: boolean;
 }
 
-export interface SecurityProfile {
-  id: string;
-  packageId: string;
-  version: string;
-  trustFactors: Record<string, unknown>;
-  riskIndicators: string[];
-  createdAt: string;
+export interface DependencyRiskSummary {
+  blocked: number;
+  warning: number;
+  safe: number;
 }
 
 export interface DependencyInfo {
-  direct: number;
-  transitive: number;
+  direct?: number;
+  transitive?: number;
+  totalDeps: number;
+  vulnerableDeps: number;
+  minTrustLevel: number;
+  minTrustScore: number;
   maxDepth: number;
-  riskSummary: {
-    blocked: number;
-    warning: number;
-    safe: number;
-  };
+  riskSummary?: DependencyRiskSummary;
 }
 
 export interface BatchResponse {
@@ -75,7 +76,7 @@ export class RegistryClient {
       method: "GET",
       headers: {
         "Accept": "application/json",
-        "User-Agent": "oa2a-cli/0.1.0",
+        "User-Agent": "ai-trust/0.1.0",
       },
     });
 
@@ -86,7 +87,9 @@ export class RegistryClient {
       );
     }
 
-    return (await response.json()) as TrustAnswer;
+    const data = (await response.json()) as TrustAnswer;
+    data.found = !!data.packageId;
+    return data;
   }
 
   async batchQuery(packages: PackageQuery[]): Promise<BatchResponse> {
@@ -96,7 +99,7 @@ export class RegistryClient {
       headers: {
         "Content-Type": "application/json",
         "Accept": "application/json",
-        "User-Agent": "oa2a-cli/0.1.0",
+        "User-Agent": "ai-trust/0.1.0",
       },
       body: JSON.stringify({ packages }),
     });

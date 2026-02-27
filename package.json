@@ -1,11 +1,11 @@
 {
-  "name": "@opena2a/oa2a",
+  "name": "ai-trust",
   "version": "0.1.0",
-  "description": "OpenA2A Registry trust query CLI",
+  "description": "Trust verification CLI for AI packages — check MCP servers, A2A agents, and AI tools before you install",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "oa2a": "dist/index.js"
+    "ai-trust": "dist/index.js"
   },
   "files": [
     "dist"
@@ -17,13 +17,16 @@
     "test": "echo \"No tests yet\" && exit 0"
   },
   "keywords": [
-    "opena2a",
+    "ai",
     "trust",
-    "registry",
     "security",
     "mcp",
     "a2a",
-    "cli"
+    "supply-chain",
+    "cli",
+    "model-context-protocol",
+    "ai-agent",
+    "opena2a"
   ],
   "author": "OpenA2A",
   "license": "Apache-2.0",

@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
 /**
- * oa2a - OpenA2A Registry trust query CLI.
+ * ai-trust - Trust verification CLI for AI packages.
  *
- * Query trust information for packages registered in the OpenA2A Registry.
+ * Check MCP servers, A2A agents, and AI tools before you install.
+ * Powered by the OpenA2A Registry.
  */
 
 import { Command } from "commander";
@@ -14,8 +15,8 @@ import { registerBatchCommand } from "./commands/batch.js";
 const program = new Command();
 
 program
-  .name("oa2a")
-  .description("OpenA2A Registry trust query CLI")
+  .name("ai-trust")
+  .description("Trust verification CLI for AI packages")
   .version("0.1.0")
   .option(
     "--registry-url <url>",

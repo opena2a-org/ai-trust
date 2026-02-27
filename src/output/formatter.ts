@@ -47,7 +47,7 @@ export function formatCheckResult(answer: TrustAnswer): string {
     return [
       "",
       chalk.bold(`  ${answer.name}`),
-      chalk.gray(`  Type: ${answer.type || "unknown"}`),
+      chalk.gray(`  Type: ${answer.packageType || "unknown"}`),
       chalk.gray("  Status: Not found in registry"),
       "",
     ].join("\n");
@@ -59,28 +59,20 @@ export function formatCheckResult(answer: TrustAnswer): string {
   const lines: string[] = [
     "",
     chalk.bold(`  ${answer.name}`),
-    `  Type:           ${answer.type}`,
+    `  Type:           ${answer.packageType || "unknown"}`,
     `  Verdict:        ${colorVerdict(answer.verdict.toUpperCase())}`,
     `  Trust Level:    ${colorTrust(trustLevelLabel(answer.trustLevel))} (${answer.trustLevel}/4)`,
     `  Trust Score:    ${answer.trustScore.toFixed(2)}`,
-    `  CVEs:           ${answer.cveCount > 0 ? chalk.red(String(answer.cveCount)) : chalk.green("0")}`,
-    `  Recommendation: ${answer.recommendation}`,
+    `  Scan Status:    ${answer.scanStatus || "unknown"}`,
   ];
 
-  if (answer.dependencies) {
+  if (answer.dependencies && answer.dependencies.totalDeps > 0) {
     const deps = answer.dependencies;
     lines.push("");
     lines.push(chalk.bold("  Dependencies"));
-    lines.push(`  Direct:         ${deps.direct}`);
-    lines.push(`  Transitive:     ${deps.transitive}`);
-    if (deps.riskSummary) {
-      const rs = deps.riskSummary;
-      const parts: string[] = [];
-      if (rs.blocked > 0) parts.push(chalk.red(`${rs.blocked} blocked`));
-      if (rs.warning > 0) parts.push(chalk.yellow(`${rs.warning} warning`));
-      if (rs.safe > 0) parts.push(chalk.green(`${rs.safe} safe`));
-      lines.push(`  Risk Summary:   ${parts.join(", ")}`);
-    }
+    lines.push(`  Total:          ${deps.totalDeps}`);
+    lines.push(`  Vulnerable:     ${deps.vulnerableDeps > 0 ? chalk.red(String(deps.vulnerableDeps)) : chalk.green("0")}`);
+    lines.push(`  Min Trust:      ${deps.minTrustLevel}/4`);
   }
 
   lines.push("");
@@ -107,7 +99,7 @@ export function formatBatchResults(
   const verdictWidth = 10;
   const levelWidth = 12;
   const scoreWidth = 8;
-  const cveWidth = 6;
+  const scanWidth = 10;
 
   lines.push(
     "  " +
@@ -116,9 +108,9 @@ export function formatBatchResults(
       "VERDICT".padEnd(verdictWidth) +
       "TRUST".padEnd(levelWidth) +
       "SCORE".padEnd(scoreWidth) +
-      "CVEs".padEnd(cveWidth)
+      "SCAN".padEnd(scanWidth)
   );
-  lines.push("  " + "-".repeat(nameWidth + typeWidth + verdictWidth + levelWidth + scoreWidth + cveWidth));
+  lines.push("  " + "-".repeat(nameWidth + typeWidth + verdictWidth + levelWidth + scoreWidth + scanWidth));
 
   for (const result of response.results) {
     const colorVerdict = verdictColor(result.verdict);
@@ -131,11 +123,11 @@ export function formatBatchResults(
     lines.push(
       "  " +
         name.padEnd(nameWidth) +
-        (result.type || "-").padEnd(typeWidth) +
+        (result.packageType || "-").padEnd(typeWidth) +
         colorVerdict(result.verdict.toUpperCase().padEnd(verdictWidth)) +
         colorTrust(trustLevelLabel(result.trustLevel).padEnd(levelWidth)) +
         (result.found ? result.trustScore.toFixed(2) : "-").toString().padEnd(scoreWidth) +
-        (result.found ? String(result.cveCount) : "-").padEnd(cveWidth)
+        (result.scanStatus || "-").padEnd(scanWidth)
     );
   }
 
