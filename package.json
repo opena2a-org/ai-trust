@@ -1,5 +1,5 @@
 {
-  "name": "oa2a",
+  "name": "@opena2a/oa2a",
   "version": "0.1.0",
   "description": "OpenA2A Registry trust query CLI",
   "type": "module",
