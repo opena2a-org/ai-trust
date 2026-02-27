@@ -1,0 +1,190 @@
+/**
+ * Output formatting for trust query results.
+ * Supports colored terminal output and raw JSON.
+ */
+
+import chalk from "chalk";
+import type { TrustAnswer, BatchResponse } from "../api/client.js";
+
+function verdictColor(verdict: string): (text: string) => string {
+  switch (verdict) {
+    case "safe":
+      return chalk.green;
+    case "warning":
+      return chalk.yellow;
+    case "blocked":
+      return chalk.red;
+    default:
+      return chalk.gray;
+  }
+}
+
+function trustLevelLabel(level: number): string {
+  switch (level) {
+    case 0:
+      return "Blocked";
+    case 1:
+      return "Warning";
+    case 2:
+      return "Listed";
+    case 3:
+      return "Scanned";
+    case 4:
+      return "Verified";
+    default:
+      return `Unknown (${level})`;
+  }
+}
+
+function trustLevelColor(level: number): (text: string) => string {
+  if (level >= 3) return chalk.green;
+  if (level >= 1) return chalk.yellow;
+  return chalk.red;
+}
+
+export function formatCheckResult(answer: TrustAnswer): string {
+  if (!answer.found) {
+    return [
+      "",
+      chalk.bold(`  ${answer.name}`),
+      chalk.gray(`  Type: ${answer.type || "unknown"}`),
+      chalk.gray("  Status: Not found in registry"),
+      "",
+    ].join("\n");
+  }
+
+  const colorVerdict = verdictColor(answer.verdict);
+  const colorTrust = trustLevelColor(answer.trustLevel);
+
+  const lines: string[] = [
+    "",
+    chalk.bold(`  ${answer.name}`),
+    `  Type:           ${answer.type}`,
+    `  Verdict:        ${colorVerdict(answer.verdict.toUpperCase())}`,
+    `  Trust Level:    ${colorTrust(trustLevelLabel(answer.trustLevel))} (${answer.trustLevel}/4)`,
+    `  Trust Score:    ${answer.trustScore.toFixed(2)}`,
+    `  CVEs:           ${answer.cveCount > 0 ? chalk.red(String(answer.cveCount)) : chalk.green("0")}`,
+    `  Recommendation: ${answer.recommendation}`,
+  ];
+
+  if (answer.dependencies) {
+    const deps = answer.dependencies;
+    lines.push("");
+    lines.push(chalk.bold("  Dependencies"));
+    lines.push(`  Direct:         ${deps.direct}`);
+    lines.push(`  Transitive:     ${deps.transitive}`);
+    if (deps.riskSummary) {
+      const rs = deps.riskSummary;
+      const parts: string[] = [];
+      if (rs.blocked > 0) parts.push(chalk.red(`${rs.blocked} blocked`));
+      if (rs.warning > 0) parts.push(chalk.yellow(`${rs.warning} warning`));
+      if (rs.safe > 0) parts.push(chalk.green(`${rs.safe} safe`));
+      lines.push(`  Risk Summary:   ${parts.join(", ")}`);
+    }
+  }
+
+  lines.push("");
+  return lines.join("\n");
+}
+
+export function formatBatchResults(
+  response: BatchResponse,
+  minTrust: number
+): string {
+  const lines: string[] = [];
+
+  lines.push("");
+  lines.push(
+    chalk.bold(
+      `  Trust Audit: ${response.meta.total} packages queried, ${response.meta.found} found, ${response.meta.notFound} not found`
+    )
+  );
+  lines.push("");
+
+  // Table header
+  const nameWidth = 40;
+  const typeWidth = 14;
+  const verdictWidth = 10;
+  const levelWidth = 12;
+  const scoreWidth = 8;
+  const cveWidth = 6;
+
+  lines.push(
+    "  " +
+      "PACKAGE".padEnd(nameWidth) +
+      "TYPE".padEnd(typeWidth) +
+      "VERDICT".padEnd(verdictWidth) +
+      "TRUST".padEnd(levelWidth) +
+      "SCORE".padEnd(scoreWidth) +
+      "CVEs".padEnd(cveWidth)
+  );
+  lines.push("  " + "-".repeat(nameWidth + typeWidth + verdictWidth + levelWidth + scoreWidth + cveWidth));
+
+  for (const result of response.results) {
+    const colorVerdict = verdictColor(result.verdict);
+    const colorTrust = trustLevelColor(result.trustLevel);
+
+    const name = result.name.length > nameWidth - 2
+      ? result.name.substring(0, nameWidth - 5) + "..."
+      : result.name;
+
+    lines.push(
+      "  " +
+        name.padEnd(nameWidth) +
+        (result.type || "-").padEnd(typeWidth) +
+        colorVerdict(result.verdict.toUpperCase().padEnd(verdictWidth)) +
+        colorTrust(trustLevelLabel(result.trustLevel).padEnd(levelWidth)) +
+        (result.found ? result.trustScore.toFixed(2) : "-").toString().padEnd(scoreWidth) +
+        (result.found ? String(result.cveCount) : "-").padEnd(cveWidth)
+    );
+  }
+
+  // Summary
+  const belowThreshold = response.results.filter(
+    (r) => r.found && r.trustLevel < minTrust
+  );
+  const notFound = response.results.filter((r) => !r.found);
+
+  lines.push("");
+
+  if (belowThreshold.length > 0) {
+    lines.push(
+      chalk.yellow(
+        `  [!] ${belowThreshold.length} package(s) below minimum trust level ${minTrust}:`
+      )
+    );
+    for (const pkg of belowThreshold) {
+      lines.push(
+        chalk.yellow(
+          `      - ${pkg.name} (trust level ${pkg.trustLevel}, verdict: ${pkg.verdict})`
+        )
+      );
+    }
+  }
+
+  if (notFound.length > 0) {
+    lines.push(
+      chalk.gray(
+        `  [?] ${notFound.length} package(s) not found in registry:`
+      )
+    );
+    for (const pkg of notFound) {
+      lines.push(chalk.gray(`      - ${pkg.name}`));
+    }
+  }
+
+  if (belowThreshold.length === 0 && notFound.length === 0) {
+    lines.push(
+      chalk.green(
+        `  All ${response.meta.found} packages meet minimum trust level ${minTrust}.`
+      )
+    );
+  }
+
+  lines.push("");
+  return lines.join("\n");
+}
+
+export function formatJson(data: unknown): string {
+  return JSON.stringify(data, null, 2);
+}
