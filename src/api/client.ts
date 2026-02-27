@@ -45,6 +45,12 @@ export interface BatchResponse {
   };
 }
 
+interface RawBatchResponse {
+  results: TrustAnswer[];
+  total: number;
+  queriedAt: string;
+}
+
 export interface PackageQuery {
   name: string;
   type?: string;
@@ -111,6 +117,19 @@ export class RegistryClient {
       );
     }
 
-    return (await response.json()) as BatchResponse;
+    const raw = (await response.json()) as RawBatchResponse;
+    const NULL_UUID = "00000000-0000-0000-0000-000000000000";
+    for (const r of raw.results) {
+      r.found = !!r.packageId && r.packageId !== NULL_UUID;
+    }
+    const found = raw.results.filter((r) => r.found).length;
+    return {
+      results: raw.results,
+      meta: {
+        total: raw.total,
+        found,
+        notFound: raw.total - found,
+      },
+    };
   }
 }
