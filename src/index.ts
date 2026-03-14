@@ -21,7 +21,7 @@ program
   .option(
     "--registry-url <url>",
     "registry base URL",
-    "https://registry.opena2a.org"
+    "https://api.oa2a.org"
   )
   .option("--json", "output raw JSON", false)
   .option("--no-color", "disable colored output");
