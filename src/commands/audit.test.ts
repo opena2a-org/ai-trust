@@ -1,0 +1,141 @@
+/**
+ * Tests for the audit command logic.
+ */
+
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { Command } from "commander";
+import { registerAuditCommand } from "./audit.js";
+
+vi.mock("../api/client.js", () => ({
+  RegistryClient: vi.fn().mockImplementation(() => ({
+    batchQuery: vi.fn(),
+  })),
+}));
+
+vi.mock("../utils/parser.js", () => ({
+  parseDependencyFile: vi.fn(),
+}));
+
+vi.mock("../output/formatter.js", () => ({
+  formatBatchResults: vi.fn(() => "formatted-batch"),
+  formatJson: vi.fn((data: unknown) => JSON.stringify(data)),
+}));
+
+import { RegistryClient } from "../api/client.js";
+import { parseDependencyFile } from "../utils/parser.js";
+
+function createProgram(): Command {
+  const program = new Command();
+  program
+    .option("--registry-url <url>", "registry base URL", "https://api.test.com")
+    .option("--json", "output raw JSON", false);
+  registerAuditCommand(program);
+  return program;
+}
+
+describe("audit command", () => {
+  let consoleSpy: ReturnType<typeof vi.spyOn>;
+  let consoleErrSpy: ReturnType<typeof vi.spyOn>;
+  let savedExitCode: number | undefined;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    savedExitCode = process.exitCode;
+    process.exitCode = undefined;
+  });
+
+  afterEach(() => {
+    consoleSpy.mockRestore();
+    consoleErrSpy.mockRestore();
+    process.exitCode = savedExitCode;
+  });
+
+  it("reports when no dependencies are found", async () => {
+    vi.mocked(parseDependencyFile).mockResolvedValue([]);
+
+    const program = createProgram();
+    await program.parseAsync(["node", "test", "audit", "package.json"]);
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      "No dependencies found in the specified file."
+    );
+  });
+
+  it("rejects invalid min-trust values", async () => {
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "audit",
+      "package.json",
+      "--min-trust",
+      "abc",
+    ]);
+
+    expect(consoleErrSpy).toHaveBeenCalledWith(
+      "Error: --min-trust must be a number between 0 and 4"
+    );
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("rejects min-trust above 4", async () => {
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "audit",
+      "package.json",
+      "--min-trust",
+      "5",
+    ]);
+
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("rejects more than 100 dependencies", async () => {
+    const manyDeps = Array.from({ length: 101 }, (_, i) => ({
+      name: `pkg-${i}`,
+    }));
+    vi.mocked(parseDependencyFile).mockResolvedValue(manyDeps);
+
+    const program = createProgram();
+    await program.parseAsync(["node", "test", "audit", "package.json"]);
+
+    expect(consoleErrSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Too many dependencies (101)")
+    );
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("sets exit code 1 when packages are below threshold", async () => {
+    vi.mocked(parseDependencyFile).mockResolvedValue([{ name: "risky-pkg" }]);
+    const mockBatchQuery = vi.fn().mockResolvedValue({
+      results: [
+        { name: "risky-pkg", found: true, trustLevel: 1, verdict: "warning" },
+      ],
+      meta: { total: 1, found: 1, notFound: 0 },
+    });
+    vi.mocked(RegistryClient).mockImplementation(
+      () => ({ checkTrust: vi.fn(), batchQuery: mockBatchQuery }) as any
+    );
+
+    const program = createProgram();
+    await program.parseAsync(["node", "test", "audit", "package.json"]);
+
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("sets exit code 1 on parser error", async () => {
+    vi.mocked(parseDependencyFile).mockRejectedValue(
+      new Error("File not found")
+    );
+
+    const program = createProgram();
+    await program.parseAsync(["node", "test", "audit", "package.json"]);
+
+    expect(process.exitCode).toBe(1);
+    expect(consoleErrSpy).toHaveBeenCalledWith("Error: File not found");
+  });
+});
