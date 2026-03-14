@@ -22,19 +22,19 @@ export function resolvePackageName(name: string): string {
     return name;
   }
 
-  // Rule 2: server-* shorthand
-  if (name.startsWith("server-")) {
+  // Rule 2: server-* shorthand (must have at least one char after "server-")
+  if (name.startsWith("server-") && name.length > "server-".length) {
     return `${MCP_SCOPE}/${name}`;
   }
 
-  // Rule 3a: mcp/server-* notation
-  if (name.startsWith("mcp/server-")) {
+  // Rule 3a: mcp/server-* notation (must have at least one char after "mcp/server-")
+  if (name.startsWith("mcp/server-") && name.length > "mcp/server-".length) {
     const serverPart = name.slice("mcp/".length);
     return `${MCP_SCOPE}/${serverPart}`;
   }
 
-  // Rule 3b: mcp-server-* notation
-  if (name.startsWith("mcp-server-")) {
+  // Rule 3b: mcp-server-* notation (must have at least one char after "mcp-server-")
+  if (name.startsWith("mcp-server-") && name.length > "mcp-server-".length) {
     const serverPart = name.slice("mcp-".length);
     return `${MCP_SCOPE}/${serverPart}`;
   }
