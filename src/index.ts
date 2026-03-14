@@ -21,7 +21,7 @@ const program = new Command();
 program
   .name("ai-trust")
   .description("Trust verification CLI for AI packages")
-  .version(pkg.version)
+  .version(pkg.version, "-v, --version")
   .option(
     "--registry-url <url>",
     "registry base URL",
