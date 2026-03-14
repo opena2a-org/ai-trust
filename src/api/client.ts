@@ -2,6 +2,12 @@
  * API client for the OpenA2A Registry trust query endpoints.
  */
 
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const pkg = require("../../package.json");
+const USER_AGENT = `ai-trust/${pkg.version}`;
+
 export interface TrustAnswer {
   packageId?: string;
   name: string;
@@ -82,7 +88,7 @@ export class RegistryClient {
       method: "GET",
       headers: {
         "Accept": "application/json",
-        "User-Agent": "ai-trust/0.1.0",
+        "User-Agent": USER_AGENT,
       },
     });
 
@@ -105,7 +111,7 @@ export class RegistryClient {
       headers: {
         "Content-Type": "application/json",
         "Accept": "application/json",
-        "User-Agent": "ai-trust/0.1.0",
+        "User-Agent": USER_AGENT,
       },
       body: JSON.stringify({ packages }),
     });
