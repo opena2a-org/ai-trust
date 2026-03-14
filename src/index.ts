@@ -7,17 +7,21 @@
  * Powered by the OpenA2A Registry.
  */
 
+import { createRequire } from "node:module";
 import { Command } from "commander";
 import { registerCheckCommand } from "./commands/check.js";
 import { registerAuditCommand } from "./commands/audit.js";
 import { registerBatchCommand } from "./commands/batch.js";
+
+const require = createRequire(import.meta.url);
+const pkg = require("../package.json");
 
 const program = new Command();
 
 program
   .name("ai-trust")
   .description("Trust verification CLI for AI packages")
-  .version("0.1.0")
+  .version(pkg.version)
   .option(
     "--registry-url <url>",
     "registry base URL",

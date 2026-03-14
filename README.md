@@ -1,79 +1,94 @@
-# oa2a
+> **[OpenA2A](https://github.com/opena2a-org/opena2a)**: [CLI](https://github.com/opena2a-org/opena2a) · [HackMyAgent](https://github.com/opena2a-org/hackmyagent) · [Secretless AI](https://github.com/opena2a-org/secretless-ai) · [AIM](https://github.com/opena2a-org/agent-identity-management) · [Browser Guard](https://github.com/opena2a-org/AI-BrowserGuard) · [DVAA](https://github.com/opena2a-org/damn-vulnerable-ai-agent) · [Homebrew Tap](https://github.com/opena2a-org/homebrew-tap) · **ai-trust**
 
-Command-line tool for querying the [OpenA2A Registry](https://registry.opena2a.org) trust API. Look up trust verdicts, scores, CVE counts, and dependency risk for packages in the registry.
+# ai-trust
 
-## Install
+Trust verification CLI for AI packages. Queries the OpenA2A Registry trust graph for security scans, community consensus, dependency risk, and known advisories.
+
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![npm version](https://img.shields.io/npm/v/ai-trust.svg)](https://www.npmjs.com/package/ai-trust)
+
+## Installation
 
 ```bash
-npm install -g oa2a
+brew install opena2a-org/tap/ai-trust
+```
+
+Or via npm:
+
+```bash
+npm install -g ai-trust
 ```
 
 Or run directly with npx:
 
 ```bash
-npx oa2a check @modelcontextprotocol/server-filesystem
+npx ai-trust check @modelcontextprotocol/server-filesystem
 ```
 
-## Usage
+## Commands
 
-### Check a single package
+### check
+
+Look up the trust verdict for a single package.
 
 ```bash
-oa2a check @modelcontextprotocol/server-filesystem
+ai-trust check @modelcontextprotocol/server-filesystem
 ```
 
 Specify the package type explicitly:
 
 ```bash
-oa2a check my-agent --type a2a_agent
+ai-trust check my-agent --type a2a_agent
 ```
 
-### Audit dependencies from a project file
+### audit
 
-Parse `package.json` or `requirements.txt` and batch-query all dependencies:
+Parse `package.json` or `requirements.txt` and batch-query all dependencies.
 
 ```bash
-oa2a audit package.json
-oa2a audit requirements.txt
+ai-trust audit package.json
+ai-trust audit requirements.txt
 ```
 
 Set a minimum trust level threshold (default: 3):
 
 ```bash
-oa2a audit package.json --min-trust 2
+ai-trust audit package.json --min-trust 2
 ```
 
-### Batch lookup for multiple packages
+### batch
+
+Look up trust verdicts for multiple packages at once.
 
 ```bash
-oa2a batch express lodash chalk commander
+ai-trust batch express lodash chalk commander
 ```
 
 Apply the same type to all packages:
 
 ```bash
-oa2a batch my-server-a my-server-b --type mcp_server
+ai-trust batch my-server-a my-server-b --type mcp_server
 ```
 
-### Output options
+## Output Options
 
-Get raw JSON output for scripting:
+Get raw JSON for scripting:
 
 ```bash
-oa2a check express --json
-oa2a audit package.json --json
+ai-trust check express --json
+ai-trust audit package.json --json
 ```
 
 Use a custom registry URL:
 
 ```bash
-oa2a check express --registry-url http://localhost:8080
+ai-trust check express --registry-url http://localhost:8080
 ```
 
 Disable colored output:
 
 ```bash
-oa2a check express --no-color
+ai-trust check express --no-color
 ```
 
 ## Exit Codes
@@ -100,8 +115,8 @@ oa2a check express --no-color
 ## Development
 
 ```bash
-git clone https://github.com/opena2a-org/oa2a.git
-cd oa2a
+git clone https://github.com/opena2a-org/ai-trust.git
+cd ai-trust
 npm install
 npm run build
 ```
@@ -111,6 +126,11 @@ Run locally without installing globally:
 ```bash
 node dist/index.js check express
 ```
+
+## Links
+
+- [OpenA2A](https://opena2a.org)
+- [OpenA2A Registry](https://registry.opena2a.org)
 
 ## License
 
