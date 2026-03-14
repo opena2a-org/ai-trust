@@ -56,16 +56,25 @@ export function registerAuditCommand(program: Command): void {
           console.log(formatBatchResults(response, minTrust));
         }
 
-        // Exit code 1 if any package is below threshold
+        // Exit code 2 for policy violation (below threshold).
+        // Exit code 1 is reserved for actual errors (network, server).
         const belowThreshold = response.results.some(
           (r) => r.found && r.trustLevel < minTrust
         );
         if (belowThreshold) {
-          process.exitCode = 1;
+          process.exitCode = 2;
         }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.error(`Error: ${message}`);
+      } catch (err: unknown) {
+        if (
+          err instanceof Error &&
+          "code" in err &&
+          (err as NodeJS.ErrnoException).code === "ENOENT"
+        ) {
+          console.error(`Error: File not found: ${file}`);
+        } else {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(`Error: ${message}`);
+        }
         process.exitCode = 1;
       }
     });

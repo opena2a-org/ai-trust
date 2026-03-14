@@ -6,12 +6,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Command } from "commander";
 import { registerCheckCommand } from "./check.js";
 
-// Mock the API client
-vi.mock("../api/client.js", () => ({
-  RegistryClient: vi.fn().mockImplementation(() => ({
-    checkTrust: vi.fn(),
-  })),
-}));
+// Mock the API client, preserving the real PackageNotFoundError class
+vi.mock("../api/client.js", async (importOriginal) => {
+  const actual = await importOriginal() as Record<string, unknown>;
+  return {
+    ...actual,
+    RegistryClient: vi.fn().mockImplementation(() => ({
+      checkTrust: vi.fn(),
+    })),
+  };
+});
 
 // Mock formatter
 vi.mock("../output/formatter.js", () => ({
@@ -19,7 +23,7 @@ vi.mock("../output/formatter.js", () => ({
   formatJson: vi.fn((data: unknown) => JSON.stringify(data)),
 }));
 
-import { RegistryClient } from "../api/client.js";
+import { RegistryClient, PackageNotFoundError } from "../api/client.js";
 import { formatCheckResult, formatJson } from "../output/formatter.js";
 
 function createProgram(): Command {
@@ -150,6 +154,23 @@ describe("check command", () => {
     await program.parseAsync(["node", "test", "check", "good-pkg"]);
 
     expect(process.exitCode).toBeUndefined();
+  });
+
+  it("shows friendly error for 404 (package not found)", async () => {
+    const mockCheckTrust = vi.fn().mockRejectedValue(
+      new PackageNotFoundError("nonexistent-pkg")
+    );
+    vi.mocked(RegistryClient).mockImplementation(
+      () => ({ checkTrust: mockCheckTrust, batchQuery: vi.fn() }) as any
+    );
+
+    const program = createProgram();
+    await program.parseAsync(["node", "test", "check", "nonexistent-pkg"]);
+
+    expect(process.exitCode).toBe(1);
+    expect(consoleErrSpy).toHaveBeenCalledWith(
+      'Error: Package "nonexistent-pkg" not found in the OpenA2A Registry.'
+    );
   });
 
   it("sets exit code 1 on API error", async () => {

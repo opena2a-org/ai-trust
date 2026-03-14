@@ -109,7 +109,7 @@ describe("audit command", () => {
     expect(process.exitCode).toBe(1);
   });
 
-  it("sets exit code 1 when packages are below threshold", async () => {
+  it("sets exit code 2 when packages are below threshold", async () => {
     vi.mocked(parseDependencyFile).mockResolvedValue([{ name: "risky-pkg" }]);
     const mockBatchQuery = vi.fn().mockResolvedValue({
       results: [
@@ -124,7 +124,23 @@ describe("audit command", () => {
     const program = createProgram();
     await program.parseAsync(["node", "test", "audit", "package.json"]);
 
+    expect(process.exitCode).toBe(2);
+  });
+
+  it("shows friendly error for ENOENT (missing file)", async () => {
+    const enoentError = new Error(
+      "ENOENT: no such file or directory, open 'nonexistent.json'"
+    ) as NodeJS.ErrnoException;
+    enoentError.code = "ENOENT";
+    vi.mocked(parseDependencyFile).mockRejectedValue(enoentError);
+
+    const program = createProgram();
+    await program.parseAsync(["node", "test", "audit", "nonexistent.json"]);
+
     expect(process.exitCode).toBe(1);
+    expect(consoleErrSpy).toHaveBeenCalledWith(
+      "Error: File not found: nonexistent.json"
+    );
   });
 
   it("sets exit code 1 on parser error", async () => {

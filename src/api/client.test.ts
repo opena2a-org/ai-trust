@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { RegistryClient } from "./client.js";
+import { RegistryClient, PackageNotFoundError } from "./client.js";
 import type { TrustAnswer } from "./client.js";
 
 // Mock the package.json import used for User-Agent
@@ -112,11 +112,24 @@ describe("RegistryClient", () => {
       expect(headers["User-Agent"]).toMatch(/^ai-trust\//);
     });
 
-    it("throws on non-OK response", async () => {
-      mockFetch.mockResolvedValue(jsonResponse("Not Found", 404));
+    it("throws PackageNotFoundError on 404 response", async () => {
+      mockFetch.mockResolvedValue(
+        jsonResponse({ error: "Package not found", verdict: "unknown" }, 404)
+      );
 
       await expect(client.checkTrust("bad-pkg")).rejects.toThrow(
-        "Registry API returned 404"
+        PackageNotFoundError
+      );
+      await expect(client.checkTrust("bad-pkg")).rejects.toThrow(
+        'Package "bad-pkg" not found in the OpenA2A Registry.'
+      );
+    });
+
+    it("throws generic error on other non-OK responses", async () => {
+      mockFetch.mockResolvedValue(jsonResponse("Server Error", 500));
+
+      await expect(client.checkTrust("any-pkg")).rejects.toThrow(
+        "Registry API returned 500"
       );
     });
   });
