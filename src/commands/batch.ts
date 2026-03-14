@@ -6,6 +6,7 @@ import type { Command } from "commander";
 import { RegistryClient } from "../api/client.js";
 import type { PackageQuery } from "../api/client.js";
 import { formatBatchResults, formatJson } from "../output/formatter.js";
+import { resolveAndLog } from "../utils/resolve.js";
 
 export function registerBatchCommand(program: Command): void {
   program
@@ -44,8 +45,8 @@ export function registerBatchCommand(program: Command): void {
           return;
         }
 
-        const packages: PackageQuery[] = names.map((name) => ({
-          name,
+        const packages: PackageQuery[] = names.map((rawName) => ({
+          name: resolveAndLog(rawName),
           ...(opts.type ? { type: opts.type } : {}),
         }));
 

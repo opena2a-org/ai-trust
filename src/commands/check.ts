@@ -5,18 +5,20 @@
 import type { Command } from "commander";
 import { RegistryClient } from "../api/client.js";
 import { formatCheckResult, formatJson } from "../output/formatter.js";
+import { resolveAndLog } from "../utils/resolve.js";
 
 export function registerCheckCommand(program: Command): void {
   program
     .command("check <name>")
     .description("Look up trust information for a single package")
     .option("-t, --type <type>", "package type filter (mcp_server, a2a_agent, ai_tool, etc.). Note: the registry returns the canonical type; this flag filters but does not override the stored type.")
-    .action(async (name: string, opts: { type?: string }) => {
+    .action(async (rawName: string, opts: { type?: string }) => {
       const globalOpts = program.opts() as {
         registryUrl: string;
         json: boolean;
       };
 
+      const name = resolveAndLog(rawName);
       const client = new RegistryClient(globalOpts.registryUrl);
 
       try {
