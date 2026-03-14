@@ -62,6 +62,16 @@ export interface PackageQuery {
   type?: string;
 }
 
+export class PackageNotFoundError extends Error {
+  public readonly packageName: string;
+
+  constructor(name: string) {
+    super(`Package "${name}" not found in the OpenA2A Registry.`);
+    this.name = "PackageNotFoundError";
+    this.packageName = name;
+  }
+}
+
 export class RegistryClient {
   private baseUrl: string;
 
@@ -93,6 +103,9 @@ export class RegistryClient {
     });
 
     if (!response.ok) {
+      if (response.status === 404) {
+        throw new PackageNotFoundError(name);
+      }
       const body = await response.text();
       throw new Error(
         `Registry API returned ${response.status}: ${body}`

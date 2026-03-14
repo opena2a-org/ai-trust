@@ -95,8 +95,9 @@ ai-trust check express --no-color
 
 | Code | Meaning |
 |------|---------|
-| 0 | All queried packages are safe |
-| 1 | One or more packages have warnings, are blocked, or fall below the trust threshold |
+| 0 | All queried packages meet the minimum trust threshold |
+| 1 | Error (network failure, file not found, server error, package not found) |
+| 2 | One or more packages fall below the minimum trust threshold (`--min-trust`) |
 
 ## Trust Levels
 

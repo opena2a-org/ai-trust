@@ -137,6 +137,44 @@ describe("batch command", () => {
     expect(formatJson).toHaveBeenCalled();
   });
 
+  it("sets exit code 2 when packages are below min-trust threshold", async () => {
+    const mockBatchQuery = vi.fn().mockResolvedValue({
+      results: [
+        { name: "low-trust-pkg", found: true, trustLevel: 1, verdict: "warning" },
+      ],
+      meta: { total: 1, found: 1, notFound: 0 },
+    });
+    vi.mocked(RegistryClient).mockImplementation(
+      () => ({ checkTrust: vi.fn(), batchQuery: mockBatchQuery }) as any
+    );
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "batch", "low-trust-pkg", "--min-trust", "3",
+    ]);
+
+    expect(process.exitCode).toBe(2);
+  });
+
+  it("does not set exit code when all packages meet min-trust threshold", async () => {
+    const mockBatchQuery = vi.fn().mockResolvedValue({
+      results: [
+        { name: "good-pkg", found: true, trustLevel: 4, verdict: "safe" },
+      ],
+      meta: { total: 1, found: 1, notFound: 0 },
+    });
+    vi.mocked(RegistryClient).mockImplementation(
+      () => ({ checkTrust: vi.fn(), batchQuery: mockBatchQuery }) as any
+    );
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "batch", "good-pkg", "--min-trust", "3",
+    ]);
+
+    expect(process.exitCode).toBeUndefined();
+  });
+
   it("sets exit code 1 on API error", async () => {
     const mockBatchQuery = vi.fn().mockRejectedValue(new Error("timeout"));
     vi.mocked(RegistryClient).mockImplementation(
