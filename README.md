@@ -58,11 +58,12 @@ ai-trust check server-filesystem --no-scan
 
 ### audit
 
-Parse `package.json` or `requirements.txt` and batch-query all dependencies.
+Parse dependency files and batch-query all dependencies. Supports any `.json` file (package.json format) or `.txt` file (requirements.txt format). Unknown extensions are auto-detected.
 
 ```bash
 ai-trust audit package.json
 ai-trust audit requirements.txt
+ai-trust audit deps/prod-deps.json
 ```
 
 Set a minimum trust level threshold (default: 3):
@@ -85,7 +86,7 @@ Look up trust verdicts for multiple packages at once.
 ai-trust batch express lodash chalk commander
 ```
 
-Apply the same type to all packages:
+Filter by package type (packages that don't match are excluded):
 
 ```bash
 ai-trust batch my-server-a my-server-b --type mcp_server
