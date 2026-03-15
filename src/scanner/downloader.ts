@@ -52,7 +52,32 @@ export async function downloadPackage(
   } catch (err) {
     // Clean up on failure
     await rm(tempDir, { recursive: true, force: true });
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Failed to download package "${name}": ${message}`);
+
+    // Extract a clean error message from npm's verbose stderr
+    let message: string;
+    if (
+      err &&
+      typeof err === "object" &&
+      "stderr" in err &&
+      typeof (err as { stderr: unknown }).stderr === "string"
+    ) {
+      const stderr = (err as { stderr: string }).stderr;
+      const notFound = stderr.includes("404") || stderr.includes("Not Found");
+      if (notFound) {
+        message = `Package "${name}" not found on npm. Verify the package name and try again.`;
+      } else {
+        // Extract the first meaningful npm error line
+        const errorLine = stderr
+          .split("\n")
+          .find((l) => l.startsWith("npm error") && !l.includes("A complete log"));
+        message = errorLine
+          ? errorLine.replace(/^npm error\s*/, "")
+          : (err instanceof Error ? err.message : String(err));
+      }
+    } else {
+      message = err instanceof Error ? err.message : String(err);
+    }
+
+    throw new Error(`Failed to download "${name}": ${message}`);
   }
 }

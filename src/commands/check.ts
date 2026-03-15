@@ -116,6 +116,15 @@ async function handleNotFound(
     return;
   }
 
+  // Non-TTY: just report not found (scan must be opt-in via --scan-if-missing)
+  if (!process.stdin.isTTY) {
+    console.error(
+      `Package "${name}" not found in the OpenA2A Registry. Use --scan-if-missing to scan locally.`
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   // Interactive mode: ask the user
   console.error(
     chalk.gray(`Package "${name}" not found in the OpenA2A Registry.`)
@@ -123,7 +132,7 @@ async function handleNotFound(
 
   if (!(await checkHmaReady())) return;
 
-  const shouldScan = await confirm("No trust data yet. Scan it now?");
+  const shouldScan = await confirm("No trust data yet. Scan it now?", false);
   if (!shouldScan) {
     process.exitCode = 1;
     return;

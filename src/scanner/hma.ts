@@ -46,7 +46,7 @@ export async function isHmaAvailable(): Promise<boolean> {
 
 /**
  * Run HMA security scan against a directory.
- * Uses `npx hackmyagent secure --ci --json <dir>`.
+ * Uses `npx hackmyagent secure --format json <dir>`.
  *
  * @returns Parsed scan results
  * @throws If HMA is not available or scan fails to produce valid output
@@ -58,7 +58,7 @@ export async function runHmaScan(
     // HMA may exit non-zero when findings exist, so we handle that
     const { stdout } = await execFileAsync(
       "npx",
-      ["hackmyagent", "secure", "--ci", "--json", targetDir],
+      ["hackmyagent", "secure", "--format", "json", targetDir],
       { timeout: 120_000 }
     );
 

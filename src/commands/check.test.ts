@@ -250,7 +250,7 @@ describe("check command", () => {
   });
 
   describe("scan-on-demand", () => {
-    it("offers scan when package not found and --no-scan is not set", async () => {
+    it("shows not-found message with hint in non-TTY mode", async () => {
       const mockCheckTrust = vi
         .fn()
         .mockRejectedValue(
@@ -264,7 +264,6 @@ describe("check command", () => {
             publishScan: vi.fn(),
           }) as any
       );
-      vi.mocked(isHmaAvailable).mockResolvedValue(false);
 
       const program = createProgram();
       await program.parseAsync([
@@ -274,9 +273,9 @@ describe("check command", () => {
         "unknown-pkg",
       ]);
 
-      // HMA not available, so it tells the user to install
+      // Non-TTY: tells user to use --scan-if-missing
       expect(consoleErrSpy).toHaveBeenCalledWith(
-        expect.stringContaining("not found")
+        expect.stringContaining("--scan-if-missing")
       );
       expect(process.exitCode).toBe(1);
     });
