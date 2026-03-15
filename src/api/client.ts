@@ -83,6 +83,8 @@ export interface ScanFinding {
   passed: boolean;
   message: string;
   category?: string;
+  /** Attack taxonomy class this finding maps to (from HMA taxonomy) */
+  attackClass?: string;
 }
 
 export interface PublishResponse {

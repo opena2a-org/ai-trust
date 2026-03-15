@@ -27,6 +27,8 @@ export interface HmaFinding {
   file?: string;
   line?: number;
   fix?: string;
+  /** Attack taxonomy class this finding maps to (from HMA taxonomy) */
+  attackClass?: string;
 }
 
 /**
@@ -118,6 +120,7 @@ function parseHmaOutput(stdout: string): HmaScanResult {
       file: f.file,
       line: f.line,
       fix: f.fix,
+      attackClass: f.attackClass as string | undefined,
     })),
     projectType: raw.projectType ?? "unknown",
     timestamp: raw.timestamp ?? new Date().toISOString(),

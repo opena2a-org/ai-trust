@@ -226,6 +226,7 @@ async function contributeResult(
           passed: f.passed,
           message: f.message,
           category: f.category,
+          attackClass: f.attackClass,
         })),
       projectType: scanResult.scan.projectType,
       scanTimestamp: scanResult.scan.timestamp,

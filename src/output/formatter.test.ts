@@ -3,8 +3,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { formatCheckResult, formatBatchResults, formatJson } from "./formatter.js";
+import { formatCheckResult, formatBatchResults, formatScanResult, formatJson } from "./formatter.js";
 import type { TrustAnswer, BatchResponse } from "../api/client.js";
+import type { ScanResult } from "../scanner/index.js";
 
 // Disable chalk colors for predictable test output
 vi.mock("chalk", () => {
@@ -15,6 +16,8 @@ vi.mock("chalk", () => {
     red: identity,
     gray: identity,
     bold: identity,
+    dim: identity,
+    cyan: identity,
   };
   return { default: chalkMock };
 });
@@ -190,6 +193,77 @@ describe("formatBatchResults", () => {
     const output = formatBatchResults(response, 3);
 
     expect(output).toContain("...");
+  });
+});
+
+describe("formatScanResult", () => {
+  function makeScanResult(overrides: Partial<ScanResult> = {}): ScanResult {
+    return {
+      packageName: "test-pkg",
+      trustScore: 0.85,
+      trustLevel: 3,
+      verdict: "safe",
+      scan: {
+        score: 85,
+        maxScore: 100,
+        findings: [],
+        projectType: "node",
+        timestamp: "2026-03-15T00:00:00Z",
+      },
+      ...overrides,
+    };
+  }
+
+  it("shows attack class when present on a finding", () => {
+    const result = makeScanResult({
+      scan: {
+        score: 60,
+        maxScore: 100,
+        findings: [
+          {
+            checkId: "CRED-001",
+            name: "Hardcoded Credentials",
+            description: "Found hardcoded credentials",
+            category: "secrets",
+            severity: "critical",
+            passed: false,
+            message: "API key found in source code",
+            attackClass: "CRED-HARVEST",
+          },
+        ],
+        projectType: "node",
+        timestamp: "2026-03-15T00:00:00Z",
+      },
+    });
+
+    const output = formatScanResult(result);
+    expect(output).toContain("CRED-HARVEST");
+    expect(output).toContain("Attack Class:");
+  });
+
+  it("does not show attack class line when attackClass is absent", () => {
+    const result = makeScanResult({
+      scan: {
+        score: 60,
+        maxScore: 100,
+        findings: [
+          {
+            checkId: "SEC-001",
+            name: "Missing CSP",
+            description: "No CSP header",
+            category: "headers",
+            severity: "medium",
+            passed: false,
+            message: "Content-Security-Policy header missing",
+          },
+        ],
+        projectType: "node",
+        timestamp: "2026-03-15T00:00:00Z",
+      },
+    });
+
+    const output = formatScanResult(result);
+    expect(output).not.toContain("Attack Class:");
   });
 });
 
