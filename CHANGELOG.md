@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 (2026-03-15)
+## 0.2.1 (2026-03-15)
 
 ### Added
 - **Community contribution telemetry**: Anonymized scan findings (check pass/fail and severity only) can be shared with the OpenA2A Registry. Prompts on first scan; choice is saved to `~/.opena2a/config.json` and shared across all OpenA2A tools.
