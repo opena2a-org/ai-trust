@@ -87,7 +87,6 @@ export function registerAuditCommand(program: Command): void {
           await scanMissingPackages(
             notFound,
             response.results,
-            client,
             opts,
             globalOpts.registryUrl
           );
@@ -111,7 +110,6 @@ export function registerAuditCommand(program: Command): void {
               await scanMissingPackages(
                 notFound,
                 response.results,
-                client,
                 opts,
                 globalOpts.registryUrl
               );
@@ -159,7 +157,6 @@ export function registerAuditCommand(program: Command): void {
 async function scanMissingPackages(
   notFound: TrustAnswer[],
   allResults: TrustAnswer[],
-  client: RegistryClient,
   opts: AuditOptions,
   registryUrl: string
 ): Promise<void> {
@@ -197,11 +194,6 @@ async function scanMissingPackages(
       }
 
       scannedResults.push({ name: pkg.name, scanResult });
-
-      // Explicit --contribute: publish full results
-      if (opts.contribute) {
-        await publishFullResults(pkg.name, scanResult, client);
-      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(
@@ -235,7 +227,6 @@ async function handleAuditContribution(
   }
 
   if (opts.contribute) {
-    // Explicit flag: already published full results above, also send telemetry
     for (const { name, scanResult } of scannedResults) {
       await submitAnonymizedTelemetry(name, scanResult, registryUrl);
     }
@@ -264,42 +255,6 @@ async function handleAuditContribution(
         await submitAnonymizedTelemetry(name, scanResult, registryUrl);
       }
     }
-  }
-}
-
-/**
- * Publish full scan results to the registry (explicit --contribute flag).
- */
-async function publishFullResults(
-  name: string,
-  scanResult: ScanResult,
-  client: RegistryClient
-): Promise<void> {
-  try {
-    await client.publishScan({
-      name,
-      score: scanResult.scan.score,
-      maxScore: scanResult.scan.maxScore,
-      findings: scanResult.scan.findings
-        .filter((f) => !f.passed)
-        .map((f) => ({
-          checkId: f.checkId,
-          name: f.name,
-          severity: f.severity,
-          passed: f.passed,
-          message: f.message,
-          category: f.category,
-          attackClass: f.attackClass,
-        })),
-      projectType: scanResult.scan.projectType,
-      scanTimestamp: scanResult.scan.timestamp,
-    });
-    console.error(chalk.green(`  Contributed: ${name}`));
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(
-      chalk.yellow(`  Could not publish ${name}: ${message}`)
-    );
   }
 }
 

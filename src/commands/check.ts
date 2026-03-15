@@ -196,13 +196,12 @@ async function handleScanFlow(
   }
 
   // Community contribution flow
-  await handleContribute(name, scanResult, client, globalOpts, opts);
+  await handleContribute(name, scanResult, globalOpts, opts);
 }
 
 async function handleContribute(
   name: string,
   scanResult: ScanResult,
-  client: RegistryClient,
   globalOpts: { registryUrl: string; json: boolean },
   opts: CheckOptions
 ): Promise<void> {
@@ -210,14 +209,12 @@ async function handleContribute(
   incrementScanCount();
 
   // Determine contribution mode:
-  // 1. --contribute flag: always contribute (full publish + telemetry)
+  // 1. --contribute flag: always contribute anonymized telemetry
   // 2. Config enabled: auto-contribute anonymized telemetry
   // 3. Not configured: maybe prompt
   // 4. Config disabled: skip
 
   if (opts.contribute) {
-    // Explicit flag: publish full results + anonymized telemetry
-    await publishFullResults(name, scanResult, client);
     await submitAnonymizedTelemetry(name, scanResult, globalOpts.registryUrl);
     return;
   }
@@ -245,53 +242,6 @@ async function handleContribute(
         globalOpts.registryUrl
       );
     }
-  }
-}
-
-/**
- * Publish full scan results to the registry (explicit --contribute flag).
- */
-async function publishFullResults(
-  name: string,
-  scanResult: ScanResult,
-  client: RegistryClient
-): Promise<void> {
-  try {
-    const submission = {
-      name,
-      score: scanResult.scan.score,
-      maxScore: scanResult.scan.maxScore,
-      findings: scanResult.scan.findings
-        .filter((f) => !f.passed)
-        .map((f) => ({
-          checkId: f.checkId,
-          name: f.name,
-          severity: f.severity,
-          passed: f.passed,
-          message: f.message,
-          category: f.category,
-          attackClass: f.attackClass,
-        })),
-      projectType: scanResult.scan.projectType,
-      scanTimestamp: scanResult.scan.timestamp,
-    };
-
-    const publishResult = await client.publishScan(submission);
-
-    if (publishResult.accepted) {
-      console.error(
-        chalk.green("Scan results contributed to community registry.")
-      );
-    } else {
-      console.error(
-        chalk.yellow(
-          `Registry did not accept submission: ${publishResult.message || "unknown reason"}`
-        )
-      );
-    }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(chalk.yellow(`Could not publish results: ${message}`));
   }
 }
 
