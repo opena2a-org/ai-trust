@@ -212,6 +212,11 @@ export function formatScanResult(result: ScanResult): string {
         lines.push(
           `  ${colorFn(`[${sev.toUpperCase()}]`)} ${item.name}: ${item.message}`
         );
+        if (item.attackClass) {
+          lines.push(
+            `  ${' '.repeat(sev.length + 3)}${chalk.dim('Attack Class:')} ${chalk.cyan(item.attackClass)}`
+          );
+        }
       }
     }
   } else {

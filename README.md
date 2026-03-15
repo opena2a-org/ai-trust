@@ -56,6 +56,21 @@ ai-trust check server-filesystem --rescan
 ai-trust check server-filesystem --no-scan
 ```
 
+#### Community contribution
+
+Scan results can be shared with the OpenA2A Registry as anonymized telemetry (check pass/fail and severity only -- no file paths, source code, or descriptions).
+
+On first scan, ai-trust asks whether you'd like to contribute. Your choice is saved in `~/.opena2a/config.json` and shared across all OpenA2A tools (opena2a-cli, hackmyagent).
+
+```bash
+# Contribute for this scan (non-interactive / CI)
+ai-trust check chalk --rescan --contribute
+
+# Configure globally via opena2a-cli
+opena2a config set contribute true    # opt in
+opena2a config set contribute false   # opt out
+```
+
 ### audit
 
 Parse dependency files and batch-query all dependencies. Supports any `.json` file (package.json format) or `.txt` file (requirements.txt format). Unknown extensions are auto-detected.
@@ -117,9 +132,9 @@ ai-trust check express --no-color
 
 | Code | Meaning |
 |------|---------|
-| 0 | All queried packages meet the minimum trust threshold |
-| 1 | Error (network failure, file not found, server error, package not found) |
-| 2 | One or more packages fall below the minimum trust threshold (`--min-trust`) |
+| 0 | All queried packages are safe / meet the trust threshold |
+| 1 | Operational error (network failure, file not found, server error) |
+| 2 | Policy signal: one or more packages have warning/blocked verdict or fall below `--min-trust` |
 
 ## Trust Levels
 

@@ -15,6 +15,14 @@ import {
 import { isHmaAvailable, scanPackage } from "../scanner/index.js";
 import type { ScanResult } from "../scanner/index.js";
 import { confirm } from "../utils/prompt.js";
+import {
+  isContributeEnabled,
+  shouldPromptContribute,
+  showContributePrompt,
+  incrementScanCount,
+  buildContributionPayload,
+  submitContribution,
+} from "../telemetry/index.js";
 
 interface AuditOptions {
   minTrust: string;
@@ -79,8 +87,8 @@ export function registerAuditCommand(program: Command): void {
           await scanMissingPackages(
             notFound,
             response.results,
-            client,
-            opts
+            opts,
+            globalOpts.registryUrl
           );
         } else if (
           notFound.length > 0 &&
@@ -102,8 +110,8 @@ export function registerAuditCommand(program: Command): void {
               await scanMissingPackages(
                 notFound,
                 response.results,
-                client,
-                opts
+                opts,
+                globalOpts.registryUrl
               );
             }
           }
@@ -122,14 +130,20 @@ export function registerAuditCommand(program: Command): void {
           process.exitCode = 2;
         }
       } catch (err: unknown) {
+        let message: string;
         if (
           err instanceof Error &&
           "code" in err &&
           (err as NodeJS.ErrnoException).code === "ENOENT"
         ) {
-          console.error(`Error: File not found: ${file}`);
+          message = `File not found: ${file}`;
         } else {
-          const message = err instanceof Error ? err.message : String(err);
+          message = err instanceof Error ? err.message : String(err);
+        }
+
+        if (globalOpts.json) {
+          console.log(formatJson({ file, error: message }));
+        } else {
           console.error(`Error: ${message}`);
         }
         process.exitCode = 1;
@@ -143,8 +157,8 @@ export function registerAuditCommand(program: Command): void {
 async function scanMissingPackages(
   notFound: TrustAnswer[],
   allResults: TrustAnswer[],
-  client: RegistryClient,
-  opts: AuditOptions
+  opts: AuditOptions,
+  registryUrl: string
 ): Promise<void> {
   const available = await isHmaAvailable();
   if (!available) {
@@ -158,6 +172,8 @@ async function scanMissingPackages(
   console.error(
     chalk.gray(`Scanning ${notFound.length} missing package(s)...`)
   );
+
+  const scannedResults: { name: string; scanResult: ScanResult }[] = [];
 
   for (const pkg of notFound) {
     try {
@@ -177,10 +193,7 @@ async function scanMissingPackages(
         };
       }
 
-      // Contribute if requested
-      if (opts.contribute) {
-        await contributeResult(pkg.name, scanResult, client);
-      }
+      scannedResults.push({ name: pkg.name, scanResult });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(
@@ -189,52 +202,80 @@ async function scanMissingPackages(
     }
   }
 
-  // Ask to contribute if interactive and not already auto-contributing
-  if (!opts.contribute && process.stdin.isTTY) {
-    const shouldContribute = await confirm(
-      "Contribute scan results to community registry?",
-      false
+  // Handle community contribution for all scanned packages
+  if (scannedResults.length > 0) {
+    await handleAuditContribution(
+      scannedResults,
+      opts,
+      registryUrl
     );
-    if (shouldContribute) {
-      // Results already contributed inline when --contribute is set,
-      // but here we'd need to re-submit. For simplicity, note this.
-      console.error(
-        chalk.gray(
-          "Use --contribute flag to auto-contribute results in future runs."
-        )
-      );
+  }
+}
+
+/**
+ * Handle community contribution after audit scanning.
+ * Follows the same opt-in flow as check: config -> prompt -> submit.
+ */
+async function handleAuditContribution(
+  scannedResults: { name: string; scanResult: ScanResult }[],
+  opts: AuditOptions,
+  registryUrl: string
+): Promise<void> {
+  // Track scan count for each scanned package
+  for (let i = 0; i < scannedResults.length; i++) {
+    incrementScanCount();
+  }
+
+  if (opts.contribute) {
+    for (const { name, scanResult } of scannedResults) {
+      await submitAnonymizedTelemetry(name, scanResult, registryUrl);
+    }
+    return;
+  }
+
+  const configEnabled = isContributeEnabled();
+
+  if (configEnabled === true) {
+    // Already opted in: auto-contribute anonymized telemetry
+    for (const { name, scanResult } of scannedResults) {
+      await submitAnonymizedTelemetry(name, scanResult, registryUrl);
+    }
+    return;
+  }
+
+  if (configEnabled === false) {
+    return;
+  }
+
+  // Not yet configured: check if we should prompt
+  if (shouldPromptContribute()) {
+    const enabled = await showContributePrompt();
+    if (enabled) {
+      for (const { name, scanResult } of scannedResults) {
+        await submitAnonymizedTelemetry(name, scanResult, registryUrl);
+      }
     }
   }
 }
 
-async function contributeResult(
+/**
+ * Submit anonymized telemetry to the registry (opt-in contribution).
+ */
+async function submitAnonymizedTelemetry(
   name: string,
   scanResult: ScanResult,
-  client: RegistryClient
+  registryUrl: string
 ): Promise<void> {
   try {
-    await client.publishScan({
-      name,
-      score: scanResult.scan.score,
-      maxScore: scanResult.scan.maxScore,
-      findings: scanResult.scan.findings
-        .filter((f) => !f.passed)
-        .map((f) => ({
-          checkId: f.checkId,
-          name: f.name,
-          severity: f.severity,
-          passed: f.passed,
-          message: f.message,
-          category: f.category,
-        })),
-      projectType: scanResult.scan.projectType,
-      scanTimestamp: scanResult.scan.timestamp,
-    });
-    console.error(chalk.green(`  Contributed: ${name}`));
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(
-      chalk.yellow(`  Could not publish ${name}: ${message}`)
-    );
+    const payload = buildContributionPayload(name, scanResult.scan.findings);
+    const result = await submitContribution(payload, registryUrl);
+
+    if (result.success) {
+      console.error(
+        chalk.green(`  Anonymized scan data shared: ${name}`)
+      );
+    }
+  } catch {
+    // Non-fatal
   }
 }

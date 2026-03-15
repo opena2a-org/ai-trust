@@ -36,6 +36,16 @@ vi.mock("../utils/prompt.js", () => ({
   confirm: vi.fn().mockResolvedValue(false),
 }));
 
+// Mock telemetry
+vi.mock("../telemetry/index.js", () => ({
+  isContributeEnabled: vi.fn().mockReturnValue(undefined),
+  shouldPromptContribute: vi.fn().mockReturnValue(false),
+  showContributePrompt: vi.fn().mockResolvedValue(false),
+  incrementScanCount: vi.fn(),
+  buildContributionPayload: vi.fn().mockReturnValue({}),
+  submitContribution: vi.fn().mockResolvedValue({ success: false }),
+}));
+
 import {
   RegistryClient,
   PackageNotFoundError,
@@ -47,6 +57,7 @@ import {
 } from "../output/formatter.js";
 import { isHmaAvailable, scanPackage } from "../scanner/index.js";
 import { confirm } from "../utils/prompt.js";
+import { submitContribution } from "../telemetry/index.js";
 
 function createProgram(): Command {
   const program = new Command();
@@ -161,7 +172,7 @@ describe("check command", () => {
     expect(formatJson).toHaveBeenCalled();
   });
 
-  it("sets exit code 1 for blocked verdict", async () => {
+  it("sets exit code 2 for blocked verdict (policy signal)", async () => {
     const mockCheckTrust = vi.fn().mockResolvedValue({
       name: "bad-pkg",
       found: true,
@@ -180,10 +191,10 @@ describe("check command", () => {
     const program = createProgram();
     await program.parseAsync(["node", "test", "check", "bad-pkg"]);
 
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(2);
   });
 
-  it("sets exit code 1 for warning verdict", async () => {
+  it("sets exit code 2 for warning verdict (policy signal)", async () => {
     const mockCheckTrust = vi.fn().mockResolvedValue({
       name: "risky-pkg",
       found: true,
@@ -202,7 +213,7 @@ describe("check command", () => {
     const program = createProgram();
     await program.parseAsync(["node", "test", "check", "risky-pkg"]);
 
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(2);
   });
 
   it("does not set exit code for safe verdict", async () => {
@@ -353,10 +364,7 @@ describe("check command", () => {
       expect(formatScanResult).toHaveBeenCalled();
     });
 
-    it("auto-contributes with --scan-if-missing --contribute", async () => {
-      const mockPublish = vi
-        .fn()
-        .mockResolvedValue({ accepted: true });
+    it("auto-contributes telemetry with --scan-if-missing --contribute", async () => {
       const mockCheckTrust = vi
         .fn()
         .mockRejectedValue(
@@ -367,7 +375,7 @@ describe("check command", () => {
           ({
             checkTrust: mockCheckTrust,
             batchQuery: vi.fn(),
-            publishScan: mockPublish,
+            publishScan: vi.fn(),
           }) as any
       );
       vi.mocked(isHmaAvailable).mockResolvedValue(true);
@@ -395,10 +403,10 @@ describe("check command", () => {
         "--contribute",
       ]);
 
-      expect(mockPublish).toHaveBeenCalled();
+      expect(submitContribution).toHaveBeenCalled();
     });
 
-    it("sets exit code 1 when scan result is warning", async () => {
+    it("sets exit code 2 when scan result is warning (policy signal)", async () => {
       const mockCheckTrust = vi
         .fn()
         .mockRejectedValue(
@@ -446,7 +454,7 @@ describe("check command", () => {
         "--scan-if-missing",
       ]);
 
-      expect(process.exitCode).toBe(1);
+      expect(process.exitCode).toBe(2);
     });
 
     it("handles scan failure gracefully", async () => {
@@ -483,10 +491,11 @@ describe("check command", () => {
       );
     });
 
-    it("handles publish failure gracefully (non-fatal)", async () => {
-      const mockPublish = vi
-        .fn()
-        .mockRejectedValue(new Error("registry down"));
+    it("handles telemetry failure gracefully (non-fatal)", async () => {
+      vi.mocked(submitContribution).mockResolvedValue({
+        success: false,
+        error: "registry down",
+      });
       const mockCheckTrust = vi
         .fn()
         .mockRejectedValue(
@@ -497,7 +506,7 @@ describe("check command", () => {
           ({
             checkTrust: mockCheckTrust,
             batchQuery: vi.fn(),
-            publishScan: mockPublish,
+            publishScan: vi.fn(),
           }) as any
       );
       vi.mocked(isHmaAvailable).mockResolvedValue(true);
@@ -525,12 +534,9 @@ describe("check command", () => {
         "--contribute",
       ]);
 
-      // Scan results still shown, exit code not 1 (safe verdict)
+      // Scan results still shown, exit code not set (safe verdict)
       expect(formatScanResult).toHaveBeenCalled();
-      // Publish error is non-fatal
-      expect(consoleErrSpy).toHaveBeenCalledWith(
-        expect.stringContaining("registry down")
-      );
+      expect(process.exitCode).toBeUndefined();
     });
   });
 });
