@@ -91,7 +91,13 @@ export function registerCheckCommand(program: Command): void {
           await handleNotFound(name, client, globalOpts, opts);
         } else {
           const message = err instanceof Error ? err.message : String(err);
-          console.error(`Error: ${message}`);
+          if (globalOpts.json) {
+            console.log(
+              formatJson({ name, found: false, error: message })
+            );
+          } else {
+            console.error(`Error: ${message}`);
+          }
           process.exitCode = 1;
         }
       }
@@ -118,9 +124,12 @@ async function handleNotFound(
 
   // Non-TTY: just report not found (scan must be opt-in via --scan-if-missing)
   if (!process.stdin.isTTY) {
-    console.error(
-      `Package "${name}" not found in the OpenA2A Registry. Use --scan-if-missing to scan locally.`
-    );
+    const msg = `Package "${name}" not found in the OpenA2A Registry. Use --scan-if-missing to scan locally.`;
+    if (globalOpts.json) {
+      console.log(formatJson({ name, found: false, error: msg }));
+    } else {
+      console.error(msg);
+    }
     process.exitCode = 1;
     return;
   }
@@ -157,7 +166,11 @@ async function handleScanFlow(
     scanResult = await scanPackage(name);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`Error: ${message}`);
+    if (globalOpts.json) {
+      console.log(formatJson({ name, found: false, error: message }));
+    } else {
+      console.error(`Error: ${message}`);
+    }
     process.exitCode = 1;
     return;
   }
