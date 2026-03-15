@@ -41,6 +41,21 @@ Specify the package type explicitly:
 ai-trust check my-agent --type a2a_agent
 ```
 
+#### Scan on demand
+
+When a package isn't in the registry, ai-trust can download and scan it locally using [HackMyAgent](https://github.com/opena2a-org/hackmyagent). In interactive mode, you'll be prompted. In CI, use flags:
+
+```bash
+# Auto-scan unknown packages, contribute results to the community registry
+ai-trust check mcp-server-xyz --scan-if-missing --contribute
+
+# Force re-scan even if registry data exists
+ai-trust check server-filesystem --rescan
+
+# Disable scanning entirely (registry lookup only)
+ai-trust check server-filesystem --no-scan
+```
+
 ### audit
 
 Parse `package.json` or `requirements.txt` and batch-query all dependencies.
@@ -54,6 +69,12 @@ Set a minimum trust level threshold (default: 3):
 
 ```bash
 ai-trust audit package.json --min-trust 2
+```
+
+Scan dependencies not found in the registry:
+
+```bash
+ai-trust audit package.json --scan-missing --contribute
 ```
 
 ### batch
@@ -112,6 +133,7 @@ ai-trust check express --no-color
 ## Requirements
 
 - Node.js 18 or later
+- [HackMyAgent](https://github.com/opena2a-org/hackmyagent) (optional, required for local scanning)
 
 ## Development
 
