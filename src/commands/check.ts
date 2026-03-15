@@ -92,7 +92,7 @@ export function registerCheckCommand(program: Command): void {
           result.found &&
           (result.verdict === "blocked" || result.verdict === "warning")
         ) {
-          process.exitCode = 1;
+          process.exitCode = 2;
         }
       } catch (err) {
         if (err instanceof PackageNotFoundError && opts.scan !== false) {
@@ -190,9 +190,9 @@ async function handleScanFlow(
     console.log(formatScanResult(scanResult));
   }
 
-  // Set exit code based on verdict
+  // Set exit code based on verdict (2 = policy signal, matching audit/batch)
   if (scanResult.verdict === "blocked" || scanResult.verdict === "warning") {
-    process.exitCode = 1;
+    process.exitCode = 2;
   }
 
   // Community contribution flow

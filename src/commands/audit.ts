@@ -132,14 +132,20 @@ export function registerAuditCommand(program: Command): void {
           process.exitCode = 2;
         }
       } catch (err: unknown) {
+        let message: string;
         if (
           err instanceof Error &&
           "code" in err &&
           (err as NodeJS.ErrnoException).code === "ENOENT"
         ) {
-          console.error(`Error: File not found: ${file}`);
+          message = `File not found: ${file}`;
         } else {
-          const message = err instanceof Error ? err.message : String(err);
+          message = err instanceof Error ? err.message : String(err);
+        }
+
+        if (globalOpts.json) {
+          console.log(formatJson({ file, error: message }));
+        } else {
           console.error(`Error: ${message}`);
         }
         process.exitCode = 1;

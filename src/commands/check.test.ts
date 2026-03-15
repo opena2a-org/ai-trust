@@ -36,6 +36,16 @@ vi.mock("../utils/prompt.js", () => ({
   confirm: vi.fn().mockResolvedValue(false),
 }));
 
+// Mock telemetry
+vi.mock("../telemetry/index.js", () => ({
+  isContributeEnabled: vi.fn().mockReturnValue(undefined),
+  shouldPromptContribute: vi.fn().mockReturnValue(false),
+  showContributePrompt: vi.fn().mockResolvedValue(false),
+  incrementScanCount: vi.fn(),
+  buildContributionPayload: vi.fn().mockReturnValue({}),
+  submitContribution: vi.fn().mockResolvedValue({ success: false }),
+}));
+
 import {
   RegistryClient,
   PackageNotFoundError,
@@ -161,7 +171,7 @@ describe("check command", () => {
     expect(formatJson).toHaveBeenCalled();
   });
 
-  it("sets exit code 1 for blocked verdict", async () => {
+  it("sets exit code 2 for blocked verdict (policy signal)", async () => {
     const mockCheckTrust = vi.fn().mockResolvedValue({
       name: "bad-pkg",
       found: true,
@@ -180,10 +190,10 @@ describe("check command", () => {
     const program = createProgram();
     await program.parseAsync(["node", "test", "check", "bad-pkg"]);
 
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(2);
   });
 
-  it("sets exit code 1 for warning verdict", async () => {
+  it("sets exit code 2 for warning verdict (policy signal)", async () => {
     const mockCheckTrust = vi.fn().mockResolvedValue({
       name: "risky-pkg",
       found: true,
@@ -202,7 +212,7 @@ describe("check command", () => {
     const program = createProgram();
     await program.parseAsync(["node", "test", "check", "risky-pkg"]);
 
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(2);
   });
 
   it("does not set exit code for safe verdict", async () => {
@@ -398,7 +408,7 @@ describe("check command", () => {
       expect(mockPublish).toHaveBeenCalled();
     });
 
-    it("sets exit code 1 when scan result is warning", async () => {
+    it("sets exit code 2 when scan result is warning (policy signal)", async () => {
       const mockCheckTrust = vi
         .fn()
         .mockRejectedValue(
@@ -446,7 +456,7 @@ describe("check command", () => {
         "--scan-if-missing",
       ]);
 
-      expect(process.exitCode).toBe(1);
+      expect(process.exitCode).toBe(2);
     });
 
     it("handles scan failure gracefully", async () => {
