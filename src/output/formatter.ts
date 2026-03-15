@@ -5,6 +5,7 @@
 
 import chalk from "chalk";
 import type { TrustAnswer, BatchResponse } from "../api/client.js";
+import type { ScanResult } from "../scanner/index.js";
 
 function verdictColor(verdict: string): (text: string) => string {
   switch (verdict) {
@@ -171,6 +172,55 @@ export function formatBatchResults(
         `  All ${response.meta.found} packages meet minimum trust level ${minTrust}.`
       )
     );
+  }
+
+  lines.push("");
+  return lines.join("\n");
+}
+
+export function formatScanResult(result: ScanResult): string {
+  const colorVerdict = verdictColor(result.verdict);
+  const colorTrust = trustLevelColor(result.trustLevel);
+
+  const lines: string[] = [
+    "",
+    chalk.bold(`  ${result.packageName}`) +
+      chalk.gray("  (local scan)"),
+    `  Verdict:        ${colorVerdict(result.verdict.toUpperCase())}`,
+    `  Trust Level:    ${colorTrust(trustLevelLabel(result.trustLevel))} (${result.trustLevel}/4)`,
+    `  Trust Score:    ${result.trustScore.toFixed(2)}`,
+    `  HMA Score:      ${result.scan.score}/${result.scan.maxScore}`,
+  ];
+
+  const failed = result.scan.findings.filter((f) => !f.passed);
+  if (failed.length > 0) {
+    lines.push("");
+    lines.push(chalk.bold("  Findings"));
+
+    const bySeverity = {
+      critical: failed.filter((f) => f.severity === "critical"),
+      high: failed.filter((f) => f.severity === "high"),
+      medium: failed.filter((f) => f.severity === "medium"),
+      low: failed.filter((f) => f.severity === "low"),
+    };
+
+    for (const [sev, items] of Object.entries(bySeverity)) {
+      if (items.length === 0) continue;
+      const colorFn =
+        sev === "critical"
+          ? chalk.red
+          : sev === "high"
+            ? chalk.yellow
+            : chalk.gray;
+      for (const item of items) {
+        lines.push(
+          `  ${colorFn(`[${sev.toUpperCase()}]`)} ${item.name}: ${item.message}`
+        );
+      }
+    }
+  } else {
+    lines.push("");
+    lines.push(chalk.green("  No security findings."));
   }
 
   lines.push("");

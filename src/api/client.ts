@@ -62,6 +62,35 @@ export interface PackageQuery {
   type?: string;
 }
 
+export interface ScanSubmission {
+  name: string;
+  type?: string;
+  score: number;
+  maxScore: number;
+  findings: ScanFinding[];
+  projectType?: string;
+  scanTimestamp: string;
+  /** Ed25519 signature (hex) if user has an opena2a identity */
+  signature?: string;
+  /** Public key (hex) of the signer */
+  publicKey?: string;
+}
+
+export interface ScanFinding {
+  checkId: string;
+  name: string;
+  severity: string;
+  passed: boolean;
+  message: string;
+  category?: string;
+}
+
+export interface PublishResponse {
+  accepted: boolean;
+  packageId?: string;
+  message?: string;
+}
+
 export class PackageNotFoundError extends Error {
   public readonly packageName: string;
 
@@ -150,5 +179,32 @@ export class RegistryClient {
         notFound: raw.total - found,
       },
     };
+  }
+
+  /**
+   * Publish scan results to the community registry.
+   */
+  async publishScan(
+    submission: ScanSubmission
+  ): Promise<PublishResponse> {
+    const url = `${this.baseUrl}/api/v1/trust/publish`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": USER_AGENT,
+      },
+      body: JSON.stringify(submission),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(
+        `Registry publish failed (${response.status}): ${body}`
+      );
+    }
+
+    return (await response.json()) as PublishResponse;
   }
 }
