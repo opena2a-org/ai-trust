@@ -11,6 +11,7 @@ import {
   shouldPromptContribute,
   incrementScanCount,
   saveContributeChoice,
+  _resetBackend,
 } from "./opt-in.js";
 
 function createTempDir(): string {
@@ -43,11 +44,13 @@ describe("isContributeEnabled", () => {
   beforeEach(() => {
     tempHome = createTempDir();
     process.env.OPENA2A_HOME = tempHome;
+    _resetBackend(true);
   });
 
   afterEach(() => {
     cleanupDir(tempHome);
     delete process.env.OPENA2A_HOME;
+    _resetBackend();
   });
 
   it("returns undefined when no config exists", () => {
@@ -76,11 +79,13 @@ describe("incrementScanCount", () => {
   beforeEach(() => {
     tempHome = createTempDir();
     process.env.OPENA2A_HOME = tempHome;
+    _resetBackend(true);
   });
 
   afterEach(() => {
     cleanupDir(tempHome);
     delete process.env.OPENA2A_HOME;
+    _resetBackend();
   });
 
   it("creates config with scanCount=1 on first call", () => {
@@ -116,11 +121,13 @@ describe("saveContributeChoice", () => {
   beforeEach(() => {
     tempHome = createTempDir();
     process.env.OPENA2A_HOME = tempHome;
+    _resetBackend(true);
   });
 
   afterEach(() => {
     cleanupDir(tempHome);
     delete process.env.OPENA2A_HOME;
+    _resetBackend();
   });
 
   it("saves enabled=true", () => {
@@ -172,11 +179,13 @@ describe("shouldPromptContribute", () => {
   beforeEach(() => {
     tempHome = createTempDir();
     process.env.OPENA2A_HOME = tempHome;
+    _resetBackend(true);
   });
 
   afterEach(() => {
     cleanupDir(tempHome);
     delete process.env.OPENA2A_HOME;
+    _resetBackend();
     Object.defineProperty(process.stdin, "isTTY", {
       value: origStdinIsTTY,
       writable: true,
