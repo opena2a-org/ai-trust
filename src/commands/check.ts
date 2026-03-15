@@ -17,6 +17,14 @@ import { resolveAndLog } from "../utils/resolve.js";
 import { isHmaAvailable, scanPackage } from "../scanner/index.js";
 import type { ScanResult } from "../scanner/index.js";
 import { confirm } from "../utils/prompt.js";
+import {
+  isContributeEnabled,
+  shouldPromptContribute,
+  showContributePrompt,
+  incrementScanCount,
+  buildContributionPayload,
+  submitContribution,
+} from "../telemetry/index.js";
 
 interface CheckOptions {
   type?: string;
@@ -187,31 +195,67 @@ async function handleScanFlow(
     process.exitCode = 1;
   }
 
-  // Contribute results to community registry
-  await handleContribute(name, scanResult, client, opts);
+  // Community contribution flow
+  await handleContribute(name, scanResult, client, globalOpts, opts);
 }
 
 async function handleContribute(
   name: string,
   scanResult: ScanResult,
   client: RegistryClient,
+  globalOpts: { registryUrl: string; json: boolean },
   opts: CheckOptions
 ): Promise<void> {
-  let shouldContribute = false;
+  // Track scan count regardless of contribution setting
+  incrementScanCount();
+
+  // Determine contribution mode:
+  // 1. --contribute flag: always contribute (full publish + telemetry)
+  // 2. Config enabled: auto-contribute anonymized telemetry
+  // 3. Not configured: maybe prompt
+  // 4. Config disabled: skip
 
   if (opts.contribute) {
-    // Non-interactive: auto-contribute
-    shouldContribute = true;
-  } else if (process.stdin.isTTY) {
-    // Interactive: ask
-    shouldContribute = await confirm(
-      "Contribute results to community registry?",
-      false
-    );
+    // Explicit flag: publish full results + anonymized telemetry
+    await publishFullResults(name, scanResult, client);
+    await submitAnonymizedTelemetry(name, scanResult, globalOpts.registryUrl);
+    return;
   }
 
-  if (!shouldContribute) return;
+  const configEnabled = isContributeEnabled();
 
+  if (configEnabled === true) {
+    // Already opted in: auto-contribute anonymized telemetry
+    await submitAnonymizedTelemetry(name, scanResult, globalOpts.registryUrl);
+    return;
+  }
+
+  if (configEnabled === false) {
+    // Explicitly opted out: skip
+    return;
+  }
+
+  // Not yet configured: check if we should prompt
+  if (shouldPromptContribute()) {
+    const enabled = await showContributePrompt();
+    if (enabled) {
+      await submitAnonymizedTelemetry(
+        name,
+        scanResult,
+        globalOpts.registryUrl
+      );
+    }
+  }
+}
+
+/**
+ * Publish full scan results to the registry (explicit --contribute flag).
+ */
+async function publishFullResults(
+  name: string,
+  scanResult: ScanResult,
+  client: RegistryClient
+): Promise<void> {
   try {
     const submission = {
       name,
@@ -248,7 +292,30 @@ async function handleContribute(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(chalk.yellow(`Could not publish results: ${message}`));
-    // Non-fatal: scan results are still shown locally
+  }
+}
+
+/**
+ * Submit anonymized telemetry to the registry (opt-in contribution).
+ * Only sends checkId, pass/fail, and severity. No file paths, descriptions, or code.
+ */
+async function submitAnonymizedTelemetry(
+  name: string,
+  scanResult: ScanResult,
+  registryUrl: string
+): Promise<void> {
+  try {
+    const payload = buildContributionPayload(name, scanResult.scan.findings);
+    const result = await submitContribution(payload, registryUrl);
+
+    if (result.success) {
+      console.error(
+        chalk.green("Anonymized scan data shared with the community.")
+      );
+    }
+    // Silent on failure -- non-blocking
+  } catch {
+    // Non-fatal: telemetry submission should never crash the scan
   }
 }
 
