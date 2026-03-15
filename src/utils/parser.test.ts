@@ -146,13 +146,45 @@ describe("parseDependencyFile", () => {
     });
   });
 
-  describe("unsupported file types", () => {
-    it("throws for unsupported file names", async () => {
-      mockReadFile.mockResolvedValue("something");
+  describe("flexible file detection", () => {
+    it("parses .json files with non-standard names as package.json", async () => {
+      mockReadFile.mockResolvedValue(
+        JSON.stringify({
+          dependencies: { express: "^4.0.0" },
+        })
+      );
 
-      await expect(
-        parseDependencyFile("/fake/Gemfile")
-      ).rejects.toThrow("Unsupported dependency file: Gemfile");
+      const result = await parseDependencyFile("/fake/my-deps.json");
+
+      expect(result).toEqual([{ name: "express" }]);
+    });
+
+    it("parses .txt files as requirements.txt format", async () => {
+      mockReadFile.mockResolvedValue("flask==2.3.0\nrequests\n");
+
+      const result = await parseDependencyFile("/fake/deps.txt");
+
+      expect(result).toEqual([{ name: "flask" }, { name: "requests" }]);
+    });
+
+    it("auto-detects JSON content for unknown extensions", async () => {
+      mockReadFile.mockResolvedValue(
+        JSON.stringify({
+          dependencies: { lodash: "^4.0.0" },
+        })
+      );
+
+      const result = await parseDependencyFile("/fake/Depfile");
+
+      expect(result).toEqual([{ name: "lodash" }]);
+    });
+
+    it("falls back to requirements.txt parsing for non-JSON unknown extensions", async () => {
+      mockReadFile.mockResolvedValue("flask\nrequests\n");
+
+      const result = await parseDependencyFile("/fake/Gemfile");
+
+      expect(result).toEqual([{ name: "flask" }, { name: "requests" }]);
     });
   });
 });

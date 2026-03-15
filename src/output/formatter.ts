@@ -46,7 +46,6 @@ function trustLevelColor(level: number): (text: string) => string {
 export function formatCheckResult(answer: TrustAnswer): string {
   if (!answer.found) {
     return [
-      "",
       chalk.bold(`  ${answer.name}`),
       chalk.gray(`  Type: ${answer.packageType || "unknown"}`),
       chalk.gray("  Status: Not found in registry"),
@@ -58,7 +57,6 @@ export function formatCheckResult(answer: TrustAnswer): string {
   const colorTrust = trustLevelColor(answer.trustLevel);
 
   const lines: string[] = [
-    "",
     chalk.bold(`  ${answer.name}`),
     `  Type:           ${answer.packageType || "unknown"}`,
     `  Verdict:        ${colorVerdict(answer.verdict.toUpperCase())}`,
@@ -86,7 +84,6 @@ export function formatBatchResults(
 ): string {
   const lines: string[] = [];
 
-  lines.push("");
   lines.push(
     chalk.bold(
       `  Trust Audit: ${response.meta.total} packages queried, ${response.meta.found} found, ${response.meta.notFound} not found`
@@ -183,7 +180,6 @@ export function formatScanResult(result: ScanResult): string {
   const colorTrust = trustLevelColor(result.trustLevel);
 
   const lines: string[] = [
-    "",
     chalk.bold(`  ${result.packageName}`) +
       chalk.gray("  (local scan)"),
     `  Verdict:        ${colorVerdict(result.verdict.toUpperCase())}`,

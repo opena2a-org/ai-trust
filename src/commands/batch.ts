@@ -55,6 +55,23 @@ export function registerBatchCommand(program: Command): void {
         try {
           const response = await client.batchQuery(packages);
 
+          // When --type is set, filter out packages that don't match
+          if (opts.type) {
+            for (const r of response.results) {
+              if (
+                r.found &&
+                r.packageType &&
+                r.packageType !== opts.type
+              ) {
+                r.found = false;
+                r.verdict = "unknown";
+                r.trustLevel = 0;
+                response.meta.found--;
+                response.meta.notFound++;
+              }
+            }
+          }
+
           if (globalOpts.json) {
             console.log(formatJson(response));
           } else {

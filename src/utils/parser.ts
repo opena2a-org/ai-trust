@@ -12,17 +12,22 @@ export async function parseDependencyFile(
   const fileName = basename(filePath);
   const content = await readFile(filePath, "utf-8");
 
-  if (fileName === "package.json") {
+  // Detect format by filename or extension
+  if (fileName.endsWith(".json")) {
     return parsePackageJson(content);
   }
 
-  if (fileName === "requirements.txt") {
+  if (fileName.endsWith(".txt") || fileName === "requirements") {
     return parseRequirementsTxt(content);
   }
 
-  throw new Error(
-    `Unsupported dependency file: ${fileName}. Supported: package.json, requirements.txt`
-  );
+  // Try JSON first, fall back to requirements.txt format
+  try {
+    JSON.parse(content);
+    return parsePackageJson(content);
+  } catch {
+    return parseRequirementsTxt(content);
+  }
 }
 
 function parsePackageJson(content: string): PackageQuery[] {
