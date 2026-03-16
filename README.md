@@ -25,6 +25,12 @@ Or run directly with npx:
 npx ai-trust check @modelcontextprotocol/server-filesystem
 ```
 
+For a full security dashboard covering trust, credentials, shadow AI, and more:
+
+```bash
+npx opena2a-cli review
+```
+
 ## Quick Start
 
 ```bash
