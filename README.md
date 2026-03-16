@@ -186,6 +186,16 @@ cd ai-trust && npm install && npm run build
 node dist/index.js check express    # run locally without installing
 ```
 
+## Use Cases
+
+Step-by-step guides for common workflows:
+
+- [Check if a package is safe before installing](docs/use-cases/check-before-install.md)
+- [Verify an MCP server's trust score](docs/use-cases/check-mcp-server.md)
+- [Contribute trust data to the community](docs/use-cases/contribute-scans.md)
+
+See [docs/USE-CASES.md](docs/USE-CASES.md) for the full index.
+
 ## Links
 
 - [OpenA2A](https://opena2a.org)
