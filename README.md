@@ -25,6 +25,32 @@ Or run directly with npx:
 npx ai-trust check @modelcontextprotocol/server-filesystem
 ```
 
+## Quick Start
+
+```bash
+ai-trust check @modelcontextprotocol/server-filesystem
+```
+
+Expected output:
+
+```
+@modelcontextprotocol/server-filesystem
+  Trust Level: 4 (Verified)
+  Verdict:     safe
+  Scanned:     2026-03-01
+  Findings:    0 critical, 0 high, 2 medium
+```
+
+## Built-in Help
+
+```bash
+ai-trust --help          # All commands and flags
+ai-trust --version       # Current version
+ai-trust [command] -h    # Help for a specific command
+```
+
+---
+
 ## Commands
 
 ### check
@@ -33,17 +59,30 @@ Look up the trust verdict for a single package.
 
 ```bash
 ai-trust check @modelcontextprotocol/server-filesystem
+ai-trust check my-agent --type a2a_agent
+ai-trust check express --json              # JSON output for scripting
 ```
 
-Specify the package type explicitly:
+### MCP Server Trust
+
+MCP servers are the most common trust query. Use shorthand to skip the full package name:
 
 ```bash
-ai-trust check my-agent --type a2a_agent
+# These are equivalent:
+ai-trust check server-filesystem
+ai-trust check @modelcontextprotocol/server-filesystem
+
+# Other MCP servers:
+ai-trust check mcp-server-fetch
+ai-trust check server-github
+ai-trust check server-postgres
 ```
+
+Shorthand rules: `server-*` and `mcp-server-*` automatically resolve to `@modelcontextprotocol/server-*`.
 
 #### Scan on demand
 
-When a package isn't in the registry, ai-trust can download and scan it locally using [HackMyAgent](https://github.com/opena2a-org/hackmyagent). In interactive mode, you'll be prompted. In CI, use flags:
+When a package is not in the registry, ai-trust can download and scan it locally using [HackMyAgent](https://github.com/opena2a-org/hackmyagent). In interactive mode, you will be prompted. In CI, use flags:
 
 ```bash
 # Auto-scan unknown packages, contribute results to the community registry
@@ -56,11 +95,44 @@ ai-trust check server-filesystem --rescan
 ai-trust check server-filesystem --no-scan
 ```
 
-#### Community contribution
+### audit
 
-Scan results can be shared with the OpenA2A Registry as anonymized telemetry (check pass/fail and severity only -- no file paths, source code, or descriptions).
+Parse dependency files and batch-query all dependencies. Supports any `.json` file (package.json format) or `.txt` file (requirements.txt format).
 
-On first scan, ai-trust asks whether you'd like to contribute. Your choice is saved in `~/.opena2a/config.json` and shared across all OpenA2A tools (opena2a-cli, hackmyagent).
+```bash
+ai-trust audit package.json
+ai-trust audit requirements.txt
+ai-trust audit package.json --min-trust 2         # set minimum trust threshold (default: 3)
+ai-trust audit package.json --scan-missing --contribute  # scan deps not in registry
+```
+
+### batch
+
+Look up trust verdicts for multiple packages at once.
+
+```bash
+ai-trust batch express lodash chalk commander
+ai-trust batch my-server-a my-server-b --type mcp_server
+```
+
+---
+
+## Output Options
+
+```bash
+ai-trust check express --json          # JSON output for scripting
+ai-trust audit package.json --json     # JSON audit output
+ai-trust check express --no-color      # disable colored output
+ai-trust check express --registry-url http://localhost:8080  # custom registry
+```
+
+---
+
+## Community Contribution
+
+Every scan you run can improve trust data for the entire community. Scan results are shared as anonymized telemetry (check pass/fail and severity only -- no file paths, source code, or descriptions).
+
+On first scan, ai-trust asks whether you want to contribute. Your choice is saved in `~/.opena2a/config.json` and shared across all OpenA2A tools (opena2a-cli, hackmyagent).
 
 ```bash
 # Contribute for this scan (non-interactive / CI)
@@ -71,70 +143,9 @@ opena2a config set contribute true    # opt in
 opena2a config set contribute false   # opt out
 ```
 
-### audit
+The more scans contributed, the faster packages move from "Listed" to "Scanned" trust level, reducing risk for everyone.
 
-Parse dependency files and batch-query all dependencies. Supports any `.json` file (package.json format) or `.txt` file (requirements.txt format). Unknown extensions are auto-detected.
-
-```bash
-ai-trust audit package.json
-ai-trust audit requirements.txt
-ai-trust audit deps/prod-deps.json
-```
-
-Set a minimum trust level threshold (default: 3):
-
-```bash
-ai-trust audit package.json --min-trust 2
-```
-
-Scan dependencies not found in the registry:
-
-```bash
-ai-trust audit package.json --scan-missing --contribute
-```
-
-### batch
-
-Look up trust verdicts for multiple packages at once.
-
-```bash
-ai-trust batch express lodash chalk commander
-```
-
-Filter by package type (packages that don't match are excluded):
-
-```bash
-ai-trust batch my-server-a my-server-b --type mcp_server
-```
-
-## Output Options
-
-Get raw JSON for scripting:
-
-```bash
-ai-trust check express --json
-ai-trust audit package.json --json
-```
-
-Use a custom registry URL:
-
-```bash
-ai-trust check express --registry-url http://localhost:8080
-```
-
-Disable colored output:
-
-```bash
-ai-trust check express --no-color
-```
-
-## Exit Codes
-
-| Code | Meaning |
-|------|---------|
-| 0 | All queried packages are safe / meet the trust threshold |
-| 1 | Operational error (network failure, file not found, server error) |
-| 2 | Policy signal: one or more packages have warning/blocked verdict or fall below `--min-trust` |
+---
 
 ## Trust Levels
 
@@ -146,6 +157,16 @@ ai-trust check express --no-color
 | 3 | Scanned | Package has been scanned by HackMyAgent |
 | 4 | Verified | Package is verified by the publisher |
 
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | All queried packages are safe / meet the trust threshold |
+| 1 | Operational error (network failure, file not found, server error) |
+| 2 | Policy signal: one or more packages have warning/blocked verdict or fall below `--min-trust` |
+
+---
+
 ## Requirements
 
 - Node.js 18 or later
@@ -155,15 +176,8 @@ ai-trust check express --no-color
 
 ```bash
 git clone https://github.com/opena2a-org/ai-trust.git
-cd ai-trust
-npm install
-npm run build
-```
-
-Run locally without installing globally:
-
-```bash
-node dist/index.js check express
+cd ai-trust && npm install && npm run build
+node dist/index.js check express    # run locally without installing
 ```
 
 ## Links
