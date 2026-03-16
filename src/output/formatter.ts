@@ -61,7 +61,7 @@ export function formatCheckResult(answer: TrustAnswer): string {
     `  Type:           ${answer.packageType || "unknown"}`,
     `  Verdict:        ${colorVerdict(answer.verdict.toUpperCase())}`,
     `  Trust Level:    ${colorTrust(trustLevelLabel(answer.trustLevel))} (${answer.trustLevel}/4)`,
-    `  Trust Score:    ${answer.trustScore.toFixed(2)}`,
+    `  Trust Score:    ${Math.round(answer.trustScore * 100)}/100`,
     `  Scan Status:    ${answer.scanStatus || "unknown"}`,
   ];
 
@@ -124,7 +124,7 @@ export function formatBatchResults(
         (result.packageType || "-").padEnd(typeWidth) +
         colorVerdict(result.verdict.toUpperCase().padEnd(verdictWidth)) +
         colorTrust(trustLevelLabel(result.trustLevel).padEnd(levelWidth)) +
-        (result.found ? result.trustScore.toFixed(2) : "-").toString().padEnd(scoreWidth) +
+        (result.found ? `${Math.round(result.trustScore * 100)}/100` : "-").padEnd(scoreWidth) +
         (result.scanStatus || "-").padEnd(scanWidth)
     );
   }
@@ -184,7 +184,7 @@ export function formatScanResult(result: ScanResult): string {
       chalk.gray("  (local scan)"),
     `  Verdict:        ${colorVerdict(result.verdict.toUpperCase())}`,
     `  Trust Level:    ${colorTrust(trustLevelLabel(result.trustLevel))} (${result.trustLevel}/4)`,
-    `  Trust Score:    ${result.trustScore.toFixed(2)}`,
+    `  Trust Score:    ${Math.round(result.trustScore * 100)}/100`,
     `  HMA Score:      ${result.scan.score}/${result.scan.maxScore}`,
   ];
 
