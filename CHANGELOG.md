@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2 (2026-03-16)
+
+### Fixed
+- Trust score now displays as `47/100` instead of raw decimal `0.47` for consistency with opena2a CLI
+
 ## 0.2.1 (2026-03-15)
 
 ### Added

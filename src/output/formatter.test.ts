@@ -58,7 +58,7 @@ describe("formatCheckResult", () => {
     expect(output).toContain("my-mcp-server");
     expect(output).toContain("SAFE");
     expect(output).toContain("Verified");
-    expect(output).toContain("0.95");
+    expect(output).toContain("95/100");
     expect(output).toContain("mcp_server");
     expect(output).toContain("complete");
   });
