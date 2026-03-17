@@ -43,6 +43,9 @@ function trustLevelColor(level: number): (text: string) => string {
   return chalk.red;
 }
 
+const TRUST_LEVEL_LEGEND =
+  "  Trust levels: Blocked (0) < Warning (1) < Listed (2) < Scanned (3) < Verified (4)";
+
 export function formatCheckResult(answer: TrustAnswer): string {
   if (!answer.found) {
     return [
@@ -72,6 +75,32 @@ export function formatCheckResult(answer: TrustAnswer): string {
     lines.push(`  Total:          ${deps.totalDeps}`);
     lines.push(`  Vulnerable:     ${deps.vulnerableDeps > 0 ? chalk.red(String(deps.vulnerableDeps)) : chalk.green("0")}`);
     lines.push(`  Min Trust:      ${deps.minTrustLevel}/4`);
+  }
+
+  // Trust level legend (only when not already at the highest level)
+  if (answer.trustLevel < 4) {
+    lines.push(chalk.gray(TRUST_LEVEL_LEGEND));
+    lines.push("");
+  }
+
+  // Contextual next steps
+  const nextSteps: string[] = [];
+  if (answer.verdict === "blocked" || answer.verdict === "warning") {
+    nextSteps.push(
+      `  Run a local security scan: ai-trust check ${answer.name} --scan-if-missing`
+    );
+  } else if (answer.trustLevel <= 2) {
+    nextSteps.push(
+      `  Trust data is limited. Run a local scan to improve: ai-trust check ${answer.name} --scan-if-missing`
+    );
+  }
+  nextSteps.push(
+    "  For a full project audit: ai-trust audit package.json"
+  );
+
+  lines.push(chalk.bold("  Next steps"));
+  for (const step of nextSteps) {
+    lines.push(chalk.gray(step));
   }
 
   lines.push("");
@@ -171,6 +200,29 @@ export function formatBatchResults(
     );
   }
 
+  // Trust level legend (show if any package is below Verified)
+  const hasNonVerified = response.results.some(
+    (r) => r.found && r.trustLevel < 4
+  );
+  if (hasNonVerified) {
+    lines.push("");
+    lines.push(chalk.gray(TRUST_LEVEL_LEGEND));
+  }
+
+  // Contextual next steps
+  lines.push("");
+  lines.push(chalk.bold("  Next steps"));
+  if (belowThreshold.length > 0) {
+    lines.push(
+      chalk.gray(
+        `  Run ai-trust check <name> for details on flagged packages`
+      )
+    );
+  }
+  lines.push(
+    chalk.gray("  For full security scanning: npx hackmyagent secure")
+  );
+
   lines.push("");
   return lines.join("\n");
 }
@@ -223,6 +275,28 @@ export function formatScanResult(result: ScanResult): string {
     lines.push("");
     lines.push(chalk.green("  No security findings."));
   }
+
+  // Trust level legend (only when not already at the highest level)
+  if (result.trustLevel < 4) {
+    lines.push("");
+    lines.push(chalk.gray(TRUST_LEVEL_LEGEND));
+  }
+
+  // Contextual next steps
+  lines.push("");
+  lines.push(chalk.bold("  Next steps"));
+  if (result.verdict === "warning" || result.verdict === "blocked") {
+    lines.push(
+      chalk.gray(
+        `  Review findings above and remediate before installing`
+      )
+    );
+  }
+  lines.push(
+    chalk.gray(
+      "  For a full project audit: ai-trust audit package.json"
+    )
+  );
 
   lines.push("");
   return lines.join("\n");

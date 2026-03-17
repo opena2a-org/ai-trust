@@ -167,6 +167,10 @@ export class RegistryClient {
       );
     }
 
+    // Known issue: The batch endpoint may return different trust scores and
+    // package classifications (e.g., express classified as "ai_tool") compared
+    // to the single-query endpoint. This is a server-side inconsistency in the
+    // registry API, not a client-side bug.
     const raw = (await response.json()) as RawBatchResponse;
     const NULL_UUID = "00000000-0000-0000-0000-000000000000";
     for (const r of raw.results) {

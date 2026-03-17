@@ -61,6 +61,54 @@ describe("formatCheckResult", () => {
     expect(output).toContain("95/100");
     expect(output).toContain("mcp_server");
     expect(output).toContain("complete");
+    // Verified packages should not show the trust level legend
+    expect(output).not.toContain("Trust levels:");
+  });
+
+  it("shows trust level legend for non-Verified packages", () => {
+    const answer = makeTrustAnswer({
+      name: "listed-pkg",
+      trustLevel: 2,
+      verdict: "safe",
+    });
+    const output = formatCheckResult(answer);
+
+    expect(output).toContain("Trust levels: Blocked (0) < Warning (1) < Listed (2) < Scanned (3) < Verified (4)");
+  });
+
+  it("shows next steps after check result", () => {
+    const answer = makeTrustAnswer({
+      name: "some-pkg",
+      trustLevel: 3,
+      verdict: "safe",
+    });
+    const output = formatCheckResult(answer);
+
+    expect(output).toContain("Next steps");
+    expect(output).toContain("ai-trust audit package.json");
+  });
+
+  it("shows scan suggestion for warning verdict", () => {
+    const answer = makeTrustAnswer({
+      name: "risky-pkg",
+      trustLevel: 1,
+      verdict: "warning",
+    });
+    const output = formatCheckResult(answer);
+
+    expect(output).toContain("--scan-if-missing");
+  });
+
+  it("shows scan suggestion for listed trust level", () => {
+    const answer = makeTrustAnswer({
+      name: "listed-pkg",
+      trustLevel: 2,
+      verdict: "safe",
+    });
+    const output = formatCheckResult(answer);
+
+    expect(output).toContain("Trust data is limited");
+    expect(output).toContain("--scan-if-missing");
   });
 
   it("shows trust level labels correctly for each level", () => {
@@ -183,6 +231,43 @@ describe("formatBatchResults", () => {
     const output = formatBatchResults(response, 3);
 
     expect(output).toContain("All 1 packages meet minimum trust level 3");
+  });
+
+  it("shows next steps after batch results", () => {
+    const response = makeBatchResponse([
+      makeTrustAnswer({ name: "pkg-a", trustLevel: 3 }),
+    ]);
+    const output = formatBatchResults(response, 3);
+
+    expect(output).toContain("Next steps");
+    expect(output).toContain("npx hackmyagent secure");
+  });
+
+  it("shows check suggestion when packages are below threshold", () => {
+    const response = makeBatchResponse([
+      makeTrustAnswer({ name: "risky-pkg", trustLevel: 1, verdict: "warning" }),
+    ]);
+    const output = formatBatchResults(response, 3);
+
+    expect(output).toContain("ai-trust check <name>");
+  });
+
+  it("shows trust level legend when non-Verified packages exist", () => {
+    const response = makeBatchResponse([
+      makeTrustAnswer({ name: "listed-pkg", trustLevel: 2 }),
+    ]);
+    const output = formatBatchResults(response, 3);
+
+    expect(output).toContain("Trust levels:");
+  });
+
+  it("does not show trust level legend when all packages are Verified", () => {
+    const response = makeBatchResponse([
+      makeTrustAnswer({ name: "good-pkg", trustLevel: 4 }),
+    ]);
+    const output = formatBatchResults(response, 3);
+
+    expect(output).not.toContain("Trust levels:");
   });
 
   it("truncates long package names", () => {
