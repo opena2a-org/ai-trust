@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Next steps section after `check`, `audit`, and `batch` commands with contextual recommendations
+- Trust level legend shown for non-Verified packages
+
+### Changed
+- Help description updated to "Check security trust scores for AI agents and MCP servers before installing them"
+
 ## 0.2.2 (2026-03-16)
 
 ### Fixed
