@@ -19,11 +19,9 @@ import type { ScanResult } from "../scanner/index.js";
 import { confirm } from "../utils/prompt.js";
 import {
   isContributeEnabled,
-  shouldPromptContribute,
-  showContributePrompt,
-  incrementScanCount,
-  buildContributionPayload,
-  submitContribution,
+  queueScanResult,
+  flushQueue,
+  recordScanAndMaybeShowTip,
 } from "../telemetry/index.js";
 
 interface CheckOptions {
@@ -205,65 +203,30 @@ async function handleContribute(
   globalOpts: { registryUrl: string; json: boolean },
   opts: CheckOptions
 ): Promise<void> {
-  // Track scan count regardless of contribution setting
-  incrementScanCount();
+  // Show tip after 3rd scan (non-blocking, replaces old interactive prompt)
+  const tip = recordScanAndMaybeShowTip();
+  if (tip) {
+    process.stderr.write(tip + "\n");
+  }
 
   // Determine contribution mode:
   // 1. --contribute flag: always contribute anonymized telemetry
   // 2. Config enabled: auto-contribute anonymized telemetry
-  // 3. Not configured: maybe prompt
-  // 4. Config disabled: skip
+  // 3. Not configured or disabled: skip
 
-  if (opts.contribute) {
-    await submitAnonymizedTelemetry(name, scanResult, globalOpts.registryUrl);
-    return;
-  }
+  const shouldContribute =
+    opts.contribute || isContributeEnabled() === true;
 
-  const configEnabled = isContributeEnabled();
+  if (!shouldContribute) return;
 
-  if (configEnabled === true) {
-    // Already opted in: auto-contribute anonymized telemetry
-    await submitAnonymizedTelemetry(name, scanResult, globalOpts.registryUrl);
-    return;
-  }
-
-  if (configEnabled === false) {
-    // Explicitly opted out: skip
-    return;
-  }
-
-  // Not yet configured: check if we should prompt
-  if (shouldPromptContribute()) {
-    const enabled = await showContributePrompt();
-    if (enabled) {
-      await submitAnonymizedTelemetry(
-        name,
-        scanResult,
-        globalOpts.registryUrl
-      );
-    }
-  }
-}
-
-/**
- * Submit anonymized telemetry to the registry (opt-in contribution).
- * Only sends checkId, pass/fail, and severity. No file paths, descriptions, or code.
- */
-async function submitAnonymizedTelemetry(
-  name: string,
-  scanResult: ScanResult,
-  registryUrl: string
-): Promise<void> {
   try {
-    const payload = buildContributionPayload(name, scanResult.scan.findings);
-    const result = await submitContribution(payload, registryUrl);
-
-    if (result.success) {
+    queueScanResult(name, scanResult.scan.findings);
+    const ok = await flushQueue(globalOpts.registryUrl);
+    if (ok) {
       console.error(
         chalk.green("Anonymized scan data shared with the community.")
       );
     }
-    // Silent on failure -- non-blocking
   } catch {
     // Non-fatal: telemetry submission should never crash the scan
   }

@@ -17,11 +17,9 @@ import type { ScanResult } from "../scanner/index.js";
 import { confirm } from "../utils/prompt.js";
 import {
   isContributeEnabled,
-  shouldPromptContribute,
-  showContributePrompt,
-  incrementScanCount,
-  buildContributionPayload,
-  submitContribution,
+  queueScanResult,
+  flushQueue,
+  recordScanAndMaybeShowTip,
 } from "../telemetry/index.js";
 
 interface AuditOptions {
@@ -214,65 +212,34 @@ async function scanMissingPackages(
 
 /**
  * Handle community contribution after audit scanning.
- * Follows the same opt-in flow as check: config -> prompt -> submit.
+ * Follows the same opt-in flow as check: queue + flush.
  */
 async function handleAuditContribution(
   scannedResults: { name: string; scanResult: ScanResult }[],
   opts: AuditOptions,
   registryUrl: string
 ): Promise<void> {
-  // Track scan count for each scanned package
-  for (let i = 0; i < scannedResults.length; i++) {
-    incrementScanCount();
+  // Show tip after 3rd scan (non-blocking, replaces old interactive prompt)
+  const tip = recordScanAndMaybeShowTip();
+  if (tip) {
+    process.stderr.write(tip + "\n");
   }
 
-  if (opts.contribute) {
-    for (const { name, scanResult } of scannedResults) {
-      await submitAnonymizedTelemetry(name, scanResult, registryUrl);
-    }
-    return;
-  }
+  const shouldContribute =
+    opts.contribute || isContributeEnabled() === true;
 
-  const configEnabled = isContributeEnabled();
+  if (!shouldContribute) return;
 
-  if (configEnabled === true) {
-    // Already opted in: auto-contribute anonymized telemetry
-    for (const { name, scanResult } of scannedResults) {
-      await submitAnonymizedTelemetry(name, scanResult, registryUrl);
-    }
-    return;
-  }
-
-  if (configEnabled === false) {
-    return;
-  }
-
-  // Not yet configured: check if we should prompt
-  if (shouldPromptContribute()) {
-    const enabled = await showContributePrompt();
-    if (enabled) {
-      for (const { name, scanResult } of scannedResults) {
-        await submitAnonymizedTelemetry(name, scanResult, registryUrl);
-      }
-    }
-  }
-}
-
-/**
- * Submit anonymized telemetry to the registry (opt-in contribution).
- */
-async function submitAnonymizedTelemetry(
-  name: string,
-  scanResult: ScanResult,
-  registryUrl: string
-): Promise<void> {
   try {
-    const payload = buildContributionPayload(name, scanResult.scan.findings);
-    const result = await submitContribution(payload, registryUrl);
-
-    if (result.success) {
+    for (const { name, scanResult } of scannedResults) {
+      queueScanResult(name, scanResult.scan.findings);
+    }
+    const ok = await flushQueue(registryUrl);
+    if (ok) {
       console.error(
-        chalk.green(`  Anonymized scan data shared: ${name}`)
+        chalk.green(
+          `  Anonymized scan data shared: ${scannedResults.length} package(s)`
+        )
       );
     }
   } catch {

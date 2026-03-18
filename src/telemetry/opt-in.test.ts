@@ -1,5 +1,10 @@
 /**
- * Tests for contribution opt-in prompt and config management.
+ * Tests for contribution opt-in and scan counting.
+ *
+ * The new behavior:
+ * - Config uses `telemetry.scanCount` and `telemetry.contributePromptDismissedAt`
+ * - Tip shown after 3rd scan (non-interactive)
+ * - No interactive Y/N prompt
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -11,6 +16,7 @@ import {
   shouldPromptContribute,
   incrementScanCount,
   saveContributeChoice,
+  recordScanAndMaybeShowTip,
   _resetBackend,
 } from "./opt-in.js";
 
@@ -67,9 +73,11 @@ describe("isContributeEnabled", () => {
     expect(isContributeEnabled()).toBe(true);
   });
 
-  it("returns false when contribute.enabled is false", () => {
+  it("returns undefined when contribute.enabled is false", () => {
+    // isContributeEnabled() returns `backend.isContributeEnabled() || undefined`
+    // so false maps to undefined (falsy)
     writeConfig(tempHome, { contribute: { enabled: false } });
-    expect(isContributeEnabled()).toBe(false);
+    expect(isContributeEnabled()).toBeUndefined();
   });
 });
 
@@ -88,18 +96,22 @@ describe("incrementScanCount", () => {
     _resetBackend();
   });
 
-  it("creates config with scanCount=1 on first call", () => {
+  it("creates config with telemetry.scanCount=1 on first call", () => {
     incrementScanCount();
     const config = readConfig(tempHome);
-    expect((config.contribute as Record<string, unknown>).scanCount).toBe(1);
+    expect(
+      (config.telemetry as Record<string, unknown>).scanCount
+    ).toBe(1);
   });
 
-  it("increments scanCount on subsequent calls", () => {
+  it("increments telemetry.scanCount on subsequent calls", () => {
     incrementScanCount();
     incrementScanCount();
     incrementScanCount();
     const config = readConfig(tempHome);
-    expect((config.contribute as Record<string, unknown>).scanCount).toBe(3);
+    expect(
+      (config.telemetry as Record<string, unknown>).scanCount
+    ).toBe(3);
   });
 
   it("preserves existing config fields", () => {
@@ -111,7 +123,9 @@ describe("incrementScanCount", () => {
     expect(
       (config.registry as Record<string, unknown>).url
     ).toBe("https://custom.registry");
-    expect((config.contribute as Record<string, unknown>).scanCount).toBe(1);
+    expect(
+      (config.telemetry as Record<string, unknown>).scanCount
+    ).toBe(1);
   });
 });
 
@@ -135,18 +149,16 @@ describe("saveContributeChoice", () => {
     expect(isContributeEnabled()).toBe(true);
   });
 
-  it("saves enabled=false", () => {
-    saveContributeChoice(false);
-    expect(isContributeEnabled()).toBe(false);
-  });
-
-  it("sets promptedAtTen when scanCount >= 9", () => {
-    writeConfig(tempHome, { contribute: { scanCount: 10 } });
+  it("saves enabled=false and dismisses prompt", () => {
     saveContributeChoice(false);
     const config = readConfig(tempHome);
     expect(
-      (config.contribute as Record<string, unknown>).promptedAtTen
-    ).toBe(true);
+      (config.contribute as Record<string, unknown>).enabled
+    ).toBe(false);
+    // Dismissing sets contributePromptDismissedAt
+    expect(
+      (config.telemetry as Record<string, unknown>).contributePromptDismissedAt
+    ).toBeTruthy();
   });
 
   it("creates config file with restricted permissions", () => {
@@ -160,21 +172,6 @@ describe("saveContributeChoice", () => {
 
 describe("shouldPromptContribute", () => {
   let tempHome: string;
-  const origStdinIsTTY = process.stdin.isTTY;
-  const origStdoutIsTTY = process.stdout.isTTY;
-
-  function setTTY(isTTY: boolean): void {
-    Object.defineProperty(process.stdin, "isTTY", {
-      value: isTTY,
-      writable: true,
-      configurable: true,
-    });
-    Object.defineProperty(process.stdout, "isTTY", {
-      value: isTTY,
-      writable: true,
-      configurable: true,
-    });
-  }
 
   beforeEach(() => {
     tempHome = createTempDir();
@@ -186,57 +183,93 @@ describe("shouldPromptContribute", () => {
     cleanupDir(tempHome);
     delete process.env.OPENA2A_HOME;
     _resetBackend();
-    Object.defineProperty(process.stdin, "isTTY", {
-      value: origStdinIsTTY,
-      writable: true,
-      configurable: true,
-    });
-    Object.defineProperty(process.stdout, "isTTY", {
-      value: origStdoutIsTTY,
-      writable: true,
-      configurable: true,
-    });
-  });
-
-  it("returns false in non-TTY environment", () => {
-    setTTY(false);
-    expect(shouldPromptContribute()).toBe(false);
   });
 
   it("returns false when already opted in", () => {
-    setTTY(true);
     writeConfig(tempHome, { contribute: { enabled: true } });
     expect(shouldPromptContribute()).toBe(false);
   });
 
   it("returns false when already opted out", () => {
-    setTTY(true);
     writeConfig(tempHome, { contribute: { enabled: false } });
     expect(shouldPromptContribute()).toBe(false);
   });
 
-  it("returns true on first scan (scanCount=0) in TTY", () => {
-    setTTY(true);
+  it("returns false when scan count is below 3", () => {
+    writeConfig(tempHome, { telemetry: { scanCount: 2 } });
+    expect(shouldPromptContribute()).toBe(false);
+  });
+
+  it("returns true when scan count reaches 3 and not dismissed", () => {
+    writeConfig(tempHome, { telemetry: { scanCount: 3 } });
     expect(shouldPromptContribute()).toBe(true);
   });
 
-  it("returns true at scan #10 if not yet prompted", () => {
-    setTTY(true);
-    writeConfig(tempHome, { contribute: { scanCount: 10 } });
-    expect(shouldPromptContribute()).toBe(true);
-  });
-
-  it("returns false at scan #10 if already prompted", () => {
-    setTTY(true);
+  it("returns false when dismissed within cooldown period", () => {
     writeConfig(tempHome, {
-      contribute: { scanCount: 10, promptedAtTen: true },
+      telemetry: {
+        scanCount: 5,
+        contributePromptDismissedAt: new Date().toISOString(),
+      },
     });
     expect(shouldPromptContribute()).toBe(false);
   });
 
-  it("returns false between scan 1 and scan 9", () => {
-    setTTY(true);
-    writeConfig(tempHome, { contribute: { scanCount: 5 } });
-    expect(shouldPromptContribute()).toBe(false);
+  it("returns true when dismissed more than 30 days ago", () => {
+    const oldDate = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000);
+    writeConfig(tempHome, {
+      telemetry: {
+        scanCount: 10,
+        contributePromptDismissedAt: oldDate.toISOString(),
+      },
+    });
+    expect(shouldPromptContribute()).toBe(true);
+  });
+});
+
+describe("recordScanAndMaybeShowTip", () => {
+  let tempHome: string;
+
+  beforeEach(() => {
+    tempHome = createTempDir();
+    process.env.OPENA2A_HOME = tempHome;
+    _resetBackend(true);
+  });
+
+  afterEach(() => {
+    cleanupDir(tempHome);
+    delete process.env.OPENA2A_HOME;
+    _resetBackend();
+  });
+
+  it("returns null before 3rd scan", () => {
+    expect(recordScanAndMaybeShowTip()).toBeNull(); // scan 1
+    expect(recordScanAndMaybeShowTip()).toBeNull(); // scan 2
+  });
+
+  it("returns tip string on 3rd scan", () => {
+    recordScanAndMaybeShowTip(); // scan 1
+    recordScanAndMaybeShowTip(); // scan 2
+    const tip = recordScanAndMaybeShowTip(); // scan 3
+    expect(tip).toBeTruthy();
+    expect(tip).toContain("Tip:");
+    expect(tip).toContain("npx ai-trust check --contribute");
+  });
+
+  it("returns null after tip is shown (cooldown)", () => {
+    recordScanAndMaybeShowTip(); // 1
+    recordScanAndMaybeShowTip(); // 2
+    recordScanAndMaybeShowTip(); // 3 -> tip shown
+    const fourth = recordScanAndMaybeShowTip(); // 4 -> cooldown
+    expect(fourth).toBeNull();
+  });
+
+  it("increments scan count each time", () => {
+    recordScanAndMaybeShowTip();
+    recordScanAndMaybeShowTip();
+    const config = readConfig(tempHome);
+    expect(
+      (config.telemetry as Record<string, unknown>).scanCount
+    ).toBe(2);
   });
 });

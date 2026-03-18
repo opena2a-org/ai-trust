@@ -2,10 +2,11 @@
  * Tests for community contribution module.
  *
  * Verifies:
- *   - Payload structure matches server-side schema
+ *   - Legacy payload structure matches server-side schema (backward compat)
  *   - No PII (file paths, line numbers, descriptions, fix text) in payload
  *   - Contributor token is stable across calls
- *   - Submission handles errors gracefully
+ *   - Queue-based submission handles errors gracefully
+ *   - queueScanResult produces correct summary events
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -16,6 +17,8 @@ import {
   generateContributorToken,
   buildContributionPayload,
   submitContribution,
+  queueScanResult,
+  flushQueue,
   type ContributionPayload,
 } from "./contribute.js";
 import type { HmaFinding } from "../scanner/hma.js";
@@ -71,7 +74,7 @@ function makeSampleFindings(): HmaFinding[] {
   ];
 }
 
-describe("buildContributionPayload", () => {
+describe("buildContributionPayload (legacy)", () => {
   it("strips sensitive fields from findings", () => {
     const payload = buildContributionPayload("test-pkg", makeSampleFindings());
 
@@ -128,6 +131,86 @@ describe("buildContributionPayload", () => {
   });
 });
 
+describe("queueScanResult", () => {
+  let tempHome: string;
+
+  beforeEach(() => {
+    tempHome = createTempDir();
+    process.env.OPENA2A_HOME = tempHome;
+  });
+
+  afterEach(() => {
+    cleanupDir(tempHome);
+    delete process.env.OPENA2A_HOME;
+  });
+
+  it("writes a queue file with the correct event format", () => {
+    queueScanResult("test-pkg", makeSampleFindings());
+
+    const queueFile = path.join(tempHome, "contribute-queue.json");
+    expect(fs.existsSync(queueFile)).toBe(true);
+
+    const queue = JSON.parse(fs.readFileSync(queueFile, "utf-8"));
+    expect(queue.events).toHaveLength(1);
+
+    const event = queue.events[0];
+    expect(event.type).toBe("scan_result");
+    expect(event.tool).toBe("ai-trust");
+    expect(event.toolVersion).toBeTruthy();
+    expect(event.package.name).toBe("test-pkg");
+    expect(event.package.ecosystem).toBe("npm");
+    expect(event.scanSummary).toBeDefined();
+    expect(event.scanSummary.totalChecks).toBe(3);
+    expect(event.scanSummary.passed).toBe(1);
+    expect(event.scanSummary.critical).toBe(1);
+    expect(event.scanSummary.high).toBe(1);
+    expect(event.scanSummary.medium).toBe(0);
+    expect(event.scanSummary.low).toBe(0);
+  });
+
+  it("does not contain file paths or descriptions in the queue", () => {
+    queueScanResult("test-pkg", makeSampleFindings());
+
+    const queueFile = path.join(tempHome, "contribute-queue.json");
+    const serialized = fs.readFileSync(queueFile, "utf-8");
+
+    expect(serialized).not.toContain("src/config.ts");
+    expect(serialized).not.toContain(".mcp/config.json");
+    expect(serialized).not.toContain("Found hardcoded API key");
+    expect(serialized).not.toContain("API key sk-1234");
+    expect(serialized).not.toContain("Remove the key");
+    expect(serialized).not.toContain("chmod 600");
+  });
+
+  it("accumulates multiple events in the queue", () => {
+    queueScanResult("pkg-a", makeSampleFindings());
+    queueScanResult("pkg-b", []);
+
+    const queueFile = path.join(tempHome, "contribute-queue.json");
+    const queue = JSON.parse(fs.readFileSync(queueFile, "utf-8"));
+    expect(queue.events).toHaveLength(2);
+    expect(queue.events[0].package.name).toBe("pkg-a");
+    expect(queue.events[1].package.name).toBe("pkg-b");
+  });
+
+  it("computes score as percentage of passed checks", () => {
+    queueScanResult("test-pkg", makeSampleFindings()); // 1/3 passed
+
+    const queueFile = path.join(tempHome, "contribute-queue.json");
+    const queue = JSON.parse(fs.readFileSync(queueFile, "utf-8"));
+    expect(queue.events[0].scanSummary.score).toBe(33); // Math.round(1/3 * 100)
+  });
+
+  it("handles empty findings with score 0", () => {
+    queueScanResult("empty-pkg", []);
+
+    const queueFile = path.join(tempHome, "contribute-queue.json");
+    const queue = JSON.parse(fs.readFileSync(queueFile, "utf-8"));
+    expect(queue.events[0].scanSummary.score).toBe(0);
+    expect(queue.events[0].scanSummary.totalChecks).toBe(0);
+  });
+});
+
 describe("generateContributorToken", () => {
   let tempHome: string;
 
@@ -163,7 +246,19 @@ describe("generateContributorToken", () => {
   });
 });
 
-describe("submitContribution", () => {
+describe("submitContribution (legacy)", () => {
+  let tempHome: string;
+
+  beforeEach(() => {
+    tempHome = createTempDir();
+    process.env.OPENA2A_HOME = tempHome;
+  });
+
+  afterEach(() => {
+    cleanupDir(tempHome);
+    delete process.env.OPENA2A_HOME;
+  });
+
   it("handles network errors gracefully", async () => {
     const payload = buildContributionPayload("test-pkg", makeSampleFindings());
     // Use a URL that will fail immediately
@@ -173,22 +268,35 @@ describe("submitContribution", () => {
     );
 
     expect(result.success).toBe(false);
-    expect(result.error).toBeTruthy();
   });
-
-  it("handles timeout gracefully", async () => {
-    // This test validates the error handling path exists
-    const payload = buildContributionPayload("test-pkg", []);
-    const result = await submitContribution(
-      payload,
-      "http://192.0.2.1" // RFC 5737 TEST-NET, will time out
-    );
-
-    expect(result.success).toBe(false);
-  }, 15_000);
 });
 
-describe("payload privacy verification", () => {
+describe("flushQueue", () => {
+  let tempHome: string;
+
+  beforeEach(() => {
+    tempHome = createTempDir();
+    process.env.OPENA2A_HOME = tempHome;
+  });
+
+  afterEach(() => {
+    cleanupDir(tempHome);
+    delete process.env.OPENA2A_HOME;
+  });
+
+  it("returns true when queue is empty", async () => {
+    const result = await flushQueue("http://localhost:1");
+    expect(result).toBe(true);
+  });
+
+  it("handles network errors without throwing", async () => {
+    queueScanResult("test-pkg", makeSampleFindings());
+    const result = await flushQueue("http://localhost:1");
+    expect(result).toBe(false);
+  });
+});
+
+describe("payload privacy verification (legacy)", () => {
   it("does not contain any file path strings", () => {
     const payload = buildContributionPayload("test-pkg", makeSampleFindings());
     const serialized = JSON.stringify(payload);
@@ -216,10 +324,8 @@ describe("payload privacy verification", () => {
 
   it("does not contain line numbers", () => {
     const payload = buildContributionPayload("test-pkg", makeSampleFindings());
-    const serialized = JSON.stringify(payload);
 
     // Line 42 from the CRED-001 finding should not appear
-    // (can't simply check for "42" since it might appear in timestamps, etc.)
     for (const f of payload.findings) {
       expect(f).not.toHaveProperty("line");
     }

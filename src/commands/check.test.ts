@@ -39,11 +39,9 @@ vi.mock("../utils/prompt.js", () => ({
 // Mock telemetry
 vi.mock("../telemetry/index.js", () => ({
   isContributeEnabled: vi.fn().mockReturnValue(undefined),
-  shouldPromptContribute: vi.fn().mockReturnValue(false),
-  showContributePrompt: vi.fn().mockResolvedValue(false),
-  incrementScanCount: vi.fn(),
-  buildContributionPayload: vi.fn().mockReturnValue({}),
-  submitContribution: vi.fn().mockResolvedValue({ success: false }),
+  recordScanAndMaybeShowTip: vi.fn().mockReturnValue(null),
+  queueScanResult: vi.fn(),
+  flushQueue: vi.fn().mockResolvedValue(false),
 }));
 
 import {
@@ -57,7 +55,7 @@ import {
 } from "../output/formatter.js";
 import { isHmaAvailable, scanPackage } from "../scanner/index.js";
 import { confirm } from "../utils/prompt.js";
-import { submitContribution } from "../telemetry/index.js";
+import { queueScanResult, flushQueue } from "../telemetry/index.js";
 
 function createProgram(): Command {
   const program = new Command();
@@ -403,7 +401,7 @@ describe("check command", () => {
         "--contribute",
       ]);
 
-      expect(submitContribution).toHaveBeenCalled();
+      expect(queueScanResult).toHaveBeenCalled();
     });
 
     it("sets exit code 2 when scan result is warning (policy signal)", async () => {
@@ -492,10 +490,7 @@ describe("check command", () => {
     });
 
     it("handles telemetry failure gracefully (non-fatal)", async () => {
-      vi.mocked(submitContribution).mockResolvedValue({
-        success: false,
-        error: "registry down",
-      });
+      vi.mocked(flushQueue).mockResolvedValue(false);
       const mockCheckTrust = vi
         .fn()
         .mockRejectedValue(
