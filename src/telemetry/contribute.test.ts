@@ -4,15 +4,31 @@
  * Verifies:
  *   - Legacy payload structure matches server-side schema (backward compat)
  *   - No PII (file paths, line numbers, descriptions, fix text) in payload
- *   - Contributor token is stable across calls
+ *   - Contributor token is a 64-char hex SHA256
+ *   - queueScanResult delegates to @opena2a/contribute with correct summary
+ *   - flushQueue delegates to @opena2a/contribute
  *   - Queue-based submission handles errors gracefully
- *   - queueScanResult produces correct summary events
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import * as fs from "fs";
-import * as path from "path";
-import * as os from "os";
+
+// Mock @opena2a/contribute before importing the module under test
+vi.mock("@opena2a/contribute", () => {
+  const scanResultMock = vi.fn().mockResolvedValue(undefined);
+  const flushMock = vi.fn().mockResolvedValue(true);
+  const queueEventMock = vi.fn();
+  return {
+    contribute: {
+      scanResult: scanResultMock,
+      flush: flushMock,
+    },
+    getContributorToken: vi.fn().mockReturnValue(
+      "a".repeat(64) // 64-char hex string
+    ),
+    queueEvent: queueEventMock,
+  };
+});
+
 import {
   generateContributorToken,
   buildContributionPayload,
@@ -22,14 +38,11 @@ import {
   type ContributionPayload,
 } from "./contribute.js";
 import type { HmaFinding } from "../scanner/hma.js";
-
-function createTempDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "ai-trust-contribute-test-"));
-}
-
-function cleanupDir(dir: string): void {
-  fs.rmSync(dir, { recursive: true, force: true });
-}
+import {
+  contribute,
+  getContributorToken,
+  queueEvent,
+} from "@opena2a/contribute";
 
 /**
  * Sample findings with full detail (file paths, line numbers, descriptions, fix text).
@@ -132,48 +145,34 @@ describe("buildContributionPayload (legacy)", () => {
 });
 
 describe("queueScanResult", () => {
-  let tempHome: string;
-
   beforeEach(() => {
-    tempHome = createTempDir();
-    process.env.OPENA2A_HOME = tempHome;
+    vi.mocked(contribute.scanResult).mockClear();
   });
 
-  afterEach(() => {
-    cleanupDir(tempHome);
-    delete process.env.OPENA2A_HOME;
-  });
-
-  it("writes a queue file with the correct event format", () => {
+  it("delegates to contribute.scanResult with correct summary", () => {
     queueScanResult("test-pkg", makeSampleFindings());
 
-    const queueFile = path.join(tempHome, "contribute-queue.json");
-    expect(fs.existsSync(queueFile)).toBe(true);
+    expect(contribute.scanResult).toHaveBeenCalledOnce();
+    const args = vi.mocked(contribute.scanResult).mock.calls[0][0];
 
-    const queue = JSON.parse(fs.readFileSync(queueFile, "utf-8"));
-    expect(queue.events).toHaveLength(1);
-
-    const event = queue.events[0];
-    expect(event.type).toBe("scan_result");
-    expect(event.tool).toBe("ai-trust");
-    expect(event.toolVersion).toBeTruthy();
-    expect(event.package.name).toBe("test-pkg");
-    expect(event.package.ecosystem).toBe("npm");
-    expect(event.scanSummary).toBeDefined();
-    expect(event.scanSummary.totalChecks).toBe(3);
-    expect(event.scanSummary.passed).toBe(1);
-    expect(event.scanSummary.critical).toBe(1);
-    expect(event.scanSummary.high).toBe(1);
-    expect(event.scanSummary.medium).toBe(0);
-    expect(event.scanSummary.low).toBe(0);
+    expect(args.tool).toBe("ai-trust");
+    expect(args.toolVersion).toBeTruthy();
+    expect(args.packageName).toBe("test-pkg");
+    expect(args.ecosystem).toBe("npm");
+    expect(args.totalChecks).toBe(3);
+    expect(args.passed).toBe(1);
+    expect(args.critical).toBe(1);
+    expect(args.high).toBe(1);
+    expect(args.medium).toBe(0);
+    expect(args.low).toBe(0);
   });
 
-  it("does not contain file paths or descriptions in the queue", () => {
+  it("does not include file paths or descriptions in the call", () => {
     queueScanResult("test-pkg", makeSampleFindings());
 
-    const queueFile = path.join(tempHome, "contribute-queue.json");
-    const serialized = fs.readFileSync(queueFile, "utf-8");
-
+    const serialized = JSON.stringify(
+      vi.mocked(contribute.scanResult).mock.calls[0][0]
+    );
     expect(serialized).not.toContain("src/config.ts");
     expect(serialized).not.toContain(".mcp/config.json");
     expect(serialized).not.toContain("Found hardcoded API key");
@@ -182,117 +181,100 @@ describe("queueScanResult", () => {
     expect(serialized).not.toContain("chmod 600");
   });
 
-  it("accumulates multiple events in the queue", () => {
+  it("calls scanResult for each invocation", () => {
     queueScanResult("pkg-a", makeSampleFindings());
     queueScanResult("pkg-b", []);
 
-    const queueFile = path.join(tempHome, "contribute-queue.json");
-    const queue = JSON.parse(fs.readFileSync(queueFile, "utf-8"));
-    expect(queue.events).toHaveLength(2);
-    expect(queue.events[0].package.name).toBe("pkg-a");
-    expect(queue.events[1].package.name).toBe("pkg-b");
+    expect(contribute.scanResult).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(contribute.scanResult).mock.calls[0][0].packageName).toBe(
+      "pkg-a"
+    );
+    expect(vi.mocked(contribute.scanResult).mock.calls[1][0].packageName).toBe(
+      "pkg-b"
+    );
   });
 
   it("computes score as percentage of passed checks", () => {
     queueScanResult("test-pkg", makeSampleFindings()); // 1/3 passed
 
-    const queueFile = path.join(tempHome, "contribute-queue.json");
-    const queue = JSON.parse(fs.readFileSync(queueFile, "utf-8"));
-    expect(queue.events[0].scanSummary.score).toBe(33); // Math.round(1/3 * 100)
+    const args = vi.mocked(contribute.scanResult).mock.calls[0][0];
+    expect(args.score).toBe(33); // Math.round(1/3 * 100)
   });
 
   it("handles empty findings with score 0", () => {
     queueScanResult("empty-pkg", []);
 
-    const queueFile = path.join(tempHome, "contribute-queue.json");
-    const queue = JSON.parse(fs.readFileSync(queueFile, "utf-8"));
-    expect(queue.events[0].scanSummary.score).toBe(0);
-    expect(queue.events[0].scanSummary.totalChecks).toBe(0);
+    const args = vi.mocked(contribute.scanResult).mock.calls[0][0];
+    expect(args.score).toBe(0);
+    expect(args.totalChecks).toBe(0);
   });
 });
 
 describe("generateContributorToken", () => {
-  let tempHome: string;
-
-  beforeEach(() => {
-    tempHome = createTempDir();
-    process.env.OPENA2A_HOME = tempHome;
-  });
-
-  afterEach(() => {
-    cleanupDir(tempHome);
-    delete process.env.OPENA2A_HOME;
-  });
-
   it("returns a 64-char hex string (SHA256)", () => {
     const token = generateContributorToken();
     expect(token).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it("is stable across calls", () => {
+  it("is stable across calls (delegates to shared library)", () => {
     const token1 = generateContributorToken();
     const token2 = generateContributorToken();
     expect(token1).toBe(token2);
   });
 
-  it("creates contributor-salt file with restricted permissions", () => {
+  it("delegates to getContributorToken from @opena2a/contribute", () => {
     generateContributorToken();
-    const saltPath = path.join(tempHome, "contributor-salt");
-    expect(fs.existsSync(saltPath)).toBe(true);
-
-    const stat = fs.statSync(saltPath);
-    const mode = (stat.mode & 0o777).toString(8);
-    expect(mode).toBe("600");
+    expect(getContributorToken).toHaveBeenCalled();
   });
 });
 
 describe("submitContribution (legacy)", () => {
-  let tempHome: string;
-
   beforeEach(() => {
-    tempHome = createTempDir();
-    process.env.OPENA2A_HOME = tempHome;
+    vi.mocked(contribute.flush).mockClear();
+    vi.mocked(queueEvent).mockClear();
   });
 
-  afterEach(() => {
-    cleanupDir(tempHome);
-    delete process.env.OPENA2A_HOME;
-  });
-
-  it("handles network errors gracefully", async () => {
+  it("queues event via shared library and flushes", async () => {
     const payload = buildContributionPayload("test-pkg", makeSampleFindings());
-    // Use a URL that will fail immediately
-    const result = await submitContribution(
-      payload,
-      "http://localhost:1"
-    );
+    const result = await submitContribution(payload, "http://localhost:1");
+
+    expect(queueEvent).toHaveBeenCalledOnce();
+    expect(contribute.flush).toHaveBeenCalledOnce();
+    expect(result.success).toBe(true);
+  });
+
+  it("returns failure when flush fails", async () => {
+    vi.mocked(contribute.flush).mockResolvedValueOnce(false);
+
+    const payload = buildContributionPayload("test-pkg", makeSampleFindings());
+    const result = await submitContribution(payload, "http://localhost:1");
 
     expect(result.success).toBe(false);
   });
 });
 
 describe("flushQueue", () => {
-  let tempHome: string;
-
   beforeEach(() => {
-    tempHome = createTempDir();
-    process.env.OPENA2A_HOME = tempHome;
+    vi.mocked(contribute.flush).mockClear();
   });
 
-  afterEach(() => {
-    cleanupDir(tempHome);
-    delete process.env.OPENA2A_HOME;
-  });
-
-  it("returns true when queue is empty", async () => {
+  it("returns true when delegate returns true", async () => {
+    vi.mocked(contribute.flush).mockResolvedValueOnce(true);
     const result = await flushQueue("http://localhost:1");
     expect(result).toBe(true);
+    expect(contribute.flush).toHaveBeenCalledWith("http://localhost:1", undefined);
   });
 
-  it("handles network errors without throwing", async () => {
-    queueScanResult("test-pkg", makeSampleFindings());
+  it("returns false when delegate returns false", async () => {
+    vi.mocked(contribute.flush).mockResolvedValueOnce(false);
     const result = await flushQueue("http://localhost:1");
     expect(result).toBe(false);
+  });
+
+  it("passes verbose flag to delegate", async () => {
+    vi.mocked(contribute.flush).mockResolvedValueOnce(true);
+    await flushQueue("http://localhost:1", true);
+    expect(contribute.flush).toHaveBeenCalledWith("http://localhost:1", true);
   });
 });
 
