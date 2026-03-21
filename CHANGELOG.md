@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.3 (2026-03-18)
 
 ### Added
 - Next steps section after `check`, `audit`, and `batch` commands with contextual recommendations
