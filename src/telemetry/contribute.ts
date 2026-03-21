@@ -1,9 +1,8 @@
 /**
  * Community Contribution Module
  *
- * Queue-based contribution of anonymized ai-trust scan summaries to the
- * OpenA2A Registry. Compatible with @opena2a/contribute queue format:
- * events queued by ai-trust are flushed by opena2a-cli, HMA, and vice versa.
+ * Delegates to @opena2a/contribute for queue management and batch submission.
+ * Falls back to a local implementation if the package is not installed.
  *
  * Queue file: ~/.opena2a/contribute-queue.json
  * Endpoint:   POST api.oa2a.org/api/v1/contribute
@@ -33,10 +32,6 @@ const FLUSH_THRESHOLD = 10;
 const MAX_QUEUE_SIZE = 100;
 const TIMEOUT_MS = 10_000;
 
-/**
- * Resolve the path to the OpenA2A home directory.
- * Respects the OPENA2A_HOME env var, defaults to ~/.opena2a.
- */
 function getOpena2aHome(): string {
   return (
     process.env.OPENA2A_HOME || join(require("os").homedir(), ".opena2a")
@@ -118,9 +113,67 @@ export interface ContributionBatch {
   submittedAt: string;
 }
 
-interface QueueFile {
-  events: ContributionEvent[];
-  lastFlushAttempt?: string;
+// ---------------------------------------------------------------------------
+// @opena2a/contribute integration
+// ---------------------------------------------------------------------------
+
+/**
+ * Try to load @opena2a/contribute at runtime. Returns null if not installed.
+ * The shared package handles queue management, contributor tokens, and
+ * batch submission to the registry.
+ */
+interface ContributeModule {
+  contribute: {
+    scanResult(params: {
+      tool: string;
+      toolVersion: string;
+      packageName: string;
+      packageVersion?: string;
+      ecosystem?: string;
+      totalChecks: number;
+      passed: number;
+      critical: number;
+      high: number;
+      medium: number;
+      low: number;
+      score: number;
+      verdict: string;
+      durationMs: number;
+      registryUrl?: string;
+      verbose?: boolean;
+    }): Promise<void>;
+    flush(registryUrl?: string, verbose?: boolean): Promise<boolean>;
+  };
+  getContributorToken(): string;
+}
+
+let _contributeModule: ContributeModule | null | undefined;
+
+function loadContributeModule(): ContributeModule | null {
+  if (_contributeModule !== undefined) return _contributeModule;
+
+  try {
+    const mod = require("@opena2a/contribute");
+    if (
+      mod.contribute &&
+      typeof mod.contribute.scanResult === "function" &&
+      typeof mod.contribute.flush === "function" &&
+      typeof mod.getContributorToken === "function"
+    ) {
+      _contributeModule = mod as ContributeModule;
+      return _contributeModule;
+    }
+  } catch {
+    // Not installed -- fall through to local implementation
+  }
+
+  _contributeModule = null;
+  return null;
+}
+
+/** Reset the cached module reference (for testing). */
+export function _resetContributeModule(): void {
+  _contributeModule = undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -130,11 +183,17 @@ interface QueueFile {
 /**
  * Generate a stable per-device contributor token.
  *
- * SHA256(hostname + username + random salt stored at ~/.opena2a/contributor-salt).
- * The salt is generated once on first call and persisted locally.
- * Shared with hackmyagent so the same device gets the same token.
+ * Delegates to @opena2a/contribute if available, otherwise uses local
+ * implementation. SHA256(hostname + username + random salt stored at
+ * ~/.opena2a/contributor-salt).
  */
 export function generateContributorToken(): string {
+  const mod = loadContributeModule();
+  if (mod) {
+    return mod.getContributorToken();
+  }
+
+  // Fallback: local implementation
   const home = getOpena2aHome();
   const saltPath = join(home, "contributor-salt");
 
@@ -163,8 +222,13 @@ function resolveOsType(): "linux" | "macos" | "windows" {
 }
 
 // ---------------------------------------------------------------------------
-// Queue operations (compatible with @opena2a/contribute queue format)
+// Queue operations (local fallback when @opena2a/contribute is not installed)
 // ---------------------------------------------------------------------------
+
+interface QueueFile {
+  events: ContributionEvent[];
+  lastFlushAttempt?: string;
+}
 
 function queuePath(): string {
   return join(getOpena2aHome(), "contribute-queue.json");
@@ -185,7 +249,7 @@ function saveQueue(queue: QueueFile): void {
   writeFileSync(queuePath(), JSON.stringify(queue), { mode: 0o600 });
 }
 
-function queueEvent(event: ContributionEvent): void {
+function queueEventLocal(event: ContributionEvent): void {
   const queue = loadQueue();
   queue.events.push(event);
 
@@ -238,6 +302,9 @@ function computeVerdict(findings: HmaFinding[]): string {
 /**
  * Queue a scan result as a ContributionEvent.
  *
+ * When @opena2a/contribute is installed, delegates to the shared library.
+ * Otherwise falls back to the local queue implementation.
+ *
  * Converts the detailed finding list into an anonymized summary:
  * only counts and severity distribution, no file paths or descriptions.
  */
@@ -250,6 +317,38 @@ export function queueScanResult(
   const passed = findings.filter((f) => f.passed).length;
   const failed = findings.filter((f) => !f.passed);
 
+  const critical = failed.filter((f) => f.severity === "critical").length;
+  const high = failed.filter((f) => f.severity === "high").length;
+  const medium = failed.filter((f) => f.severity === "medium").length;
+  const low = failed.filter((f) => f.severity === "low").length;
+  const score = total > 0 ? Math.round((passed / total) * 100) : 0;
+  const verdict = computeVerdict(findings);
+
+  const mod = loadContributeModule();
+  if (mod) {
+    // Delegate to @opena2a/contribute -- fire-and-forget since the
+    // shared library handles queue persistence internally.
+    mod.contribute.scanResult({
+      tool: "ai-trust",
+      toolVersion: VERSION,
+      packageName,
+      ecosystem: "npm",
+      totalChecks: total,
+      passed,
+      critical,
+      high,
+      medium,
+      low,
+      score,
+      verdict,
+      durationMs,
+    }).catch(() => {
+      // Non-fatal: contribution should never crash the scan
+    });
+    return;
+  }
+
+  // Fallback: local queue
   const event: ContributionEvent = {
     type: "scan_result",
     tool: "ai-trust",
@@ -262,27 +361,35 @@ export function queueScanResult(
     scanSummary: {
       totalChecks: total,
       passed,
-      critical: failed.filter((f) => f.severity === "critical").length,
-      high: failed.filter((f) => f.severity === "high").length,
-      medium: failed.filter((f) => f.severity === "medium").length,
-      low: failed.filter((f) => f.severity === "low").length,
-      score: total > 0 ? Math.round((passed / total) * 100) : 0,
-      verdict: computeVerdict(findings),
+      critical,
+      high,
+      medium,
+      low,
+      score,
+      verdict,
       durationMs,
     },
   };
 
-  queueEvent(event);
+  queueEventLocal(event);
 }
 
 /**
  * Flush queued events to the OpenA2A Registry.
  * Returns true if submission succeeded (or queue was empty).
+ *
+ * When @opena2a/contribute is installed, delegates to the shared library.
  */
 export async function flushQueue(
   registryUrl?: string,
   verbose?: boolean
 ): Promise<boolean> {
+  const mod = loadContributeModule();
+  if (mod) {
+    return mod.contribute.flush(registryUrl, verbose);
+  }
+
+  // Fallback: local implementation
   const batch = buildBatch();
   if (!batch) return true;
 
@@ -331,10 +438,6 @@ export async function flushQueue(
  * @deprecated Use queueScanResult() + flushQueue() instead. Kept for
  * backward compatibility. The per-finding payload format is superseded
  * by the summary-based ContributionEvent format.
- *
- * PRIVACY: This function intentionally strips all sensitive fields.
- * The output contains ONLY: checkId, pass/fail result, and severity.
- * No file paths, line numbers, descriptions, fix text, or code content.
  */
 export function buildContributionPayload(
   packageName: string,
@@ -369,7 +472,6 @@ export async function submitContribution(
   payload: ContributionPayload,
   registryUrl?: string
 ): Promise<ContributionResult> {
-  // Convert legacy payload into a queue event and flush
   const event: ContributionEvent = {
     type: "scan_result",
     tool: "ai-trust",
@@ -407,7 +509,7 @@ export async function submitContribution(
     },
   };
 
-  queueEvent(event);
+  queueEventLocal(event);
   const ok = await flushQueue(registryUrl);
   return { success: ok };
 }
