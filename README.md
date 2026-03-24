@@ -197,7 +197,10 @@ See [docs/USE-CASES.md](docs/USE-CASES.md) for the full index.
 
 ## Links
 
-- [OpenA2A](https://opena2a.org)
+- [OpenA2A Registry](https://registry.opena2a.org) — trust scores and scan data
+- [OpenA2A CLI](https://github.com/opena2a-org/opena2a) — unified security CLI
+- [HackMyAgent](https://github.com/opena2a-org/hackmyagent) — local scanning for unverified packages
+- [opena2a.org](https://opena2a.org) — full platform
 
 ## License
 
