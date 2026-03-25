@@ -46,6 +46,8 @@ Expected output:
   Findings:    0 critical, 0 high, 2 medium
 ```
 
+![ai-trust audit](docs/ai-trust-demo.gif)
+
 ## Built-in Help
 
 ```bash
