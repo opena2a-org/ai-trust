@@ -21,6 +21,7 @@ import {
   flushQueue,
   recordScanAndMaybeShowTip,
   saveContributeChoice,
+  sendScanPing,
 } from "../telemetry/index.js";
 
 interface AuditOptions {
@@ -194,6 +195,14 @@ async function scanMissingPackages(
       }
 
       scannedResults.push({ name: pkg.name, scanResult });
+
+      // Anonymous scan ping for adoption tracking
+      sendScanPing(
+        pkg.name,
+        scanResult.verdict,
+        Math.round(scanResult.trustScore * 100),
+        registryUrl
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(

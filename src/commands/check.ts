@@ -23,6 +23,7 @@ import {
   flushQueue,
   recordScanAndMaybeShowTip,
   saveContributeChoice,
+  sendScanPing,
 } from "../telemetry/index.js";
 
 interface CheckOptions {
@@ -212,6 +213,15 @@ async function handleScanFlow(
   if (scanResult.verdict === "blocked" || scanResult.verdict === "warning") {
     process.exitCode = 2;
   }
+
+  // Anonymous scan ping — fires on every local scan regardless of contribute opt-in.
+  // Lets the registry track scan volume and coverage without any findings data.
+  sendScanPing(
+    name,
+    scanResult.verdict,
+    Math.round(scanResult.trustScore * 100),
+    globalOpts.registryUrl
+  );
 
   // Community contribution flow
   await handleContribute(name, scanResult, globalOpts, opts);

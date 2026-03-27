@@ -42,6 +42,8 @@ vi.mock("../telemetry/index.js", () => ({
   recordScanAndMaybeShowTip: vi.fn().mockReturnValue(null),
   queueScanResult: vi.fn(),
   flushQueue: vi.fn().mockResolvedValue(false),
+  saveContributeChoice: vi.fn(),
+  sendScanPing: vi.fn(),
 }));
 
 import {

@@ -8,6 +8,7 @@ export {
   submitContribution,
   queueScanResult,
   flushQueue,
+  sendScanPing,
   type ContributionFinding,
   type ContributionPayload,
   type ContributionResult,

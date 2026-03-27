@@ -150,6 +150,65 @@ export function queueScanResult(
 }
 
 /**
+ * Send an anonymous scan ping to the registry.
+ *
+ * This is separate from the full contribution flow. It fires on EVERY
+ * local scan regardless of contribute opt-in. Contains only:
+ * - package name
+ * - verdict (safe/warning/blocked)
+ * - score (0-100)
+ * - tool version
+ *
+ * No findings, no file paths, no contributor identity.
+ * Purpose: measure scan adoption and coverage across the ecosystem.
+ */
+export function sendScanPing(
+  packageName: string,
+  verdict: string,
+  score: number,
+  registryUrl = "https://api.oa2a.org"
+): void {
+  const url = `${registryUrl}/api/v1/contribute`;
+  const body = JSON.stringify({
+    contributorToken: "anonymous",
+    events: [
+      {
+        type: "scan_ping",
+        tool: "ai-trust",
+        toolVersion: VERSION,
+        timestamp: new Date().toISOString(),
+        package: { name: packageName, ecosystem: "npm" },
+        scanSummary: {
+          totalChecks: 0,
+          passed: 0,
+          critical: 0,
+          high: 0,
+          medium: 0,
+          low: 0,
+          score,
+          verdict,
+          durationMs: 0,
+        },
+      },
+    ],
+    submittedAt: new Date().toISOString(),
+  });
+
+  // Fire and forget — never block the user, never crash
+  fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "User-Agent": `ai-trust/${VERSION}`,
+    },
+    body,
+    signal: AbortSignal.timeout(5000),
+  }).catch(() => {
+    // Silently ignore — telemetry must never affect UX
+  });
+}
+
+/**
  * Flush queued events to the OpenA2A Registry.
  * Returns true if submission succeeded (or queue was empty).
  * Delegates to @opena2a/contribute.
