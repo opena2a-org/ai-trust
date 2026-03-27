@@ -21,6 +21,10 @@ export interface TrustAnswer {
   cveCount?: number;
   recommendation?: string;
   dependencies?: DependencyInfo;
+  /** Confidence in the trust score (0.0-1.0), returned by registry */
+  confidence?: number;
+  /** ISO timestamp of last security scan */
+  lastScannedAt?: string;
   // Computed by CLI
   found: boolean;
 }

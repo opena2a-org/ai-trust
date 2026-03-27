@@ -60,7 +60,6 @@ describe("formatCheckResult", () => {
     expect(output).toContain("Verified");
     expect(output).toContain("95/100");
     expect(output).toContain("mcp_server");
-    expect(output).toContain("complete");
     // Verified packages should not show the trust level legend
     expect(output).not.toContain("Trust levels:");
   });
@@ -171,6 +170,111 @@ describe("formatCheckResult", () => {
     const output = formatCheckResult(answer);
     expect(output).toContain("unknown");
   });
+
+  it("shows 'Not scanned' instead of '0/100' for unscanned packages", () => {
+    const answer = makeTrustAnswer({
+      name: "express",
+      trustScore: 0,
+      scanStatus: "",
+      trustLevel: 2,
+      verdict: "listed",
+    });
+    const output = formatCheckResult(answer);
+
+    expect(output).toContain("Not scanned");
+    expect(output).not.toContain("0/100");
+    expect(output).toContain("has not been security-scanned");
+  });
+
+  it("shows 0/100 when score is 0 but scanStatus indicates a scan happened", () => {
+    const answer = makeTrustAnswer({
+      trustScore: 0,
+      scanStatus: "complete",
+    });
+    const output = formatCheckResult(answer);
+
+    expect(output).toContain("0/100");
+    expect(output).not.toContain("Not scanned");
+  });
+
+  it("normalizes 'passed' verdict from registry to 'SAFE'", () => {
+    const answer = makeTrustAnswer({
+      verdict: "passed",
+      scanStatus: "complete",
+    });
+    const output = formatCheckResult(answer);
+
+    expect(output).toContain("SAFE");
+  });
+
+  it("normalizes 'listed' verdict from registry", () => {
+    const answer = makeTrustAnswer({
+      verdict: "listed",
+      trustScore: 0,
+      scanStatus: "",
+      trustLevel: 2,
+    });
+    const output = formatCheckResult(answer);
+
+    expect(output).toContain("LISTED");
+  });
+
+  it("shows confidence when available", () => {
+    const answer = makeTrustAnswer({
+      confidence: 0.75,
+    });
+    const output = formatCheckResult(answer);
+
+    expect(output).toContain("high confidence");
+  });
+
+  it("shows moderate confidence", () => {
+    const answer = makeTrustAnswer({
+      confidence: 0.5,
+    });
+    const output = formatCheckResult(answer);
+
+    expect(output).toContain("moderate confidence");
+  });
+
+  it("shows low confidence", () => {
+    const answer = makeTrustAnswer({
+      confidence: 0.2,
+    });
+    const output = formatCheckResult(answer);
+
+    expect(output).toContain("low confidence");
+  });
+
+  it("omits confidence when zero or missing", () => {
+    const answer = makeTrustAnswer({
+      confidence: 0,
+    });
+    const output = formatCheckResult(answer);
+
+    expect(output).not.toContain("confidence");
+  });
+
+  it("shows scan age when lastScannedAt is present", () => {
+    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+    const answer = makeTrustAnswer({
+      lastScannedAt: twoDaysAgo,
+    });
+    const output = formatCheckResult(answer);
+
+    expect(output).toContain("Last Scanned:");
+    expect(output).toContain("2 days ago");
+  });
+
+  it("shows stale warning for old scans", () => {
+    const oldDate = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString();
+    const answer = makeTrustAnswer({
+      lastScannedAt: oldDate,
+    });
+    const output = formatCheckResult(answer);
+
+    expect(output).toContain("stale");
+  });
 });
 
 describe("formatBatchResults", () => {
@@ -278,6 +382,35 @@ describe("formatBatchResults", () => {
     const output = formatBatchResults(response, 3);
 
     expect(output).toContain("...");
+  });
+
+  it("shows 'Not scanned' in table for unscanned packages", () => {
+    const response = makeBatchResponse([
+      makeTrustAnswer({
+        name: "chalk",
+        trustScore: 0,
+        scanStatus: "",
+        trustLevel: 2,
+        verdict: "listed",
+      }),
+    ]);
+    const output = formatBatchResults(response, 2);
+
+    expect(output).toContain("Not scanned");
+    expect(output).not.toMatch(/\b0\/100\b/);
+  });
+
+  it("normalizes registry verdict 'passed' to 'SAFE' in table", () => {
+    const response = makeBatchResponse([
+      makeTrustAnswer({
+        name: "mcp-pkg",
+        verdict: "passed",
+        scanStatus: "complete",
+      }),
+    ]);
+    const output = formatBatchResults(response, 3);
+
+    expect(output).toContain("SAFE");
   });
 });
 

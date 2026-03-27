@@ -7,14 +7,39 @@ import chalk from "chalk";
 import type { TrustAnswer, BatchResponse } from "../api/client.js";
 import type { ScanResult } from "../scanner/index.js";
 
-function verdictColor(verdict: string): (text: string) => string {
+/**
+ * Normalize registry verdicts to the CLI's display vocabulary.
+ * Registry may return "listed", "passed", "warnings", etc.
+ */
+function normalizeVerdict(verdict: string): string {
   switch (verdict) {
+    case "safe":
+    case "passed":
+      return "safe";
+    case "warning":
+    case "warnings":
+      return "warning";
+    case "blocked":
+    case "failed":
+      return "blocked";
+    case "listed":
+      return "listed";
+    default:
+      return verdict;
+  }
+}
+
+function verdictColor(verdict: string): (text: string) => string {
+  const normalized = normalizeVerdict(verdict);
+  switch (normalized) {
     case "safe":
       return chalk.green;
     case "warning":
       return chalk.yellow;
     case "blocked":
       return chalk.red;
+    case "listed":
+      return chalk.cyan;
     default:
       return chalk.gray;
   }
@@ -43,6 +68,43 @@ function trustLevelColor(level: number): (text: string) => string {
   return chalk.red;
 }
 
+/**
+ * Format trust score for display. Shows "Not scanned" when there's no real data
+ * instead of a misleading "0/100".
+ */
+function formatScore(trustScore: number, scanStatus?: string): string {
+  if (trustScore === 0 && (!scanStatus || scanStatus === "")) {
+    return "Not scanned";
+  }
+  return `${Math.round(trustScore * 100)}/100`;
+}
+
+/**
+ * Format confidence level for display.
+ */
+function formatConfidence(confidence?: number): string | null {
+  if (confidence === undefined || confidence === null || confidence === 0) {
+    return null;
+  }
+  if (confidence >= 0.7) return "high confidence";
+  if (confidence >= 0.4) return "moderate confidence";
+  return "low confidence";
+}
+
+/**
+ * Format scan age for display.
+ */
+function formatScanAge(lastScannedAt?: string): string | null {
+  if (!lastScannedAt) return null;
+  const scanned = new Date(lastScannedAt);
+  const now = new Date();
+  const days = Math.floor((now.getTime() - scanned.getTime()) / (1000 * 60 * 60 * 24));
+  if (days === 0) return "today";
+  if (days === 1) return "1 day ago";
+  if (days > 90) return `${days} days ago (stale)`;
+  return `${days} days ago`;
+}
+
 const TRUST_LEVEL_LEGEND =
   "  Trust levels: Blocked (0) < Warning (1) < Listed (2) < Scanned (3) < Verified (4)";
 
@@ -56,17 +118,40 @@ export function formatCheckResult(answer: TrustAnswer): string {
     ].join("\n");
   }
 
+  const normalized = normalizeVerdict(answer.verdict);
   const colorVerdict = verdictColor(answer.verdict);
   const colorTrust = trustLevelColor(answer.trustLevel);
+  const scoreDisplay = formatScore(answer.trustScore, answer.scanStatus);
+  const isUnscanned = scoreDisplay === "Not scanned";
 
   const lines: string[] = [
     chalk.bold(`  ${answer.name}`),
     `  Type:           ${answer.packageType || "unknown"}`,
-    `  Verdict:        ${colorVerdict(answer.verdict.toUpperCase())}`,
+    `  Verdict:        ${colorVerdict(normalized.toUpperCase())}`,
     `  Trust Level:    ${colorTrust(trustLevelLabel(answer.trustLevel))} (${answer.trustLevel}/4)`,
-    `  Trust Score:    ${Math.round(answer.trustScore * 100)}/100`,
-    `  Scan Status:    ${answer.scanStatus || "unknown"}`,
+    `  Trust Score:    ${isUnscanned ? chalk.gray(scoreDisplay) : scoreDisplay}`,
   ];
+
+  // Show confidence if available
+  const confidence = formatConfidence(answer.confidence);
+  if (confidence) {
+    lines.push(`  Confidence:     ${confidence}`);
+  }
+
+  // Show scan age
+  const scanAge = formatScanAge(answer.lastScannedAt);
+  if (scanAge) {
+    lines.push(`  Last Scanned:   ${scanAge.includes("stale") ? chalk.yellow(scanAge) : scanAge}`);
+  } else if (!isUnscanned) {
+    lines.push(`  Scan Status:    ${answer.scanStatus || "unknown"}`);
+  }
+
+  // Disclaimer for unscanned packages
+  if (isUnscanned) {
+    lines.push("");
+    lines.push(chalk.yellow("  This package has not been security-scanned."));
+    lines.push(chalk.yellow("  Trust level reflects registry listing only."));
+  }
 
   if (answer.dependencies && answer.dependencies.totalDeps > 0) {
     const deps = answer.dependencies;
@@ -85,7 +170,7 @@ export function formatCheckResult(answer: TrustAnswer): string {
 
   // Contextual next steps
   const nextSteps: string[] = [];
-  if (answer.verdict === "blocked" || answer.verdict === "warning") {
+  if (normalized === "blocked" || normalized === "warning") {
     nextSteps.push(
       `  Run a local security scan: ai-trust check ${answer.name} --scan-if-missing`
     );
@@ -125,7 +210,7 @@ export function formatBatchResults(
   const typeWidth = 14;
   const verdictWidth = 10;
   const levelWidth = 12;
-  const scoreWidth = 8;
+  const scoreWidth = 14;
   const scanWidth = 10;
 
   lines.push(
@@ -140,6 +225,7 @@ export function formatBatchResults(
   lines.push("  " + "-".repeat(nameWidth + typeWidth + verdictWidth + levelWidth + scoreWidth + scanWidth));
 
   for (const result of response.results) {
+    const normalized = normalizeVerdict(result.verdict);
     const colorVerdict = verdictColor(result.verdict);
     const colorTrust = trustLevelColor(result.trustLevel);
 
@@ -147,13 +233,17 @@ export function formatBatchResults(
       ? result.name.substring(0, nameWidth - 5) + "..."
       : result.name;
 
+    const scoreDisplay = result.found
+      ? formatScore(result.trustScore, result.scanStatus)
+      : "-";
+
     lines.push(
       "  " +
         name.padEnd(nameWidth) +
         (result.packageType || "-").padEnd(typeWidth) +
-        colorVerdict(result.verdict.toUpperCase().padEnd(verdictWidth)) +
+        colorVerdict(normalized.toUpperCase().padEnd(verdictWidth)) +
         colorTrust(trustLevelLabel(result.trustLevel).padEnd(levelWidth)) +
-        (result.found ? `${Math.round(result.trustScore * 100)}/100` : "-").padEnd(scoreWidth) +
+        scoreDisplay.padEnd(scoreWidth) +
         (result.scanStatus || "-").padEnd(scanWidth)
     );
   }

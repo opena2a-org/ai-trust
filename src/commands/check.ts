@@ -88,7 +88,7 @@ export function registerCheckCommand(program: Command): void {
 
         if (
           result.found &&
-          (result.verdict === "blocked" || result.verdict === "warning")
+          (result.verdict === "blocked" || result.verdict === "warning" || result.verdict === "warnings" || result.verdict === "failed")
         ) {
           process.exitCode = 2;
         }

@@ -15,8 +15,8 @@ export function registerBatchCommand(program: Command): void {
     .option("-t, --type <type>", "package type to apply to all packages")
     .option(
       "--min-trust <level>",
-      "minimum trust level threshold",
-      "3"
+      "minimum trust level threshold (0-4)",
+      "2"
     )
     .action(
       async (
