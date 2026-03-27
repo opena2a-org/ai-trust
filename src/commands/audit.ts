@@ -20,6 +20,7 @@ import {
   queueScanResult,
   flushQueue,
   recordScanAndMaybeShowTip,
+  saveContributeChoice,
 } from "../telemetry/index.js";
 
 interface AuditOptions {
@@ -243,7 +244,17 @@ async function handleAuditContribution(
         "Share these scans with the community?",
         true
       );
-      if (!wantsToShare) return;
+
+      // Persist the choice so we never ask again
+      saveContributeChoice(wantsToShare);
+
+      if (wantsToShare) {
+        console.error(
+          chalk.gray("  (Future scans will auto-share. Change: opena2a config contribute off)")
+        );
+      } else {
+        return;
+      }
     } else {
       // Non-interactive: show call-to-action
       console.error("");

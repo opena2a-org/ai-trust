@@ -22,6 +22,7 @@ import {
   queueScanResult,
   flushQueue,
   recordScanAndMaybeShowTip,
+  saveContributeChoice,
 } from "../telemetry/index.js";
 
 interface CheckOptions {
@@ -216,6 +217,8 @@ async function handleScanFlow(
   await handleContribute(name, scanResult, globalOpts, opts);
 }
 
+let _shownCiContributeTip = false;
+
 async function handleContribute(
   name: string,
   scanResult: ScanResult,
@@ -224,7 +227,8 @@ async function handleContribute(
 ): Promise<void> {
   const alreadyEnabled = opts.contribute || isContributeEnabled() === true;
 
-  // For first scans of missing packages, be more proactive about contribution
+  // For first scans of missing packages, be more proactive about contribution.
+  // Ask once and remember the choice — never spam on repeated scans.
   if (opts._firstScan && !alreadyEnabled) {
     if (process.stdin.isTTY) {
       // Interactive: ask directly after first scan of a missing package
@@ -233,7 +237,7 @@ async function handleContribute(
         chalk.bold("  You just scanned a package with no community trust data.")
       );
       console.error(
-        chalk.gray("  Sharing your anonymized results helps other developers")
+        chalk.gray("  Sharing anonymized results helps other developers")
       );
       console.error(
         chalk.gray("  make informed security decisions about AI packages.")
@@ -244,23 +248,33 @@ async function handleContribute(
         "Share this scan with the community?",
         true
       );
+
+      // Persist the choice so we never ask again
+      saveContributeChoice(wantsToShare);
+
       if (wantsToShare) {
+        console.error(
+          chalk.gray("  (Future scans will auto-share. Change: opena2a config contribute off)")
+        );
         await submitContribution(name, scanResult, globalOpts.registryUrl);
         return;
       }
     } else {
-      // Non-interactive: show a clear call-to-action
-      console.error("");
-      console.error(
-        chalk.gray(
-          "  This is the first scan of this package. Share it with the community:"
-        )
-      );
-      console.error(
-        chalk.cyan(
-          `    ai-trust check ${name} --scan-if-missing --contribute`
-        )
-      );
+      // Non-interactive: show a clear call-to-action (once per session, don't repeat)
+      if (!_shownCiContributeTip) {
+        _shownCiContributeTip = true;
+        console.error("");
+        console.error(
+          chalk.gray(
+            "  This is the first scan of this package. Share it with the community:"
+          )
+        );
+        console.error(
+          chalk.cyan(
+            `    ai-trust check ${name} --scan-if-missing --contribute`
+          )
+        );
+      }
     }
   }
 
