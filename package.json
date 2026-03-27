@@ -1,7 +1,8 @@
 {
   "name": "ai-trust",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "Trust verification CLI for AI packages — check MCP servers, A2A agents, and AI tools before you install",
+  "homepage": "https://opena2a.org/ai-trust",
   "repository": {
     "type": "git",
     "url": "https://github.com/opena2a-org/ai-trust.git"
@@ -12,7 +13,8 @@
     "ai-trust": "dist/index.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
   "scripts": {
     "build": "tsc",
