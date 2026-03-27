@@ -36,8 +36,8 @@ export function registerAuditCommand(program: Command): void {
     )
     .option(
       "--min-trust <level>",
-      "minimum trust level threshold",
-      "3"
+      "minimum trust level threshold (0-4)",
+      "2"
     )
     .option(
       "--scan-missing",
