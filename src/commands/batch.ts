@@ -78,12 +78,13 @@ export function registerBatchCommand(program: Command): void {
             console.log(formatBatchResults(response, minTrust));
           }
 
-          // Exit code 2 for policy violation (below threshold).
+          // Exit code 2 for policy violation (below threshold or unknown packages).
           // Exit code 1 is reserved for actual errors (network, server).
           const belowThreshold = response.results.some(
             (r) => r.found && r.trustLevel < minTrust
           );
-          if (belowThreshold) {
+          const hasNotFound = response.results.some((r) => !r.found);
+          if (belowThreshold || hasNotFound) {
             process.exitCode = 2;
           }
         } catch (err) {

@@ -225,17 +225,28 @@ export function formatBatchResults(
   lines.push("  " + "-".repeat(nameWidth + typeWidth + verdictWidth + levelWidth + scoreWidth + scanWidth));
 
   for (const result of response.results) {
-    const normalized = normalizeVerdict(result.verdict);
-    const colorVerdict = verdictColor(result.verdict);
-    const colorTrust = trustLevelColor(result.trustLevel);
-
     const name = result.name.length > nameWidth - 2
       ? result.name.substring(0, nameWidth - 5) + "..."
       : result.name;
 
-    const scoreDisplay = result.found
-      ? formatScore(result.trustScore, result.scanStatus)
-      : "-";
+    if (!result.found) {
+      // Not-found packages: show "NO DATA" instead of misleading "UNKNOWN/Blocked"
+      lines.push(
+        "  " +
+          name.padEnd(nameWidth) +
+          "-".padEnd(typeWidth) +
+          chalk.gray("NO DATA".padEnd(verdictWidth)) +
+          chalk.gray("-".padEnd(levelWidth)) +
+          "-".padEnd(scoreWidth) +
+          "-".padEnd(scanWidth)
+      );
+      continue;
+    }
+
+    const normalized = normalizeVerdict(result.verdict);
+    const colorVerdict = verdictColor(result.verdict);
+    const colorTrust = trustLevelColor(result.trustLevel);
+    const scoreDisplay = formatScore(result.trustScore, result.scanStatus);
 
     lines.push(
       "  " +
@@ -273,12 +284,12 @@ export function formatBatchResults(
 
   if (notFound.length > 0) {
     lines.push(
-      chalk.gray(
-        `  [?] ${notFound.length} package(s) not found in registry:`
+      chalk.yellow(
+        `  [?] ${notFound.length} package(s) not found in registry (no trust data):`
       )
     );
     for (const pkg of notFound) {
-      lines.push(chalk.gray(`      - ${pkg.name}`));
+      lines.push(chalk.yellow(`      - ${pkg.name}`));
     }
   }
 
@@ -302,15 +313,27 @@ export function formatBatchResults(
   // Contextual next steps
   lines.push("");
   lines.push(chalk.bold("  Next steps"));
+  if (notFound.length > 0) {
+    lines.push(
+      chalk.gray(
+        "  Scan unknown packages locally: ai-trust audit <file> --scan-missing"
+      )
+    );
+    lines.push(
+      chalk.gray(
+        "  Or check individually: ai-trust check <name> --scan-if-missing"
+      )
+    );
+  }
   if (belowThreshold.length > 0) {
     lines.push(
       chalk.gray(
-        `  Run ai-trust check <name> for details on flagged packages`
+        "  Inspect flagged packages: ai-trust check <name>"
       )
     );
   }
   lines.push(
-    chalk.gray("  For full security scanning: npx hackmyagent secure")
+    chalk.gray("  Full project security scan: npx hackmyagent secure .")
   );
 
   lines.push("");

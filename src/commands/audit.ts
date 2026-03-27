@@ -124,7 +124,8 @@ export function registerAuditCommand(program: Command): void {
         const belowThreshold = response.results.some(
           (r) => r.found && r.trustLevel < minTrust
         );
-        if (belowThreshold) {
+        const hasNotFound = response.results.some((r) => !r.found);
+        if (belowThreshold || hasNotFound) {
           process.exitCode = 2;
         }
       } catch (err: unknown) {
