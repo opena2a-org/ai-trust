@@ -93,8 +93,13 @@ export function registerCheckCommand(program: Command): void {
           process.exitCode = 2;
         }
       } catch (err) {
-        if (err instanceof PackageNotFoundError && opts.scan !== false) {
-          await handleNotFound(name, client, globalOpts, opts);
+        if (err instanceof PackageNotFoundError) {
+          if (opts.scan === false) {
+            // --no-scan: still give actionable guidance, not a dead end
+            handleNoScanNotFound(name, globalOpts);
+          } else {
+            await handleNotFound(name, client, globalOpts, opts);
+          }
         } else {
           const message = err instanceof Error ? err.message : String(err);
           if (globalOpts.json) {
@@ -128,13 +133,25 @@ async function handleNotFound(
     return;
   }
 
-  // Non-TTY: just report not found (scan must be opt-in via --scan-if-missing)
+  // Non-TTY: report not found with actionable next steps
   if (!process.stdin.isTTY) {
-    const msg = `Package "${name}" not found in the OpenA2A Registry. Use --scan-if-missing to scan locally.`;
     if (globalOpts.json) {
-      console.log(formatJson({ name, found: false, error: msg }));
+      console.log(formatJson({
+        name,
+        found: false,
+        error: `Package "${name}" not found in the OpenA2A Registry.`,
+        nextSteps: [
+          `ai-trust check ${name} --scan-if-missing`,
+          `npx hackmyagent secure <project-dir>`,
+        ],
+      }));
     } else {
-      console.error(msg);
+      console.error(`Package "${name}" not found in the OpenA2A Registry.\n`);
+      console.error("  Scan it locally:");
+      console.error(`    ai-trust check ${name} --scan-if-missing`);
+      console.error("");
+      console.error("  Or scan your full project:");
+      console.error("    npx hackmyagent secure .");
     }
     process.exitCode = 1;
     return;
@@ -230,6 +247,36 @@ async function handleContribute(
   } catch {
     // Non-fatal: telemetry submission should never crash the scan
   }
+}
+
+function handleNoScanNotFound(
+  name: string,
+  globalOpts: { registryUrl: string; json: boolean }
+): void {
+  if (globalOpts.json) {
+    console.log(formatJson({
+      name,
+      found: false,
+      error: `Package "${name}" not found in the OpenA2A Registry.`,
+      nextSteps: [
+        `ai-trust check ${name} --scan-if-missing`,
+        `npx hackmyagent secure <project-dir>`,
+      ],
+    }));
+  } else {
+    console.error(
+      chalk.gray(`Package "${name}" not found in the OpenA2A Registry.`)
+    );
+    console.error("");
+    console.error("  To scan it locally (requires HackMyAgent):");
+    console.error(
+      chalk.cyan(`    ai-trust check ${name} --scan-if-missing`)
+    );
+    console.error("");
+    console.error("  Or scan your full project:");
+    console.error(chalk.cyan("    npx hackmyagent secure ."));
+  }
+  process.exitCode = 1;
 }
 
 async function checkHmaReady(): Promise<boolean> {

@@ -318,7 +318,7 @@ describe("formatBatchResults", () => {
     expect(output).toContain("risky-pkg");
   });
 
-  it("reports not-found packages", () => {
+  it("reports not-found packages with NO DATA and scan guidance", () => {
     const response = makeBatchResponse([
       makeTrustAnswer({ name: "missing-pkg", found: false }),
     ]);
@@ -326,6 +326,9 @@ describe("formatBatchResults", () => {
 
     expect(output).toContain("not found in registry");
     expect(output).toContain("missing-pkg");
+    expect(output).toContain("NO DATA");
+    expect(output).toContain("--scan-missing");
+    expect(output).toContain("--scan-if-missing");
   });
 
   it("shows all-clear message when everything passes", () => {

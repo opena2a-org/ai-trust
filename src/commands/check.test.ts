@@ -314,9 +314,12 @@ describe("check command", () => {
       ]);
 
       expect(process.exitCode).toBe(1);
-      // Should show the standard error, not offer scan
+      // Should show not-found message with actionable next steps
       expect(consoleErrSpy).toHaveBeenCalledWith(
-        'Error: Package "unknown-pkg" not found in the OpenA2A Registry.'
+        expect.stringContaining('not found in the OpenA2A Registry')
+      );
+      expect(consoleErrSpy).toHaveBeenCalledWith(
+        expect.stringContaining('--scan-if-missing')
       );
     });
 
