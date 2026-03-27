@@ -220,16 +220,52 @@ async function handleAuditContribution(
   opts: AuditOptions,
   registryUrl: string
 ): Promise<void> {
-  // Show tip after 3rd scan (non-blocking, replaces old interactive prompt)
+  const alreadyEnabled = opts.contribute || isContributeEnabled() === true;
+
+  // These are first scans of missing packages — proactively encourage sharing
+  if (!alreadyEnabled) {
+    if (process.stdin.isTTY) {
+      const { confirm } = await import("../utils/prompt.js");
+      console.error("");
+      console.error(
+        chalk.bold(
+          `  You just scanned ${scannedResults.length} package(s) with no community trust data.`
+        )
+      );
+      console.error(
+        chalk.gray(
+          "  Sharing anonymized results helps other developers make informed decisions."
+        )
+      );
+      console.error("");
+
+      const wantsToShare = await confirm(
+        "Share these scans with the community?",
+        true
+      );
+      if (!wantsToShare) return;
+    } else {
+      // Non-interactive: show call-to-action
+      console.error("");
+      console.error(
+        chalk.gray(
+          `  ${scannedResults.length} package(s) scanned for the first time. Share with the community:`
+        )
+      );
+      console.error(
+        chalk.cyan(
+          "    ai-trust audit <file> --scan-missing --contribute"
+        )
+      );
+      return;
+    }
+  }
+
+  // Show standard tip for scan count tracking
   const tip = recordScanAndMaybeShowTip();
   if (tip) {
     process.stderr.write(tip + "\n");
   }
-
-  const shouldContribute =
-    opts.contribute || isContributeEnabled() === true;
-
-  if (!shouldContribute) return;
 
   try {
     for (const { name, scanResult } of scannedResults) {
@@ -239,7 +275,7 @@ async function handleAuditContribution(
     if (ok) {
       console.error(
         chalk.green(
-          `  Anonymized scan data shared: ${scannedResults.length} package(s)`
+          `  Scan data shared for ${scannedResults.length} package(s). Thank you for building trust in AI.`
         )
       );
     }

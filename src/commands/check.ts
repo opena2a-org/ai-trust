@@ -31,6 +31,8 @@ interface CheckOptions {
   scan?: boolean; // --no-scan sets this to false (commander strips the "no-" prefix)
   rescan?: boolean;
   staleDays?: string;
+  /** Internal: set when scanning a package not yet in the registry */
+  _firstScan?: boolean;
 }
 
 export function registerCheckCommand(program: Command): void {
@@ -127,7 +129,7 @@ async function handleNotFound(
       name,
       client,
       globalOpts,
-      opts,
+      { ...opts, _firstScan: true },
       `Package "${name}" not found in registry. Scanning...`
     );
     return;
@@ -170,7 +172,7 @@ async function handleNotFound(
     return;
   }
 
-  await handleScanFlow(name, client, globalOpts, opts, "Scanning...");
+  await handleScanFlow(name, client, globalOpts, { ...opts, _firstScan: true }, "Scanning...");
 }
 
 async function handleScanFlow(
@@ -220,32 +222,74 @@ async function handleContribute(
   globalOpts: { registryUrl: string; json: boolean },
   opts: CheckOptions
 ): Promise<void> {
-  // Show tip after 3rd scan (non-blocking, replaces old interactive prompt)
+  const alreadyEnabled = opts.contribute || isContributeEnabled() === true;
+
+  // For first scans of missing packages, be more proactive about contribution
+  if (opts._firstScan && !alreadyEnabled) {
+    if (process.stdin.isTTY) {
+      // Interactive: ask directly after first scan of a missing package
+      console.error("");
+      console.error(
+        chalk.bold("  You just scanned a package with no community trust data.")
+      );
+      console.error(
+        chalk.gray("  Sharing your anonymized results helps other developers")
+      );
+      console.error(
+        chalk.gray("  make informed security decisions about AI packages.")
+      );
+      console.error("");
+
+      const wantsToShare = await confirm(
+        "Share this scan with the community?",
+        true
+      );
+      if (wantsToShare) {
+        await submitContribution(name, scanResult, globalOpts.registryUrl);
+        return;
+      }
+    } else {
+      // Non-interactive: show a clear call-to-action
+      console.error("");
+      console.error(
+        chalk.gray(
+          "  This is the first scan of this package. Share it with the community:"
+        )
+      );
+      console.error(
+        chalk.cyan(
+          `    ai-trust check ${name} --scan-if-missing --contribute`
+        )
+      );
+    }
+  }
+
+  // Standard contribution flow (tip after 3rd scan, or auto-contribute if enabled)
   const tip = recordScanAndMaybeShowTip();
   if (tip) {
     process.stderr.write(tip + "\n");
   }
 
-  // Determine contribution mode:
-  // 1. --contribute flag: always contribute anonymized telemetry
-  // 2. Config enabled: auto-contribute anonymized telemetry
-  // 3. Not configured or disabled: skip
+  if (!alreadyEnabled) return;
 
-  const shouldContribute =
-    opts.contribute || isContributeEnabled() === true;
+  await submitContribution(name, scanResult, globalOpts.registryUrl);
+}
 
-  if (!shouldContribute) return;
-
+async function submitContribution(
+  name: string,
+  scanResult: ScanResult,
+  registryUrl: string
+): Promise<void> {
   try {
     queueScanResult(name, scanResult.scan.findings);
-    const ok = await flushQueue(globalOpts.registryUrl);
+    const ok = await flushQueue(registryUrl);
     if (ok) {
       console.error(
-        chalk.green("Anonymized scan data shared with the community.")
+        chalk.green("  Scan shared with the community. Thank you for building trust in AI.")
       );
     }
   } catch {
-    // Non-fatal: telemetry submission should never crash the scan
+    // Non-fatal: contribution should never crash the scan
   }
 }
 
