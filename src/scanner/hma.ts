@@ -8,10 +8,19 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
+export interface SemanticFinding {
+  intentClass: string;
+  attackClass: string;
+  confidence: number;
+  file: string;
+}
+
 export interface HmaScanResult {
   score: number;
   maxScore: number;
   findings: HmaFinding[];
+  /** Semantic analysis results from NanoMind (present when --deep is used) */
+  semanticFindings?: SemanticFinding[];
   projectType: string;
   timestamp: string;
 }
@@ -53,15 +62,28 @@ export async function isHmaAvailable(): Promise<boolean> {
  * @returns Parsed scan results
  * @throws If HMA is not available or scan fails to produce valid output
  */
+export interface HmaScanOptions {
+  /** Enable NanoMind semantic analysis via HMA --deep flag. Defaults to true. */
+  deep?: boolean;
+}
+
 export async function runHmaScan(
-  targetDir: string
+  targetDir: string,
+  options: HmaScanOptions = {}
 ): Promise<HmaScanResult> {
+  const deep = options.deep ?? true;
+  const args = ["hackmyagent", "secure", "--format", "json"];
+  if (deep) {
+    args.push("--deep");
+  }
+  args.push(targetDir);
+
   try {
     // HMA may exit non-zero when findings exist, so we handle that
     const { stdout } = await execFileAsync(
       "npx",
-      ["hackmyagent", "secure", "--format", "json", targetDir],
-      { timeout: 120_000 }
+      args,
+      { timeout: deep ? 180_000 : 120_000 }
     );
 
     return parseHmaOutput(stdout);
@@ -106,7 +128,7 @@ function parseHmaOutput(stdout: string): HmaScanResult {
 
   const raw = JSON.parse(jsonStr);
 
-  return {
+  const result: HmaScanResult = {
     score: raw.score ?? 0,
     maxScore: raw.maxScore ?? 100,
     findings: (raw.findings ?? []).map((f: Record<string, unknown>) => ({
@@ -125,4 +147,18 @@ function parseHmaOutput(stdout: string): HmaScanResult {
     projectType: raw.projectType ?? "unknown",
     timestamp: raw.timestamp ?? new Date().toISOString(),
   };
+
+  // Parse NanoMind semantic findings when present (from --deep mode)
+  if (Array.isArray(raw.semanticFindings) && raw.semanticFindings.length > 0) {
+    result.semanticFindings = raw.semanticFindings.map(
+      (sf: Record<string, unknown>) => ({
+        intentClass: (sf.intentClass as string) ?? "unknown",
+        attackClass: (sf.attackClass as string) ?? "unknown",
+        confidence: typeof sf.confidence === "number" ? sf.confidence : 0,
+        file: (sf.file as string) ?? "",
+      })
+    );
+  }
+
+  return result;
 }

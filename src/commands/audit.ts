@@ -28,6 +28,8 @@ interface AuditOptions {
   minTrust: string;
   scanMissing?: boolean;
   contribute?: boolean;
+  /** Enable NanoMind semantic analysis (--deep / --no-deep). Defaults to true. */
+  deep?: boolean;
 }
 
 export function registerAuditCommand(program: Command): void {
@@ -48,6 +50,10 @@ export function registerAuditCommand(program: Command): void {
     .option(
       "--contribute",
       "contribute scan results to community registry"
+    )
+    .option(
+      "--no-deep",
+      "disable NanoMind semantic analysis (static checks only)"
     )
     .action(async (file: string, opts: AuditOptions) => {
       const globalOpts = program.opts() as {
@@ -83,12 +89,14 @@ export function registerAuditCommand(program: Command): void {
 
         // Scan missing packages if requested
         const notFound = response.results.filter((r) => !r.found);
+        const scanOpts = { deep: opts.deep ?? true };
         if (notFound.length > 0 && opts.scanMissing) {
           await scanMissingPackages(
             notFound,
             response.results,
             opts,
-            globalOpts.registryUrl
+            globalOpts.registryUrl,
+            scanOpts
           );
         } else if (
           notFound.length > 0 &&
@@ -111,7 +119,8 @@ export function registerAuditCommand(program: Command): void {
                 notFound,
                 response.results,
                 opts,
-                globalOpts.registryUrl
+                globalOpts.registryUrl,
+                scanOpts
               );
             }
           }
@@ -159,7 +168,8 @@ async function scanMissingPackages(
   notFound: TrustAnswer[],
   allResults: TrustAnswer[],
   opts: AuditOptions,
-  registryUrl: string
+  registryUrl: string,
+  scanOpts: { deep: boolean } = { deep: true }
 ): Promise<void> {
   const available = await isHmaAvailable();
   if (!available) {
@@ -179,7 +189,7 @@ async function scanMissingPackages(
   for (const pkg of notFound) {
     try {
       console.error(chalk.gray(`  Scanning ${pkg.name}...`));
-      const scanResult = await scanPackage(pkg.name);
+      const scanResult = await scanPackage(pkg.name, scanOpts);
 
       // Update the result in-place
       const idx = allResults.findIndex((r) => r.name === pkg.name);

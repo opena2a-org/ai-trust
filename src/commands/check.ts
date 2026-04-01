@@ -33,6 +33,8 @@ interface CheckOptions {
   scan?: boolean; // --no-scan sets this to false (commander strips the "no-" prefix)
   rescan?: boolean;
   staleDays?: string;
+  /** Enable NanoMind semantic analysis (--deep / --no-deep). Defaults to true. */
+  deep?: boolean;
   /** Internal: set when scanning a package not yet in the registry */
   _firstScan?: boolean;
 }
@@ -59,6 +61,10 @@ export function registerCheckCommand(program: Command): void {
       "--stale-days <n>",
       "consider data stale after N days",
       "90"
+    )
+    .option(
+      "--no-deep",
+      "disable NanoMind semantic analysis (static checks only)"
     )
     .action(async (rawName: string, opts: CheckOptions) => {
       const globalOpts = program.opts() as {
@@ -190,7 +196,7 @@ async function handleScanFlow(
 
   let scanResult: ScanResult;
   try {
-    scanResult = await scanPackage(name);
+    scanResult = await scanPackage(name, { deep: opts.deep ?? true });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (globalOpts.json) {

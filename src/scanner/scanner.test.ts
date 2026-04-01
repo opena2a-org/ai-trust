@@ -41,7 +41,8 @@ describe("scanPackage", () => {
 
     expect(downloadPackage).toHaveBeenCalledWith("test-pkg");
     expect(runHmaScan).toHaveBeenCalledWith(
-      "/tmp/ai-trust-scan-123/package"
+      "/tmp/ai-trust-scan-123/package",
+      {}
     );
     expect(mockCleanup).toHaveBeenCalled();
 
