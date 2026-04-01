@@ -5,11 +5,11 @@
 export { downloadPackage } from "./downloader.js";
 export type { DownloadResult } from "./downloader.js";
 export { isHmaAvailable, runHmaScan } from "./hma.js";
-export type { HmaScanResult, HmaFinding } from "./hma.js";
+export type { HmaScanResult, HmaFinding, SemanticFinding, HmaScanOptions } from "./hma.js";
 
 import { downloadPackage } from "./downloader.js";
 import { runHmaScan } from "./hma.js";
-import type { HmaScanResult } from "./hma.js";
+import type { HmaScanResult, SemanticFinding, HmaScanOptions } from "./hma.js";
 
 export interface ScanResult {
   packageName: string;
@@ -20,6 +20,8 @@ export interface ScanResult {
   trustLevel: number;
   /** Verdict derived from scan results */
   verdict: "safe" | "warning" | "blocked";
+  /** NanoMind semantic analysis results (present when deep scan is enabled) */
+  semanticFindings?: SemanticFinding[];
 }
 
 /**
@@ -27,23 +29,30 @@ export interface ScanResult {
  * Cleans up the temp directory after scanning.
  */
 export async function scanPackage(
-  name: string
+  name: string,
+  options: HmaScanOptions = {}
 ): Promise<ScanResult> {
   const download = await downloadPackage(name);
 
   try {
-    const scan = await runHmaScan(download.dir);
+    const scan = await runHmaScan(download.dir, options);
     const trustScore = scan.score / scan.maxScore;
     const trustLevel = deriveTrustLevel(scan);
     const verdict = deriveVerdict(scan);
 
-    return {
+    const result: ScanResult = {
       packageName: name,
       scan,
       trustScore,
       trustLevel,
       verdict,
     };
+
+    if (scan.semanticFindings && scan.semanticFindings.length > 0) {
+      result.semanticFindings = scan.semanticFindings;
+    }
+
+    return result;
   } finally {
     await download.cleanup();
   }

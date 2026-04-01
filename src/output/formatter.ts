@@ -389,6 +389,28 @@ export function formatScanResult(result: ScanResult): string {
     lines.push(chalk.green("  No security findings."));
   }
 
+  // NanoMind semantic analysis section
+  if (result.semanticFindings && result.semanticFindings.length > 0) {
+    lines.push("");
+    lines.push(chalk.bold("  Semantic Analysis (NanoMind)"));
+
+    for (const sf of result.semanticFindings) {
+      const confidencePct = Math.round(sf.confidence * 100);
+      const confidenceColor =
+        sf.confidence >= 0.8
+          ? chalk.red
+          : sf.confidence >= 0.5
+            ? chalk.yellow
+            : chalk.gray;
+
+      lines.push(
+        `  ${chalk.magenta(`[${sf.intentClass}]`)} ${sf.attackClass}` +
+          `  ${confidenceColor(`${confidencePct}% confidence`)}` +
+          (sf.file ? chalk.gray(`  ${sf.file}`) : "")
+      );
+    }
+  }
+
   // Trust level legend (only when not already at the highest level)
   if (result.trustLevel < 4) {
     lines.push("");

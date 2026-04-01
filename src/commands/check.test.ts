@@ -363,7 +363,7 @@ describe("check command", () => {
         "--scan-if-missing",
       ]);
 
-      expect(scanPackage).toHaveBeenCalledWith("scan-me");
+      expect(scanPackage).toHaveBeenCalledWith("scan-me", { deep: true });
       expect(formatScanResult).toHaveBeenCalled();
     });
 
