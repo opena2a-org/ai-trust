@@ -206,6 +206,7 @@ export class RegistryClient {
         "User-Agent": USER_AGENT,
       },
       body: JSON.stringify(submission),
+      signal: AbortSignal.timeout(10000),
     });
 
     if (!response.ok) {

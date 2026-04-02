@@ -312,4 +312,28 @@ async function handleAuditContribution(
   } catch {
     // Non-fatal
   }
+
+  // Also publish full findings to enable evidence correlation in the registry
+  const client = new RegistryClient(registryUrl);
+  for (const { name, scanResult } of scannedResults) {
+    try {
+      await client.publishScan({
+        name,
+        score: scanResult.scan.score,
+        maxScore: scanResult.scan.maxScore,
+        findings: scanResult.scan.findings.map(f => ({
+          checkId: f.checkId,
+          name: f.name,
+          severity: f.severity,
+          passed: f.passed,
+          message: f.message ?? "",
+          category: f.category,
+        })),
+        projectType: scanResult.scan.projectType,
+        scanTimestamp: new Date().toISOString(),
+      });
+    } catch {
+      // Non-fatal: contribution should never crash the audit
+    }
+  }
 }
