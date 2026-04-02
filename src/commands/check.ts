@@ -272,7 +272,7 @@ async function handleContribute(
         console.error(
           chalk.gray("  (Future scans will auto-share. Change: opena2a config contribute off)")
         );
-        await submitContribution(name, scanResult, globalOpts.registryUrl);
+        await submitContribution(name, scanResult, globalOpts.registryUrl, { type: opts.type });
         return;
       }
     } else {
@@ -302,13 +302,14 @@ async function handleContribute(
 
   if (!alreadyEnabled) return;
 
-  await submitContribution(name, scanResult, globalOpts.registryUrl);
+  await submitContribution(name, scanResult, globalOpts.registryUrl, { type: opts.type });
 }
 
 async function submitContribution(
   name: string,
   scanResult: ScanResult,
-  registryUrl: string
+  registryUrl: string,
+  opts?: { type?: string }
 ): Promise<void> {
   try {
     queueScanResult(name, scanResult.scan.findings);
@@ -318,6 +319,29 @@ async function submitContribution(
         chalk.green("  Scan shared with the community. Thank you for building trust in AI.")
       );
     }
+  } catch {
+    // Non-fatal: contribution should never crash the scan
+  }
+
+  // Also publish full findings to enable evidence correlation in the registry
+  try {
+    const client = new RegistryClient(registryUrl);
+    await client.publishScan({
+      name,
+      type: opts?.type,
+      score: scanResult.scan.score,
+      maxScore: scanResult.scan.maxScore,
+      findings: scanResult.scan.findings.map(f => ({
+        checkId: f.checkId,
+        name: f.name,
+        severity: f.severity,
+        passed: f.passed,
+        message: f.message ?? "",
+        category: f.category,
+      })),
+      projectType: scanResult.scan.projectType,
+      scanTimestamp: new Date().toISOString(),
+    });
   } catch {
     // Non-fatal: contribution should never crash the scan
   }
