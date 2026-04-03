@@ -40,7 +40,8 @@ Expected output:
 
 ```
 @modelcontextprotocol/server-filesystem
-  Trust Level: 4 (Verified)
+  Trust Level: 3 (Scanned)
+  Score:       74/100
   Verdict:     safe
   Scanned:     2026-03-01
   Findings:    0 critical, 0 high, 2 medium
@@ -66,7 +67,7 @@ Look up the trust verdict for a single package.
 
 ```bash
 ai-trust check @modelcontextprotocol/server-filesystem
-ai-trust check my-agent --type a2a_agent
+ai-trust check my-custom-agent --type a2a_agent
 ai-trust check express --json              # JSON output for scripting
 ```
 
@@ -79,7 +80,7 @@ MCP servers are the most common trust query. Use shorthand to skip the full pack
 ai-trust check server-filesystem
 ai-trust check @modelcontextprotocol/server-filesystem
 
-# Other MCP servers:
+# Common MCP server shorthand examples (results depend on registry data):
 ai-trust check mcp-server-fetch
 ai-trust check server-github
 ai-trust check server-postgres
