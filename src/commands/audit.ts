@@ -107,7 +107,7 @@ export function registerAuditCommand(program: Command): void {
           // Interactive: offer to scan
           const shouldScan = await confirm(
             `${notFound.length} package(s) not in registry. Scan locally?`,
-            false
+            true
           );
           if (shouldScan) {
             if (!(await isHmaAvailable())) {

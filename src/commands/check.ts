@@ -174,7 +174,7 @@ async function handleNotFound(
 
   if (!(await checkHmaReady())) return;
 
-  const shouldScan = await confirm("No trust data yet. Scan it now?", false);
+  const shouldScan = await confirm("No trust data yet. Scan it now?", true);
   if (!shouldScan) {
     process.exitCode = 2;
     return;
