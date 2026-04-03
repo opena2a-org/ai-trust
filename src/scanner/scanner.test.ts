@@ -39,7 +39,7 @@ describe("scanPackage", () => {
 
     const result = await scanPackage("test-pkg");
 
-    expect(downloadPackage).toHaveBeenCalledWith("test-pkg");
+    expect(downloadPackage).toHaveBeenCalledWith("test-pkg", "npm");
     expect(runHmaScan).toHaveBeenCalledWith(
       "/tmp/ai-trust-scan-123/package",
       {}

@@ -163,7 +163,7 @@ async function handleNotFound(
       console.error("  Or scan your full project:");
       console.error("    npx hackmyagent secure .");
     }
-    process.exitCode = 1;
+    process.exitCode = 2;
     return;
   }
 
@@ -176,7 +176,7 @@ async function handleNotFound(
 
   const shouldScan = await confirm("No trust data yet. Scan it now?", false);
   if (!shouldScan) {
-    process.exitCode = 1;
+    process.exitCode = 2;
     return;
   }
 
@@ -374,7 +374,7 @@ function handleNoScanNotFound(
     console.error("  Or scan your full project:");
     console.error(chalk.cyan("    npx hackmyagent secure ."));
   }
-  process.exitCode = 1;
+  process.exitCode = 2;
 }
 
 async function checkHmaReady(): Promise<boolean> {

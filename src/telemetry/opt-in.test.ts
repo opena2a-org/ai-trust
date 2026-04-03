@@ -73,11 +73,11 @@ describe("isContributeEnabled", () => {
     expect(isContributeEnabled()).toBe(true);
   });
 
-  it("returns undefined when contribute.enabled is false", () => {
-    // isContributeEnabled() returns `backend.isContributeEnabled() || undefined`
-    // so false maps to undefined (falsy)
+  it("returns false when contribute.enabled is false", () => {
+    // isContributeEnabled() correctly distinguishes explicit opt-out (false)
+    // from not-yet-configured (undefined)
     writeConfig(tempHome, { contribute: { enabled: false } });
-    expect(isContributeEnabled()).toBeUndefined();
+    expect(isContributeEnabled()).toBe(false);
   });
 });
 

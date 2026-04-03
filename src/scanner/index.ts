@@ -30,9 +30,9 @@ export interface ScanResult {
  */
 export async function scanPackage(
   name: string,
-  options: HmaScanOptions = {}
+  options: HmaScanOptions & { ecosystem?: "npm" | "pypi" } = {}
 ): Promise<ScanResult> {
-  const download = await downloadPackage(name);
+  const download = await downloadPackage(name, options.ecosystem ?? "npm");
 
   try {
     const scan = await runHmaScan(download.dir, options);

@@ -11,7 +11,11 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { join } from "path";
+import { join, dirname } from "path";
+import { homedir } from "os";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
 
 // ---------------------------------------------------------------------------
 // Shared-library delegation with graceful fallback
@@ -82,7 +86,7 @@ interface Opena2aConfig {
 
 function getConfigPath(): string {
   const home =
-    process.env.OPENA2A_HOME || join(require("os").homedir(), ".opena2a");
+    process.env.OPENA2A_HOME || join(homedir(), ".opena2a");
   return join(home, "config.json");
 }
 
@@ -100,7 +104,7 @@ function readConfig(): Opena2aConfig {
 
 function writeConfig(config: Opena2aConfig): void {
   const configPath = getConfigPath();
-  const dir = require("path").dirname(configPath);
+  const dir = dirname(configPath);
   mkdirSync(dir, { recursive: true });
   writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", {
     mode: 0o600,
@@ -181,7 +185,17 @@ function createLocalBackend(): ConfigBackend {
  *   undefined - not yet configured
  */
 export function isContributeEnabled(): boolean | undefined {
-  return resolveBackend().isContributeEnabled() || undefined;
+  const backend = resolveBackend();
+  const enabled = backend.isContributeEnabled();
+  // If the user hasn't configured yet, return undefined (not false).
+  // The local backend returns true only if explicitly enabled;
+  // check the raw config to distinguish "not configured" from "opted out".
+  if (enabled) return true;
+  // Check if there's an explicit choice saved
+  const config = readConfig();
+  if (config.contribute?.enabled === false) return false;
+  if (config.contribute?.enabled === true) return true;
+  return undefined;
 }
 
 /**

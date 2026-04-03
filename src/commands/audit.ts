@@ -7,7 +7,7 @@ import chalk from "chalk";
 import type { Command } from "commander";
 import { RegistryClient } from "../api/client.js";
 import type { TrustAnswer } from "../api/client.js";
-import { parseDependencyFile } from "../utils/parser.js";
+import { parseDependencyFile, detectEcosystem } from "../utils/parser.js";
 import {
   formatBatchResults,
   formatJson,
@@ -70,6 +70,7 @@ export function registerAuditCommand(program: Command): void {
 
       try {
         const packages = await parseDependencyFile(file);
+        const ecosystem = detectEcosystem(file);
 
         if (packages.length === 0) {
           console.log("No dependencies found in the specified file.");
@@ -89,7 +90,7 @@ export function registerAuditCommand(program: Command): void {
 
         // Scan missing packages if requested
         const notFound = response.results.filter((r) => !r.found);
-        const scanOpts = { deep: opts.deep ?? true };
+        const scanOpts = { deep: opts.deep ?? true, ecosystem };
         if (notFound.length > 0 && opts.scanMissing) {
           await scanMissingPackages(
             notFound,
@@ -169,7 +170,7 @@ async function scanMissingPackages(
   allResults: TrustAnswer[],
   opts: AuditOptions,
   registryUrl: string,
-  scanOpts: { deep: boolean } = { deep: true }
+  scanOpts: { deep: boolean; ecosystem?: "npm" | "pypi" } = { deep: true }
 ): Promise<void> {
   const available = await isHmaAvailable();
   if (!available) {
@@ -189,7 +190,10 @@ async function scanMissingPackages(
   for (const pkg of notFound) {
     try {
       console.error(chalk.gray(`  Scanning ${pkg.name}...`));
-      const scanResult = await scanPackage(pkg.name, scanOpts);
+      const scanResult = await scanPackage(pkg.name, {
+        deep: scanOpts.deep,
+        ecosystem: scanOpts.ecosystem,
+      });
 
       // Update the result in-place
       const idx = allResults.findIndex((r) => r.name === pkg.name);
@@ -211,7 +215,8 @@ async function scanMissingPackages(
         pkg.name,
         scanResult.verdict,
         Math.round(scanResult.trustScore * 100),
-        registryUrl
+        registryUrl,
+        scanOpts.ecosystem
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -226,7 +231,8 @@ async function scanMissingPackages(
     await handleAuditContribution(
       scannedResults,
       opts,
-      registryUrl
+      registryUrl,
+      scanOpts.ecosystem
     );
   }
 }
@@ -238,7 +244,8 @@ async function scanMissingPackages(
 async function handleAuditContribution(
   scannedResults: { name: string; scanResult: ScanResult }[],
   opts: AuditOptions,
-  registryUrl: string
+  registryUrl: string,
+  ecosystem: "npm" | "pypi" = "npm"
 ): Promise<void> {
   const alreadyEnabled = opts.contribute || isContributeEnabled() === true;
 
@@ -299,7 +306,7 @@ async function handleAuditContribution(
 
   try {
     for (const { name, scanResult } of scannedResults) {
-      queueScanResult(name, scanResult.scan.findings);
+      queueScanResult(name, scanResult.scan.findings, 0, ecosystem);
     }
     const ok = await flushQueue(registryUrl);
     if (ok) {

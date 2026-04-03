@@ -115,7 +115,8 @@ function computeVerdict(findings: HmaFinding[]): string {
 export function queueScanResult(
   packageName: string,
   findings: HmaFinding[],
-  durationMs = 0
+  durationMs = 0,
+  ecosystem: "npm" | "pypi" | "github" = "npm"
 ): void {
   const total = findings.length;
   const passed = findings.filter((f) => f.passed).length;
@@ -134,7 +135,7 @@ export function queueScanResult(
     tool: "ai-trust",
     toolVersion: VERSION,
     packageName,
-    ecosystem: "npm",
+    ecosystem,
     totalChecks: total,
     passed,
     critical,
@@ -166,7 +167,8 @@ export function sendScanPing(
   packageName: string,
   verdict: string,
   score: number,
-  registryUrl = "https://api.oa2a.org"
+  registryUrl = "https://api.oa2a.org",
+  ecosystem: "npm" | "pypi" | "github" = "npm"
 ): void {
   const url = `${registryUrl}/api/v1/contribute`;
   const body = JSON.stringify({
@@ -177,7 +179,7 @@ export function sendScanPing(
         tool: "ai-trust",
         toolVersion: VERSION,
         timestamp: new Date().toISOString(),
-        package: { name: packageName, ecosystem: "npm" },
+        package: { name: packageName, ecosystem },
         scanSummary: {
           totalChecks: 0,
           passed: 0,

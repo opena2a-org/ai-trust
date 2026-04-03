@@ -14,11 +14,30 @@ vi.mock("../api/client.js", () => ({
 
 vi.mock("../utils/parser.js", () => ({
   parseDependencyFile: vi.fn(),
+  detectEcosystem: vi.fn().mockReturnValue("npm"),
 }));
 
 vi.mock("../output/formatter.js", () => ({
   formatBatchResults: vi.fn(() => "formatted-batch"),
   formatJson: vi.fn((data: unknown) => JSON.stringify(data)),
+}));
+
+vi.mock("../scanner/index.js", () => ({
+  isHmaAvailable: vi.fn().mockResolvedValue(false),
+  scanPackage: vi.fn(),
+}));
+
+vi.mock("../utils/prompt.js", () => ({
+  confirm: vi.fn().mockResolvedValue(false),
+}));
+
+vi.mock("../telemetry/index.js", () => ({
+  isContributeEnabled: vi.fn().mockReturnValue(undefined),
+  recordScanAndMaybeShowTip: vi.fn().mockReturnValue(null),
+  queueScanResult: vi.fn(),
+  flushQueue: vi.fn().mockResolvedValue(false),
+  saveContributeChoice: vi.fn(),
+  sendScanPing: vi.fn(),
 }));
 
 import { RegistryClient } from "../api/client.js";
