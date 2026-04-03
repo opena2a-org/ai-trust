@@ -64,6 +64,7 @@ interface RawBatchResponse {
 export interface PackageQuery {
   name: string;
   type?: string;
+  ecosystem?: "npm" | "pypi";
 }
 
 export interface ScanSubmission {

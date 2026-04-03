@@ -288,7 +288,7 @@ describe("check command", () => {
       expect(consoleErrSpy).toHaveBeenCalledWith(
         expect.stringContaining("--scan-if-missing")
       );
-      expect(process.exitCode).toBe(1);
+      expect(process.exitCode).toBe(2);
     });
 
     it("skips scan with --no-scan flag", async () => {
@@ -315,7 +315,7 @@ describe("check command", () => {
         "--no-scan",
       ]);
 
-      expect(process.exitCode).toBe(1);
+      expect(process.exitCode).toBe(2);
       // Should show not-found message with actionable next steps
       expect(consoleErrSpy).toHaveBeenCalledWith(
         expect.stringContaining('not found in the OpenA2A Registry')

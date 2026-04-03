@@ -81,9 +81,9 @@ describe("parseDependencyFile", () => {
       const result = await parseDependencyFile("/fake/requirements.txt");
 
       expect(result).toEqual([
-        { name: "flask" },
-        { name: "requests" },
-        { name: "numpy" },
+        { name: "flask", ecosystem: "pypi" },
+        { name: "requests", ecosystem: "pypi" },
+        { name: "numpy", ecosystem: "pypi" },
       ]);
     });
 
@@ -95,9 +95,9 @@ describe("parseDependencyFile", () => {
       const result = await parseDependencyFile("/fake/requirements.txt");
 
       expect(result).toEqual([
-        { name: "flask" },
-        { name: "requests" },
-        { name: "numpy" },
+        { name: "flask", ecosystem: "pypi" },
+        { name: "requests", ecosystem: "pypi" },
+        { name: "numpy", ecosystem: "pypi" },
       ]);
     });
 
@@ -106,7 +106,10 @@ describe("parseDependencyFile", () => {
 
       const result = await parseDependencyFile("/fake/requirements.txt");
 
-      expect(result).toEqual([{ name: "requests" }, { name: "celery" }]);
+      expect(result).toEqual([
+        { name: "requests", ecosystem: "pypi" },
+        { name: "celery", ecosystem: "pypi" },
+      ]);
     });
 
     it("skips comments and empty lines", async () => {
@@ -116,7 +119,10 @@ describe("parseDependencyFile", () => {
 
       const result = await parseDependencyFile("/fake/requirements.txt");
 
-      expect(result).toEqual([{ name: "flask" }, { name: "requests" }]);
+      expect(result).toEqual([
+        { name: "flask", ecosystem: "pypi" },
+        { name: "requests", ecosystem: "pypi" },
+      ]);
     });
 
     it("skips lines starting with dash (flags like -r, -e)", async () => {
@@ -126,7 +132,7 @@ describe("parseDependencyFile", () => {
 
       const result = await parseDependencyFile("/fake/requirements.txt");
 
-      expect(result).toEqual([{ name: "flask" }]);
+      expect(result).toEqual([{ name: "flask", ecosystem: "pypi" }]);
     });
 
     it("deduplicates repeated packages", async () => {
@@ -134,7 +140,10 @@ describe("parseDependencyFile", () => {
 
       const result = await parseDependencyFile("/fake/requirements.txt");
 
-      expect(result).toEqual([{ name: "flask" }, { name: "requests" }]);
+      expect(result).toEqual([
+        { name: "flask", ecosystem: "pypi" },
+        { name: "requests", ecosystem: "pypi" },
+      ]);
     });
 
     it("returns empty array for empty file", async () => {
@@ -164,7 +173,10 @@ describe("parseDependencyFile", () => {
 
       const result = await parseDependencyFile("/fake/deps.txt");
 
-      expect(result).toEqual([{ name: "flask" }, { name: "requests" }]);
+      expect(result).toEqual([
+        { name: "flask", ecosystem: "pypi" },
+        { name: "requests", ecosystem: "pypi" },
+      ]);
     });
 
     it("auto-detects JSON content for unknown extensions", async () => {
@@ -184,7 +196,10 @@ describe("parseDependencyFile", () => {
 
       const result = await parseDependencyFile("/fake/Gemfile");
 
-      expect(result).toEqual([{ name: "flask" }, { name: "requests" }]);
+      expect(result).toEqual([
+        { name: "flask", ecosystem: "pypi" },
+        { name: "requests", ecosystem: "pypi" },
+      ]);
     });
   });
 });

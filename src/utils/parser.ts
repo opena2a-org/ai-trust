@@ -30,6 +30,18 @@ export async function parseDependencyFile(
   }
 }
 
+/**
+ * Detect the ecosystem from a dependency file path.
+ * Returns "pypi" for requirements.txt files, "npm" for package.json.
+ */
+export function detectEcosystem(filePath: string): "npm" | "pypi" {
+  const fileName = basename(filePath);
+  if (fileName.endsWith(".txt") || fileName === "requirements") {
+    return "pypi";
+  }
+  return "npm";
+}
+
 function parsePackageJson(content: string): PackageQuery[] {
   const pkg = JSON.parse(content) as {
     dependencies?: Record<string, string>;
@@ -71,7 +83,7 @@ function parseRequirementsTxt(content: string): PackageQuery[] {
       const name = match[1].replace(/\[.*\]/, "");
       if (!seen.has(name)) {
         seen.add(name);
-        packages.push({ name });
+        packages.push({ name, ecosystem: "pypi" });
       }
     }
   }
