@@ -73,20 +73,20 @@ ai-trust check express --json              # JSON output for scripting
 
 ### MCP Server Trust
 
-MCP servers are the most common trust query. Use shorthand to skip the full package name:
+MCP servers are the most common trust query. Use shorthand to skip the full `@modelcontextprotocol/` scope:
 
 ```bash
 # These are equivalent:
 ai-trust check server-filesystem
 ai-trust check @modelcontextprotocol/server-filesystem
 
-# Common MCP server shorthand examples (results depend on registry data):
-ai-trust check mcp-server-fetch
-ai-trust check server-github
-ai-trust check server-postgres
+# Third-party MCP servers use their own package names:
+ai-trust check mcp-server-kubernetes
+ai-trust check @supabase/mcp-server-supabase
+ai-trust check @cloudflare/mcp-server-cloudflare
 ```
 
-Shorthand rules: `server-*` and `mcp-server-*` automatically resolve to `@modelcontextprotocol/server-*`.
+Shorthand rule: `server-*` resolves to `@modelcontextprotocol/server-*`. Third-party `mcp-server-*` packages are looked up by their actual name.
 
 #### Scan on demand
 

@@ -30,13 +30,12 @@ describe("resolvePackageName", () => {
     );
   });
 
-  it("expands mcp-server-* notation", () => {
-    expect(resolvePackageName("mcp-server-fetch")).toBe(
-      "@modelcontextprotocol/server-fetch"
-    );
-    expect(resolvePackageName("mcp-server-filesystem")).toBe(
-      "@modelcontextprotocol/server-filesystem"
-    );
+  it("passes through mcp-server-* as standalone packages", () => {
+    // mcp-server-* are often standalone third-party npm packages,
+    // not under the @modelcontextprotocol scope
+    expect(resolvePackageName("mcp-server-fetch")).toBe("mcp-server-fetch");
+    expect(resolvePackageName("mcp-server-filesystem")).toBe("mcp-server-filesystem");
+    expect(resolvePackageName("mcp-server-kubernetes")).toBe("mcp-server-kubernetes");
   });
 
   it("passes through regular packages unchanged", () => {
@@ -66,9 +65,7 @@ describe("resolvePackageName", () => {
   });
 
   it("handles 'mcp-server-' alone (prefix with no suffix)", () => {
-    // "mcp-server-" matches startsWith("mcp-server-") so it resolves,
-    // but the result has an empty suffix which is not a valid package.
-    // The function should pass it through unchanged.
+    // "mcp-server-" passes through as a standalone package name
     expect(resolvePackageName("mcp-server-")).toBe("mcp-server-");
   });
 
@@ -84,8 +81,9 @@ describe("resolvePackageName", () => {
     expect(resolvePackageName("server-filesystem.js")).toBe(
       "@modelcontextprotocol/server-filesystem.js"
     );
+    // mcp-server-* passes through unchanged (standalone package)
     expect(resolvePackageName("mcp-server-filesystem.js")).toBe(
-      "@modelcontextprotocol/server-filesystem.js"
+      "mcp-server-filesystem.js"
     );
   });
 
@@ -239,11 +237,12 @@ describe("live registry resolution", () => {
   );
 
   itLive(
-    "mcp-server-everything resolves to a real registry package via mcp- prefix",
+    "mcp-server-everything passes through as standalone package name",
     async () => {
-      const result = await registryLookup("mcp-server-everything");
-      expect(result.status).toBe(200);
-      expect(result.name).toBe("@modelcontextprotocol/server-everything");
+      // mcp-server-* no longer resolves to @modelcontextprotocol/*
+      // This test verifies the name is used as-is
+      const resolved = resolvePackageName("mcp-server-everything");
+      expect(resolved).toBe("mcp-server-everything");
     },
     15_000
   );
