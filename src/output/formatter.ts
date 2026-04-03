@@ -73,10 +73,21 @@ function trustLevelColor(level: number): (text: string) => string {
  * instead of a misleading "0/100".
  */
 function formatScore(trustScore: number, scanStatus?: string): string {
-  if (trustScore === 0 && (!scanStatus || scanStatus === "")) {
+  // Show "Not scanned" when there's no actual scan data.
+  // A non-zero score from metadata alone is misleading (8/100 for
+  // the Anthropic SDK looks dangerous when it just means "not scanned yet").
+  const notScanned = !scanStatus ||
+    scanStatus === "" ||
+    scanStatus === "pending" ||
+    scanStatus === "not_applicable";
+  if (notScanned && !hasPassedScan(scanStatus)) {
     return "Not scanned";
   }
   return `${Math.round(trustScore * 100)}/100`;
+}
+
+function hasPassedScan(scanStatus?: string): boolean {
+  return scanStatus === "passed" || scanStatus === "warnings";
 }
 
 /**
