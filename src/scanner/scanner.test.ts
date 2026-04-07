@@ -101,6 +101,44 @@ describe("scanPackage", () => {
     expect(result.trustLevel).toBe(0);
   });
 
+  it("derives warning (not blocked) for high score with critical findings", async () => {
+    // Regression: a filesystem MCP server scored 92/100 but got BLOCKED
+    // because generic checks (SQL injection, password hashing) fired as
+    // critical. Score should gate the verdict -- high score + criticals = warning.
+    vi.mocked(runHmaScan).mockResolvedValue({
+      score: 92,
+      maxScore: 100,
+      findings: [
+        {
+          checkId: "SEC-010",
+          name: "SQL Injection Protection",
+          description: "",
+          category: "security",
+          severity: "critical",
+          passed: false,
+          message: "No parameterized queries found",
+        },
+        {
+          checkId: "SEC-011",
+          name: "Password Hashing",
+          description: "",
+          category: "security",
+          severity: "critical",
+          passed: false,
+          message: "No bcrypt/argon2 found",
+        },
+      ],
+      projectType: "mcp",
+      timestamp: "2026-04-07T00:00:00Z",
+    });
+
+    const result = await scanPackage("@modelcontextprotocol/server-filesystem");
+
+    expect(result.verdict).toBe("warning");
+    expect(result.trustScore).toBeCloseTo(0.92);
+    expect(result.trustLevel).toBe(3); // 92% -> Scanned tier
+  });
+
   it("cleans up even when scan fails", async () => {
     vi.mocked(runHmaScan).mockRejectedValue(
       new Error("scan crashed")

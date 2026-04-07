@@ -67,6 +67,7 @@ function deriveTrustLevel(scan: HmaScanResult): number {
 }
 
 function deriveVerdict(scan: HmaScanResult): "safe" | "warning" | "blocked" {
+  const ratio = scan.score / scan.maxScore;
   const hasCritical = scan.findings.some(
     (f) => !f.passed && f.severity === "critical"
   );
@@ -74,11 +75,12 @@ function deriveVerdict(scan: HmaScanResult): "safe" | "warning" | "blocked" {
     (f) => !f.passed && f.severity === "high"
   );
 
-  if (hasCritical) return "blocked";
-  if (hasHigh) return "warning";
-
-  const ratio = scan.score / scan.maxScore;
-  if (ratio >= 0.7) return "safe";
+  // Score is the primary verdict driver. Critical/high findings downgrade
+  // by one level but never jump straight to blocked. HMA runs generic checks
+  // (SQL injection, password hashing, etc.) that may be irrelevant to the
+  // package type -- a filesystem MCP server will always "fail" SQL checks.
+  if (ratio >= 0.7 && !hasCritical && !hasHigh) return "safe";
+  if (ratio >= 0.7) return "warning"; // high score + criticals/high = warning, not blocked
   if (ratio >= 0.4) return "warning";
   return "blocked";
 }
