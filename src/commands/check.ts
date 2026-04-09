@@ -25,6 +25,11 @@ import {
   saveContributeChoice,
   sendScanPing,
 } from "../telemetry/index.js";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const pkg = require("../../package.json");
+const AI_TRUST_VERSION: string = pkg.version;
 
 interface CheckOptions {
   type?: string;
@@ -323,14 +328,17 @@ async function submitContribution(
     // Non-fatal: contribution should never crash the scan
   }
 
-  // Also publish full findings to enable evidence correlation in the registry
+  // Publish full findings via unified endpoint for evidence correlation + consensus
   try {
     const client = new RegistryClient(registryUrl);
-    await client.publishScan({
+    const resp = await client.publishScan({
       name,
       type: opts?.type,
       score: scanResult.scan.score,
       maxScore: scanResult.scan.maxScore,
+      tool: "ai-trust",
+      toolVersion: AI_TRUST_VERSION,
+      verdict: scanResult.verdict === "blocked" ? "fail" : scanResult.verdict === "warning" ? "warn" : "pass",
       findings: scanResult.scan.findings.map(f => ({
         checkId: f.checkId,
         name: f.name,
@@ -338,10 +346,14 @@ async function submitContribution(
         passed: f.passed,
         message: f.message ?? "",
         category: f.category,
+        attackClass: f.attackClass,
       })),
       projectType: scanResult.scan.projectType,
       scanTimestamp: new Date().toISOString(),
     });
+    if (resp.publishId) {
+      console.error(chalk.dim(`  Published to registry (${resp.publishId.slice(0, 8)})`));
+    }
   } catch {
     // Non-fatal: contribution should never crash the scan
   }

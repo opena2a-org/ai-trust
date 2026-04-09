@@ -69,12 +69,17 @@ export interface PackageQuery {
 
 export interface ScanSubmission {
   name: string;
-  type?: string;
   score: number;
   maxScore: number;
   findings: ScanFinding[];
+  tool: string;
+  toolVersion: string;
+  type?: string;
   projectType?: string;
+  ecosystem?: string;
+  verdict?: string;
   scanTimestamp: string;
+  durationMs?: number;
   /** Ed25519 signature (hex) if user has an opena2a identity */
   signature?: string;
   /** Public key (hex) of the signer */
@@ -94,8 +99,11 @@ export interface ScanFinding {
 
 export interface PublishResponse {
   accepted: boolean;
-  packageId?: string;
-  message?: string;
+  publishId?: string;
+  packageId?: string | null;
+  consensusStatus?: string;
+  weight?: number;
+  idempotent?: boolean;
 }
 
 export class PackageNotFoundError extends Error {
