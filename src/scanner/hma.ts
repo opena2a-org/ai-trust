@@ -41,20 +41,35 @@ export interface HmaFinding {
 }
 
 /**
- * Resolve the HMA binary. Prefers the global `hackmyagent` binary (more
- * likely to be up-to-date) over `npx hackmyagent` (which may use a stale
- * npx cache, especially when ai-trust itself is run via npx).
+ * Resolve the HMA binary. Resolution order:
+ * 1. Bundled: node_modules/.bin/hackmyagent (always correct version)
+ * 2. Global: hackmyagent in PATH
+ * 3. npx fallback (may use stale cache)
  *
  * Returns { cmd, prefixArgs } where:
- *   cmd="hackmyagent", prefixArgs=[]        (global binary)
- *   cmd="npx",         prefixArgs=["hackmyagent"]  (npx fallback)
+ *   cmd="/path/to/hackmyagent", prefixArgs=[]  (bundled or global)
+ *   cmd="npx", prefixArgs=["hackmyagent"]      (npx fallback)
  */
 let _resolvedHma: { cmd: string; prefixArgs: string[] } | null = null;
 
 async function resolveHma(): Promise<{ cmd: string; prefixArgs: string[] }> {
   if (_resolvedHma) return _resolvedHma;
 
-  // Try global binary first
+  // 1. Try bundled binary (hackmyagent is a direct dependency)
+  try {
+    const { fileURLToPath } = await import("node:url");
+    const { dirname, join } = await import("node:path");
+    const thisDir = dirname(fileURLToPath(import.meta.url));
+    // Walk up from dist/scanner/ to package root, then into node_modules/.bin
+    const bundled = join(thisDir, "..", "..", "node_modules", ".bin", "hackmyagent");
+    await execFileAsync(bundled, ["--version"], { timeout: 10_000 });
+    _resolvedHma = { cmd: bundled, prefixArgs: [] };
+    return _resolvedHma;
+  } catch {
+    // Bundled not found (dev mode, or dependency not installed)
+  }
+
+  // 2. Try global binary
   try {
     await execFileAsync("hackmyagent", ["--version"], { timeout: 10_000 });
     _resolvedHma = { cmd: "hackmyagent", prefixArgs: [] };
@@ -63,15 +78,7 @@ async function resolveHma(): Promise<{ cmd: string; prefixArgs: string[] }> {
     // Not found globally
   }
 
-  // Fall back to npx
-  try {
-    await execFileAsync("npx", ["hackmyagent", "--version"], { timeout: 15_000 });
-    _resolvedHma = { cmd: "npx", prefixArgs: ["hackmyagent"] };
-    return _resolvedHma;
-  } catch {
-    // Not available at all
-  }
-
+  // 3. Fall back to npx
   _resolvedHma = { cmd: "npx", prefixArgs: ["hackmyagent"] };
   return _resolvedHma;
 }
