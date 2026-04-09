@@ -23,6 +23,11 @@ import {
   saveContributeChoice,
   sendScanPing,
 } from "../telemetry/index.js";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const pkg = require("../../package.json");
+const AI_TRUST_VERSION: string = pkg.version;
 
 interface AuditOptions {
   minTrust: string;
@@ -320,7 +325,7 @@ async function handleAuditContribution(
     // Non-fatal
   }
 
-  // Also publish full findings to enable evidence correlation in the registry
+  // Publish full findings via unified endpoint for evidence correlation + consensus
   const client = new RegistryClient(registryUrl);
   for (const { name, scanResult } of scannedResults) {
     try {
@@ -328,6 +333,9 @@ async function handleAuditContribution(
         name,
         score: scanResult.scan.score,
         maxScore: scanResult.scan.maxScore,
+        tool: "ai-trust",
+        toolVersion: AI_TRUST_VERSION,
+        verdict: scanResult.verdict === "blocked" ? "fail" : scanResult.verdict === "warning" ? "warn" : "pass",
         findings: scanResult.scan.findings.map(f => ({
           checkId: f.checkId,
           name: f.name,
@@ -335,6 +343,7 @@ async function handleAuditContribution(
           passed: f.passed,
           message: f.message ?? "",
           category: f.category,
+          attackClass: f.attackClass,
         })),
         projectType: scanResult.scan.projectType,
         scanTimestamp: new Date().toISOString(),
