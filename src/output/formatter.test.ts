@@ -95,7 +95,7 @@ describe("formatCheckResult", () => {
     });
     const output = formatCheckResult(answer);
 
-    expect(output).toContain("--scan-if-missing");
+    expect(output).toContain("--rescan");
   });
 
   it("shows scan suggestion for listed trust level", () => {
@@ -106,8 +106,8 @@ describe("formatCheckResult", () => {
     });
     const output = formatCheckResult(answer);
 
-    expect(output).toContain("Trust data is limited");
-    expect(output).toContain("--scan-if-missing");
+    expect(output).toContain("Scan locally for full analysis");
+    expect(output).toContain("--rescan");
   });
 
   it("shows trust level labels correctly for each level", () => {
@@ -328,7 +328,7 @@ describe("formatBatchResults", () => {
     expect(output).toContain("missing-pkg");
     expect(output).toContain("NO DATA");
     expect(output).toContain("--scan-missing");
-    expect(output).toContain("--scan-if-missing");
+    expect(output).toContain("--rescan");
   });
 
   it("shows all-clear message when everything passes", () => {

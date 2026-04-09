@@ -183,11 +183,11 @@ export function formatCheckResult(answer: TrustAnswer): string {
   const nextSteps: string[] = [];
   if (normalized === "blocked" || normalized === "warning") {
     nextSteps.push(
-      `  Run a local security scan: ai-trust check ${answer.name} --scan-if-missing`
+      `  Run a local security scan: ai-trust check ${answer.name} --rescan`
     );
-  } else if (answer.trustLevel <= 2) {
+  } else if (isUnscanned || answer.trustLevel <= 2) {
     nextSteps.push(
-      `  Trust data is limited. Run a local scan to improve: ai-trust check ${answer.name} --scan-if-missing`
+      `  Scan locally for full analysis: ai-trust check ${answer.name} --rescan`
     );
   }
   nextSteps.push(
@@ -332,7 +332,7 @@ export function formatBatchResults(
     );
     lines.push(
       chalk.gray(
-        "  Or check individually: ai-trust check <name> --scan-if-missing"
+        "  Or check individually: ai-trust check <name> --rescan"
       )
     );
   }
