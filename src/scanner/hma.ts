@@ -41,12 +41,48 @@ export interface HmaFinding {
 }
 
 /**
+ * Resolve the HMA binary. Prefers the global `hackmyagent` binary (more
+ * likely to be up-to-date) over `npx hackmyagent` (which may use a stale
+ * npx cache, especially when ai-trust itself is run via npx).
+ *
+ * Returns { cmd, prefixArgs } where:
+ *   cmd="hackmyagent", prefixArgs=[]        (global binary)
+ *   cmd="npx",         prefixArgs=["hackmyagent"]  (npx fallback)
+ */
+let _resolvedHma: { cmd: string; prefixArgs: string[] } | null = null;
+
+async function resolveHma(): Promise<{ cmd: string; prefixArgs: string[] }> {
+  if (_resolvedHma) return _resolvedHma;
+
+  // Try global binary first
+  try {
+    await execFileAsync("hackmyagent", ["--version"], { timeout: 10_000 });
+    _resolvedHma = { cmd: "hackmyagent", prefixArgs: [] };
+    return _resolvedHma;
+  } catch {
+    // Not found globally
+  }
+
+  // Fall back to npx
+  try {
+    await execFileAsync("npx", ["hackmyagent", "--version"], { timeout: 15_000 });
+    _resolvedHma = { cmd: "npx", prefixArgs: ["hackmyagent"] };
+    return _resolvedHma;
+  } catch {
+    // Not available at all
+  }
+
+  _resolvedHma = { cmd: "npx", prefixArgs: ["hackmyagent"] };
+  return _resolvedHma;
+}
+
+/**
  * Check if HMA (hackmyagent) is available on the system.
- * Tries npx first, then checks for global install.
  */
 export async function isHmaAvailable(): Promise<boolean> {
   try {
-    await execFileAsync("npx", ["hackmyagent", "--version"], {
+    const hma = await resolveHma();
+    await execFileAsync(hma.cmd, [...hma.prefixArgs, "--version"], {
       timeout: 15_000,
     });
     return true;
@@ -57,7 +93,6 @@ export async function isHmaAvailable(): Promise<boolean> {
 
 /**
  * Run HMA security scan against a directory.
- * Uses `npx hackmyagent secure --format json <dir>`.
  *
  * @returns Parsed scan results
  * @throws If HMA is not available or scan fails to produce valid output
@@ -72,7 +107,8 @@ export async function runHmaScan(
   options: HmaScanOptions = {}
 ): Promise<HmaScanResult> {
   const deep = options.deep ?? true;
-  const args = ["hackmyagent", "secure", "--format", "json"];
+  const hma = await resolveHma();
+  const args = [...hma.prefixArgs, "secure", "--format", "json"];
   if (deep) {
     args.push("--deep");
   }
@@ -81,7 +117,7 @@ export async function runHmaScan(
   try {
     // HMA may exit non-zero when findings exist, so we handle that
     const { stdout } = await execFileAsync(
-      "npx",
+      hma.cmd,
       args,
       { timeout: deep ? 180_000 : 120_000 }
     );
