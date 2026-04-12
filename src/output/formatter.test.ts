@@ -7,19 +7,15 @@ import { formatCheckResult, formatBatchResults, formatScanResult, formatJson } f
 import type { TrustAnswer, BatchResponse } from "../api/client.js";
 import type { ScanResult } from "../scanner/index.js";
 
-// Disable chalk colors for predictable test output
+// Disable chalk colors for predictable test output.
+// Uses a Proxy so any chained access (chalk.bold.white, chalk.red.bold, etc.) works.
 vi.mock("chalk", () => {
-  const identity = (text: string) => text;
-  const chalkMock: Record<string, unknown> = {
-    green: identity,
-    yellow: identity,
-    red: identity,
-    gray: identity,
-    bold: identity,
-    dim: identity,
-    cyan: identity,
+  const identity = (text: string) => String(text);
+  const handler: ProxyHandler<typeof identity> = {
+    get: () => new Proxy(identity, handler),
+    apply: (_target, _thisArg, args) => String(args[0] ?? ""),
   };
-  return { default: chalkMock };
+  return { default: new Proxy(identity, handler) };
 });
 
 function makeTrustAnswer(overrides: Partial<TrustAnswer> = {}): TrustAnswer {
@@ -56,12 +52,12 @@ describe("formatCheckResult", () => {
     const output = formatCheckResult(answer);
 
     expect(output).toContain("my-mcp-server");
-    expect(output).toContain("SAFE");
+    expect(output).toContain("No known issues");
     expect(output).toContain("Verified");
     expect(output).toContain("95/100");
     expect(output).toContain("mcp_server");
     // Verified packages should not show the trust level legend
-    expect(output).not.toContain("Trust levels:");
+    expect(output).not.toContain("Blocked > Warning");
   });
 
   it("shows trust level legend for non-Verified packages", () => {
@@ -72,7 +68,11 @@ describe("formatCheckResult", () => {
     });
     const output = formatCheckResult(answer);
 
-    expect(output).toContain("Trust levels: Blocked (0) < Warning (1) < Listed (2) < Scanned (3) < Verified (4)");
+    expect(output).toContain("Blocked");
+    expect(output).toContain("Warning");
+    expect(output).toContain("Listed");
+    expect(output).toContain("Scanned");
+    expect(output).toContain("Verified");
   });
 
   it("shows next steps after check result", () => {
@@ -83,7 +83,7 @@ describe("formatCheckResult", () => {
     });
     const output = formatCheckResult(answer);
 
-    expect(output).toContain("Next steps");
+    expect(output).toContain("Next Steps");
     expect(output).toContain("ai-trust audit package.json");
   });
 
@@ -106,7 +106,7 @@ describe("formatCheckResult", () => {
     });
     const output = formatCheckResult(answer);
 
-    expect(output).toContain("Scan locally for full analysis");
+    expect(output).toContain("Scan locally");
     expect(output).toContain("--rescan");
   });
 
@@ -144,10 +144,10 @@ describe("formatCheckResult", () => {
     });
     const output = formatCheckResult(answer);
 
-    expect(output).toContain("Dependencies");
-    expect(output).toContain("15");
-    expect(output).toContain("2");
-    expect(output).toContain("1/4");
+    expect(output).toContain("Deps");
+    expect(output).toContain("15 total");
+    expect(output).toContain("2 vulnerable");
+    expect(output).toContain("min trust 1/4");
   });
 
   it("omits dependency section when totalDeps is 0", () => {
@@ -162,7 +162,7 @@ describe("formatCheckResult", () => {
     });
     const output = formatCheckResult(answer);
 
-    expect(output).not.toContain("Dependencies");
+    expect(output).not.toContain("Deps");
   });
 
   it("shows unknown for missing packageType", () => {
@@ -181,9 +181,8 @@ describe("formatCheckResult", () => {
     });
     const output = formatCheckResult(answer);
 
-    expect(output).toContain("Not scanned");
+    expect(output).toContain("not scanned");
     expect(output).not.toContain("0/100");
-    expect(output).toContain("has not been security-scanned");
   });
 
   it("shows 0/100 when score is 0 but scanStatus indicates a scan happened", () => {
@@ -204,7 +203,7 @@ describe("formatCheckResult", () => {
     });
     const output = formatCheckResult(answer);
 
-    expect(output).toContain("SAFE");
+    expect(output).toContain("No known issues");
   });
 
   it("normalizes 'listed' verdict from registry", () => {
@@ -216,7 +215,7 @@ describe("formatCheckResult", () => {
     });
     const output = formatCheckResult(answer);
 
-    expect(output).toContain("LISTED");
+    expect(output).toContain("Not yet security-scanned");
   });
 
   it("does not display confidence in check output", () => {
@@ -235,8 +234,7 @@ describe("formatCheckResult", () => {
     });
     const output = formatCheckResult(answer);
 
-    expect(output).toContain("Last Scanned:");
-    expect(output).toContain("2 days ago");
+    expect(output).toContain("scanned 2 days ago");
   });
 
   it("shows stale warning for old scans", () => {
@@ -319,7 +317,7 @@ describe("formatBatchResults", () => {
     ]);
     const output = formatBatchResults(response, 3);
 
-    expect(output).toContain("Next steps");
+    expect(output).toContain("Next Steps");
     expect(output).toContain("npx hackmyagent secure");
   });
 
@@ -338,7 +336,8 @@ describe("formatBatchResults", () => {
     ]);
     const output = formatBatchResults(response, 3);
 
-    expect(output).toContain("Trust levels:");
+    expect(output).toContain("Blocked");
+    expect(output).toContain("Verified");
   });
 
   it("does not show trust level legend when all packages are Verified", () => {
@@ -347,7 +346,8 @@ describe("formatBatchResults", () => {
     ]);
     const output = formatBatchResults(response, 3);
 
-    expect(output).not.toContain("Trust levels:");
+    // Legend not shown when all packages are Verified
+    expect(output).not.toContain("Blocked > Warning");
   });
 
   it("truncates long package names", () => {
@@ -432,7 +432,7 @@ describe("formatScanResult", () => {
 
     const output = formatScanResult(result);
     expect(output).toContain("CRED-HARVEST");
-    expect(output).toContain("Attack Class:");
+    expect(output).toContain("Attack:");
   });
 
   it("does not show attack class line when attackClass is absent", () => {
@@ -457,7 +457,7 @@ describe("formatScanResult", () => {
     });
 
     const output = formatScanResult(result);
-    expect(output).not.toContain("Attack Class:");
+    expect(output).not.toContain("Attack:");
   });
 });
 

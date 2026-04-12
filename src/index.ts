@@ -21,7 +21,7 @@ const program = new Command();
 program
   .name("ai-trust")
   .description("Check security trust scores for AI agents and MCP servers before installing them")
-  .version(pkg.version, "-v, --version")
+  .version(`ai-trust ${pkg.version} — trust verification for AI packages`, "-v, --version")
   .option(
     "--registry-url <url>",
     "registry base URL",
