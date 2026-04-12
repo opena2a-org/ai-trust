@@ -96,10 +96,7 @@ When a package is not in the registry, ai-trust can download and scan it locally
 # Auto-scan unknown packages, contribute results to the community registry
 ai-trust check mcp-server-xyz --scan-if-missing --contribute
 
-# Force re-scan even if registry data exists
-ai-trust check server-filesystem --rescan
-
-# Disable scanning entirely (registry lookup only)
+# Registry lookup only (skip local scan)
 ai-trust check server-filesystem --no-scan
 ```
 
@@ -144,7 +141,7 @@ On first scan, ai-trust asks whether you want to contribute. Your choice is save
 
 ```bash
 # Contribute for this scan (non-interactive / CI)
-ai-trust check chalk --rescan --contribute
+ai-trust check chalk --contribute
 
 # Configure globally via opena2a-cli
 opena2a config set contribute true    # opt in
