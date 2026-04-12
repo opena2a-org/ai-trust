@@ -101,6 +101,8 @@ function trustLevelColor(level: number) {
 }
 
 function formatScore(trustScore: number, scanStatus?: string): string {
+  if (scanStatus === "error") return "Scan error";
+  if (scanStatus === "failed") return "Scan failed";
   const notScanned =
     !scanStatus ||
     scanStatus === "" ||
@@ -114,6 +116,28 @@ function formatScore(trustScore: number, scanStatus?: string): string {
 
 function hasPassedScan(scanStatus?: string): boolean {
   return scanStatus === "passed" || scanStatus === "warnings";
+}
+
+function scanStatusColor(status?: string): (text: string) => string {
+  switch (status) {
+    case "passed":
+      return chalk.green;
+    case "warnings":
+      return chalk.yellow;
+    case "failed":
+    case "error":
+      return chalk.red;
+    case "local":
+      return chalk.cyan;
+    default:
+      return chalk.dim;
+  }
+}
+
+function scoreColor(value: number): (text: string) => string {
+  if (value >= 70) return chalk.green;
+  if (value >= 40) return chalk.yellow;
+  return chalk.red;
 }
 
 function formatScanAge(lastScannedAt?: string): string | null {
@@ -148,6 +172,7 @@ export function formatCheckResult(answer: TrustAnswer): string {
   const normalized = normalizeVerdict(answer.verdict);
   const scoreDisplay = formatScore(answer.trustScore, answer.scanStatus);
   const isUnscanned = scoreDisplay === "Not scanned";
+  const isScanError = answer.scanStatus === "error" || answer.scanStatus === "failed";
   const scoreVal = Math.round(answer.trustScore * 100);
 
   // Header
@@ -163,7 +188,9 @@ export function formatCheckResult(answer: TrustAnswer): string {
   // Verdict
   let verdictText: string;
   const vc = verdictColor(answer.verdict);
-  if (normalized === "blocked") {
+  if (isScanError) {
+    verdictText = "Scan failed \u2014 score is unreliable";
+  } else if (normalized === "blocked") {
     verdictText = "Blocked by registry";
   } else if (normalized === "warning") {
     verdictText = "Review before installing";
@@ -176,7 +203,9 @@ export function formatCheckResult(answer: TrustAnswer): string {
 
   // Score meter
   lines.push("");
-  if (isUnscanned) {
+  if (isScanError) {
+    lines.push(`  Trust     ${chalk.red.bold(scoreDisplay)} ${chalk.dim("\u2014 rescan to get an accurate score")}`);
+  } else if (isUnscanned) {
     lines.push(`  Trust     ${chalk.dim("not scanned \u2014 trust level reflects registry listing only")}`);
   } else {
     lines.push(`  Trust     ${scoreMeter(scoreVal)}`);
@@ -297,6 +326,19 @@ export function formatBatchResults(
     const colorVerdict = verdictColor(result.verdict);
     const colorTrust = trustLevelColor(result.trustLevel);
     const scoreDisplay = formatScore(result.trustScore, result.scanStatus);
+    const scoreVal = Math.round(result.trustScore * 100);
+
+    // Color the score based on value or status
+    const isScanError = result.scanStatus === "error" || result.scanStatus === "failed";
+    const coloredScore = isScanError
+      ? chalk.red(scoreDisplay.padEnd(scoreWidth))
+      : scoreDisplay === "Not scanned"
+        ? chalk.dim(scoreDisplay.padEnd(scoreWidth))
+        : scoreColor(scoreVal)(scoreDisplay.padEnd(scoreWidth));
+
+    // Color the scan status
+    const statusText = result.scanStatus || "-";
+    const coloredStatus = scanStatusColor(result.scanStatus)(statusText.padEnd(scanWidth));
 
     lines.push(
       "  " +
@@ -304,8 +346,8 @@ export function formatBatchResults(
         (result.packageType || "-").padEnd(typeWidth) +
         colorVerdict(normalized.toUpperCase().padEnd(verdictWidth)) +
         chalk.bold(colorTrust(trustLevelLabel(result.trustLevel).padEnd(levelWidth))) +
-        scoreDisplay.padEnd(scoreWidth) +
-        (result.scanStatus || "-").padEnd(scanWidth)
+        coloredScore +
+        coloredStatus
     );
   }
 
@@ -314,8 +356,15 @@ export function formatBatchResults(
     (r) => r.found && r.trustLevel < minTrust
   );
   const notFound = response.results.filter((r) => !r.found);
+  const errorScans = response.results.filter(
+    (r) => r.found && (r.scanStatus === "error" || r.scanStatus === "failed")
+  );
 
-  lines.push("");
+  if (belowThreshold.length > 0 || notFound.length > 0 || errorScans.length > 0) {
+    lines.push(divider("Summary"));
+  } else {
+    lines.push("");
+  }
 
   if (belowThreshold.length > 0) {
     lines.push(
@@ -324,10 +373,22 @@ export function formatBatchResults(
       )
     );
     for (const pkg of belowThreshold) {
+      const tlc = trustLevelColor(pkg.trustLevel);
       lines.push(
-        chalk.yellow(
-          `  ${chalk.dim("\u2502")} ${pkg.name} (trust level ${pkg.trustLevel}, verdict: ${pkg.verdict})`
-        )
+        `  ${chalk.yellow("\u2502")} ${pkg.name}  ${tlc(trustLevelLabel(pkg.trustLevel))} ${chalk.dim(`(${pkg.trustLevel}/4)`)}`
+      );
+    }
+  }
+
+  if (errorScans.length > 0) {
+    lines.push(
+      chalk.red.bold(
+        `  ${errorScans.length} package(s) with scan errors:`
+      )
+    );
+    for (const pkg of errorScans) {
+      lines.push(
+        `  ${chalk.red("\u2502")} ${pkg.name}  ${chalk.red(pkg.scanStatus || "error")} ${chalk.dim("\u2014 rescan for accurate score")}`
       );
     }
   }
@@ -339,11 +400,11 @@ export function formatBatchResults(
       )
     );
     for (const pkg of notFound) {
-      lines.push(chalk.yellow(`  ${chalk.dim("\u2502")} ${pkg.name}`));
+      lines.push(`  ${chalk.yellow("\u2502")} ${pkg.name}`);
     }
   }
 
-  if (belowThreshold.length === 0 && notFound.length === 0) {
+  if (belowThreshold.length === 0 && notFound.length === 0 && errorScans.length === 0) {
     lines.push(
       chalk.green.bold(
         `  All ${response.meta.found} packages meet minimum trust level ${minTrust}.`
@@ -362,6 +423,11 @@ export function formatBatchResults(
 
   // Next steps
   lines.push(divider("Next Steps"));
+  if (errorScans.length > 0) {
+    lines.push(
+      `  ${chalk.cyan("Rescan errors:")}     ai-trust check <name> --rescan`
+    );
+  }
   if (notFound.length > 0) {
     lines.push(
       `  ${chalk.cyan("Scan missing:")}      ai-trust audit <file> --scan-missing`
