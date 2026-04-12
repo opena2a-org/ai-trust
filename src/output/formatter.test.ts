@@ -219,36 +219,9 @@ describe("formatCheckResult", () => {
     expect(output).toContain("LISTED");
   });
 
-  it("shows confidence when available", () => {
-    const answer = makeTrustAnswer({
-      confidence: 0.75,
-    });
-    const output = formatCheckResult(answer);
-
-    expect(output).toContain("high confidence");
-  });
-
-  it("shows moderate confidence", () => {
-    const answer = makeTrustAnswer({
-      confidence: 0.5,
-    });
-    const output = formatCheckResult(answer);
-
-    expect(output).toContain("moderate confidence");
-  });
-
-  it("shows low confidence", () => {
+  it("does not display confidence in check output", () => {
     const answer = makeTrustAnswer({
       confidence: 0.2,
-    });
-    const output = formatCheckResult(answer);
-
-    expect(output).toContain("low confidence");
-  });
-
-  it("omits confidence when zero or missing", () => {
-    const answer = makeTrustAnswer({
-      confidence: 0,
     });
     const output = formatCheckResult(answer);
 

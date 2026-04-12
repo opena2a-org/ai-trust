@@ -91,18 +91,6 @@ function hasPassedScan(scanStatus?: string): boolean {
 }
 
 /**
- * Format confidence level for display.
- */
-function formatConfidence(confidence?: number): string | null {
-  if (confidence === undefined || confidence === null || confidence === 0) {
-    return null;
-  }
-  if (confidence >= 0.7) return "high confidence";
-  if (confidence >= 0.4) return "moderate confidence";
-  return "low confidence";
-}
-
-/**
  * Format scan age for display.
  */
 function formatScanAge(lastScannedAt?: string): string | null {
@@ -143,12 +131,6 @@ export function formatCheckResult(answer: TrustAnswer): string {
     `  Trust Score:    ${isUnscanned ? chalk.gray(scoreDisplay) : scoreDisplay}`,
   ];
 
-  // Show confidence if available
-  const confidence = formatConfidence(answer.confidence);
-  if (confidence) {
-    lines.push(`  Confidence:     ${confidence}`);
-  }
-
   // Show scan age
   const scanAge = formatScanAge(answer.lastScannedAt);
   if (scanAge) {
@@ -188,6 +170,11 @@ export function formatCheckResult(answer: TrustAnswer): string {
   } else if (isUnscanned || answer.trustLevel <= 2) {
     nextSteps.push(
       `  Scan locally for full analysis: ai-trust check ${answer.name} --rescan`
+    );
+  } else {
+    // Already safe/scanned — still show how to re-run a fresh local scan
+    nextSteps.push(
+      `  Run a fresh local scan: ai-trust check ${answer.name} --rescan`
     );
   }
   nextSteps.push(
