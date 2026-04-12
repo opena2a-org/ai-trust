@@ -37,7 +37,6 @@ interface CheckOptions {
   contribute?: boolean;
   scan?: boolean; // --no-scan sets this to false (commander strips the "no-" prefix)
   rescan?: boolean;
-  staleDays?: string;
   /** Enable NanoMind semantic analysis (--deep / --no-deep). Defaults to true. */
   deep?: boolean;
   /** Internal: set when scanning a package not yet in the registry */
@@ -60,13 +59,8 @@ export function registerCheckCommand(program: Command): void {
       "--contribute",
       "auto-contribute scan results to community registry"
     )
-    .option("--no-scan", "never scan, only query registry")
-    .option("--rescan", "force re-scan even if data exists")
-    .option(
-      "--stale-days <n>",
-      "consider data stale after N days",
-      "90"
-    )
+    .option("--no-scan", "registry lookup only, skip local scan")
+    .option("--rescan", "deprecated (local scan is now the default)")
     .option(
       "--no-deep",
       "disable NanoMind semantic analysis (static checks only)"
@@ -80,53 +74,51 @@ export function registerCheckCommand(program: Command): void {
       const name = resolveAndLog(rawName);
       const client = new RegistryClient(globalOpts.registryUrl);
 
-      try {
-        const result = await client.checkTrust(name, opts.type);
+      // --rescan is deprecated — local scan is now the default
+      if (opts.rescan) {
+        console.error(chalk.dim("  Note: --rescan is deprecated. Local scan is now the default."));
+      }
 
-        // Check for stale data
-        if (result.found && opts.rescan) {
-          await handleScanFlow(
-            name,
-            client,
-            globalOpts,
-            opts,
-            "Re-scanning..."
-          );
-          return;
-        }
-
-        if (globalOpts.json) {
-          console.log(formatJson(result));
-        } else {
-          console.log(formatCheckResult(result));
-        }
-
-        if (
-          result.found &&
-          (result.verdict === "blocked" || result.verdict === "warning" || result.verdict === "warnings" || result.verdict === "failed")
-        ) {
-          process.exitCode = 2;
-        }
-      } catch (err) {
-        if (err instanceof PackageNotFoundError) {
-          if (opts.scan === false) {
-            // --no-scan: still give actionable guidance, not a dead end
+      // --no-scan: registry lookup only (fast mode)
+      if (opts.scan === false) {
+        try {
+          const result = await client.checkTrust(name, opts.type);
+          if (globalOpts.json) {
+            console.log(formatJson(result));
+          } else {
+            console.log(formatCheckResult(result));
+          }
+          if (
+            result.found &&
+            (result.verdict === "blocked" || result.verdict === "warning" || result.verdict === "warnings" || result.verdict === "failed")
+          ) {
+            process.exitCode = 2;
+          }
+        } catch (err) {
+          if (err instanceof PackageNotFoundError) {
             handleNoScanNotFound(name, globalOpts);
           } else {
-            await handleNotFound(name, client, globalOpts, opts);
+            const message = err instanceof Error ? err.message : String(err);
+            if (globalOpts.json) {
+              console.log(formatJson({ name, found: false, error: message }));
+            } else {
+              console.error(`Error: ${message}`);
+            }
+            process.exitCode = 1;
           }
-        } else {
-          const message = err instanceof Error ? err.message : String(err);
-          if (globalOpts.json) {
-            console.log(
-              formatJson({ name, found: false, error: message })
-            );
-          } else {
-            console.error(`Error: ${message}`);
-          }
-          process.exitCode = 1;
         }
+        return;
       }
+
+      // Default: local HMA scan + registry context
+      // Registry is new and most scores are stale, so always scan fresh
+      await handleScanFlow(
+        name,
+        client,
+        globalOpts,
+        opts,
+        `Scanning ${name}...`
+      );
     });
 }
 

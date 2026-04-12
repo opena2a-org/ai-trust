@@ -93,180 +93,36 @@ describe("check command", () => {
     process.exitCode = savedExitCode;
   });
 
-  it("calls client.checkTrust with the package name", async () => {
-    const mockCheckTrust = vi.fn().mockResolvedValue({
-      name: "my-pkg",
-      found: true,
-      verdict: "safe",
-      trustLevel: 3,
+  describe("--no-scan (registry-only mode)", () => {
+    it("calls client.checkTrust with the package name", async () => {
+      const mockCheckTrust = vi.fn().mockResolvedValue({
+        name: "my-pkg",
+        found: true,
+        verdict: "safe",
+        trustLevel: 3,
+      });
+      vi.mocked(RegistryClient).mockImplementation(
+        () =>
+          ({
+            checkTrust: mockCheckTrust,
+            batchQuery: vi.fn(),
+            publishScan: vi.fn(),
+          }) as any
+      );
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "check", "my-pkg", "--no-scan"]);
+
+      expect(mockCheckTrust).toHaveBeenCalledWith("my-pkg", undefined);
     });
-    vi.mocked(RegistryClient).mockImplementation(
-      () =>
-        ({
-          checkTrust: mockCheckTrust,
-          batchQuery: vi.fn(),
-          publishScan: vi.fn(),
-        }) as any
-    );
 
-    const program = createProgram();
-    await program.parseAsync(["node", "test", "check", "my-pkg"]);
-
-    expect(mockCheckTrust).toHaveBeenCalledWith("my-pkg", undefined);
-  });
-
-  it("passes type option to checkTrust", async () => {
-    const mockCheckTrust = vi.fn().mockResolvedValue({
-      name: "my-pkg",
-      found: true,
-      verdict: "safe",
-      trustLevel: 3,
-    });
-    vi.mocked(RegistryClient).mockImplementation(
-      () =>
-        ({
-          checkTrust: mockCheckTrust,
-          batchQuery: vi.fn(),
-          publishScan: vi.fn(),
-        }) as any
-    );
-
-    const program = createProgram();
-    await program.parseAsync([
-      "node",
-      "test",
-      "check",
-      "my-pkg",
-      "-t",
-      "mcp_server",
-    ]);
-
-    expect(mockCheckTrust).toHaveBeenCalledWith("my-pkg", "mcp_server");
-  });
-
-  it("uses formatJson when --json flag is set", async () => {
-    const mockCheckTrust = vi.fn().mockResolvedValue({
-      name: "my-pkg",
-      found: true,
-      verdict: "safe",
-      trustLevel: 3,
-    });
-    vi.mocked(RegistryClient).mockImplementation(
-      () =>
-        ({
-          checkTrust: mockCheckTrust,
-          batchQuery: vi.fn(),
-          publishScan: vi.fn(),
-        }) as any
-    );
-
-    const program = createProgram();
-    await program.parseAsync([
-      "node",
-      "test",
-      "--json",
-      "check",
-      "my-pkg",
-    ]);
-
-    expect(formatJson).toHaveBeenCalled();
-  });
-
-  it("sets exit code 2 for blocked verdict (policy signal)", async () => {
-    const mockCheckTrust = vi.fn().mockResolvedValue({
-      name: "bad-pkg",
-      found: true,
-      verdict: "blocked",
-      trustLevel: 0,
-    });
-    vi.mocked(RegistryClient).mockImplementation(
-      () =>
-        ({
-          checkTrust: mockCheckTrust,
-          batchQuery: vi.fn(),
-          publishScan: vi.fn(),
-        }) as any
-    );
-
-    const program = createProgram();
-    await program.parseAsync(["node", "test", "check", "bad-pkg"]);
-
-    expect(process.exitCode).toBe(2);
-  });
-
-  it("sets exit code 2 for warning verdict (policy signal)", async () => {
-    const mockCheckTrust = vi.fn().mockResolvedValue({
-      name: "risky-pkg",
-      found: true,
-      verdict: "warning",
-      trustLevel: 1,
-    });
-    vi.mocked(RegistryClient).mockImplementation(
-      () =>
-        ({
-          checkTrust: mockCheckTrust,
-          batchQuery: vi.fn(),
-          publishScan: vi.fn(),
-        }) as any
-    );
-
-    const program = createProgram();
-    await program.parseAsync(["node", "test", "check", "risky-pkg"]);
-
-    expect(process.exitCode).toBe(2);
-  });
-
-  it("does not set exit code for safe verdict", async () => {
-    const mockCheckTrust = vi.fn().mockResolvedValue({
-      name: "good-pkg",
-      found: true,
-      verdict: "safe",
-      trustLevel: 4,
-    });
-    vi.mocked(RegistryClient).mockImplementation(
-      () =>
-        ({
-          checkTrust: mockCheckTrust,
-          batchQuery: vi.fn(),
-          publishScan: vi.fn(),
-        }) as any
-    );
-
-    const program = createProgram();
-    await program.parseAsync(["node", "test", "check", "good-pkg"]);
-
-    expect(process.exitCode).toBeUndefined();
-  });
-
-  it("sets exit code 1 on API error", async () => {
-    const mockCheckTrust = vi
-      .fn()
-      .mockRejectedValue(new Error("network failure"));
-    vi.mocked(RegistryClient).mockImplementation(
-      () =>
-        ({
-          checkTrust: mockCheckTrust,
-          batchQuery: vi.fn(),
-          publishScan: vi.fn(),
-        }) as any
-    );
-
-    const program = createProgram();
-    await program.parseAsync(["node", "test", "check", "any-pkg"]);
-
-    expect(process.exitCode).toBe(1);
-    expect(consoleErrSpy).toHaveBeenCalledWith(
-      "Error: network failure"
-    );
-  });
-
-  describe("scan-on-demand", () => {
-    it("shows not-found message with hint in non-TTY mode", async () => {
-      const mockCheckTrust = vi
-        .fn()
-        .mockRejectedValue(
-          new PackageNotFoundError("unknown-pkg")
-        );
+    it("passes type option to checkTrust", async () => {
+      const mockCheckTrust = vi.fn().mockResolvedValue({
+        name: "my-pkg",
+        found: true,
+        verdict: "safe",
+        trustLevel: 3,
+      });
       vi.mocked(RegistryClient).mockImplementation(
         () =>
           ({
@@ -281,17 +137,133 @@ describe("check command", () => {
         "node",
         "test",
         "check",
-        "unknown-pkg",
+        "my-pkg",
+        "-t",
+        "mcp_server",
+        "--no-scan",
       ]);
 
-      // Non-TTY: tells user to use --scan-if-missing
-      expect(consoleErrSpy).toHaveBeenCalledWith(
-        expect.stringContaining("--scan-if-missing")
+      expect(mockCheckTrust).toHaveBeenCalledWith("my-pkg", "mcp_server");
+    });
+
+    it("uses formatJson when --json flag is set", async () => {
+      const mockCheckTrust = vi.fn().mockResolvedValue({
+        name: "my-pkg",
+        found: true,
+        verdict: "safe",
+        trustLevel: 3,
+      });
+      vi.mocked(RegistryClient).mockImplementation(
+        () =>
+          ({
+            checkTrust: mockCheckTrust,
+            batchQuery: vi.fn(),
+            publishScan: vi.fn(),
+          }) as any
       );
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node",
+        "test",
+        "--json",
+        "check",
+        "my-pkg",
+        "--no-scan",
+      ]);
+
+      expect(formatJson).toHaveBeenCalled();
+    });
+
+    it("sets exit code 2 for blocked verdict (policy signal)", async () => {
+      const mockCheckTrust = vi.fn().mockResolvedValue({
+        name: "bad-pkg",
+        found: true,
+        verdict: "blocked",
+        trustLevel: 0,
+      });
+      vi.mocked(RegistryClient).mockImplementation(
+        () =>
+          ({
+            checkTrust: mockCheckTrust,
+            batchQuery: vi.fn(),
+            publishScan: vi.fn(),
+          }) as any
+      );
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "check", "bad-pkg", "--no-scan"]);
+
       expect(process.exitCode).toBe(2);
     });
 
-    it("skips scan with --no-scan flag", async () => {
+    it("sets exit code 2 for warning verdict (policy signal)", async () => {
+      const mockCheckTrust = vi.fn().mockResolvedValue({
+        name: "risky-pkg",
+        found: true,
+        verdict: "warning",
+        trustLevel: 1,
+      });
+      vi.mocked(RegistryClient).mockImplementation(
+        () =>
+          ({
+            checkTrust: mockCheckTrust,
+            batchQuery: vi.fn(),
+            publishScan: vi.fn(),
+          }) as any
+      );
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "check", "risky-pkg", "--no-scan"]);
+
+      expect(process.exitCode).toBe(2);
+    });
+
+    it("does not set exit code for safe verdict", async () => {
+      const mockCheckTrust = vi.fn().mockResolvedValue({
+        name: "good-pkg",
+        found: true,
+        verdict: "safe",
+        trustLevel: 4,
+      });
+      vi.mocked(RegistryClient).mockImplementation(
+        () =>
+          ({
+            checkTrust: mockCheckTrust,
+            batchQuery: vi.fn(),
+            publishScan: vi.fn(),
+          }) as any
+      );
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "check", "good-pkg", "--no-scan"]);
+
+      expect(process.exitCode).toBeUndefined();
+    });
+
+    it("sets exit code 1 on API error", async () => {
+      const mockCheckTrust = vi
+        .fn()
+        .mockRejectedValue(new Error("network failure"));
+      vi.mocked(RegistryClient).mockImplementation(
+        () =>
+          ({
+            checkTrust: mockCheckTrust,
+            batchQuery: vi.fn(),
+            publishScan: vi.fn(),
+          }) as any
+      );
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "check", "any-pkg", "--no-scan"]);
+
+      expect(process.exitCode).toBe(1);
+      expect(consoleErrSpy).toHaveBeenCalledWith(
+        "Error: network failure"
+      );
+    });
+
+    it("shows not-found message with actionable next steps", async () => {
       const mockCheckTrust = vi
         .fn()
         .mockRejectedValue(
@@ -316,15 +288,125 @@ describe("check command", () => {
       ]);
 
       expect(process.exitCode).toBe(2);
-      // Should show not-found message with actionable next steps
       expect(consoleErrSpy).toHaveBeenCalledWith(
-        expect.stringContaining('not found in the OpenA2A Registry')
+        expect.stringContaining("not found in the OpenA2A Registry")
       );
       expect(consoleErrSpy).toHaveBeenCalledWith(
-        expect.stringContaining('--scan-if-missing')
+        expect.stringContaining("--scan-if-missing")
+      );
+    });
+  });
+
+  describe("default (local scan)", () => {
+    it("triggers local HMA scan by default", async () => {
+      vi.mocked(isHmaAvailable).mockResolvedValue(true);
+      vi.mocked(scanPackage).mockResolvedValue({
+        packageName: "my-pkg",
+        scan: {
+          score: 90,
+          maxScore: 100,
+          findings: [],
+          projectType: "library",
+          timestamp: "2026-04-12T00:00:00Z",
+        },
+        trustScore: 0.9,
+        trustLevel: 3,
+        verdict: "safe",
+      });
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "check", "my-pkg"]);
+
+      expect(scanPackage).toHaveBeenCalledWith("my-pkg", { deep: true });
+      expect(formatScanResult).toHaveBeenCalled();
+    });
+
+    it("shows HMA install message when HMA is not available", async () => {
+      vi.mocked(isHmaAvailable).mockResolvedValue(false);
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "check", "my-pkg"]);
+
+      expect(process.exitCode).toBe(1);
+      expect(consoleErrSpy).toHaveBeenCalledWith(
+        expect.stringContaining("HMA (HackMyAgent) is required")
       );
     });
 
+    it("sets exit code 2 for warning verdict from scan", async () => {
+      vi.mocked(isHmaAvailable).mockResolvedValue(true);
+      vi.mocked(scanPackage).mockResolvedValue({
+        packageName: "risky-pkg",
+        scan: {
+          score: 45,
+          maxScore: 100,
+          findings: [
+            {
+              checkId: "SEC-001",
+              name: "Hardcoded secret",
+              description: "Found hardcoded API key",
+              category: "secrets",
+              severity: "high",
+              passed: false,
+              message: "API key found in source",
+            },
+          ],
+          projectType: "library",
+          timestamp: "2026-04-12T00:00:00Z",
+        },
+        trustScore: 0.45,
+        trustLevel: 1,
+        verdict: "warning",
+      });
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "check", "risky-pkg"]);
+
+      expect(process.exitCode).toBe(2);
+    });
+
+    it("handles scan failure gracefully", async () => {
+      vi.mocked(isHmaAvailable).mockResolvedValue(true);
+      vi.mocked(scanPackage).mockRejectedValue(
+        new Error("download failed")
+      );
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "check", "broken-pkg"]);
+
+      expect(process.exitCode).toBe(1);
+      expect(consoleErrSpy).toHaveBeenCalledWith(
+        "Error: download failed"
+      );
+    });
+
+    it("--rescan shows deprecation notice but still scans", async () => {
+      vi.mocked(isHmaAvailable).mockResolvedValue(true);
+      vi.mocked(scanPackage).mockResolvedValue({
+        packageName: "my-pkg",
+        scan: {
+          score: 90,
+          maxScore: 100,
+          findings: [],
+          projectType: "library",
+          timestamp: "2026-04-12T00:00:00Z",
+        },
+        trustScore: 0.9,
+        trustLevel: 3,
+        verdict: "safe",
+      });
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "check", "my-pkg", "--rescan"]);
+
+      expect(consoleErrSpy).toHaveBeenCalledWith(
+        expect.stringContaining("--rescan is deprecated")
+      );
+      expect(scanPackage).toHaveBeenCalled();
+    });
+  });
+
+  describe("scan-on-demand (--scan-if-missing)", () => {
     it("auto-scans with --scan-if-missing when HMA is available", async () => {
       const mockCheckTrust = vi
         .fn()
@@ -407,91 +489,6 @@ describe("check command", () => {
       ]);
 
       expect(queueScanResult).toHaveBeenCalled();
-    });
-
-    it("sets exit code 2 when scan result is warning (policy signal)", async () => {
-      const mockCheckTrust = vi
-        .fn()
-        .mockRejectedValue(
-          new PackageNotFoundError("risky-pkg")
-        );
-      vi.mocked(RegistryClient).mockImplementation(
-        () =>
-          ({
-            checkTrust: mockCheckTrust,
-            batchQuery: vi.fn(),
-            publishScan: vi.fn(),
-          }) as any
-      );
-      vi.mocked(isHmaAvailable).mockResolvedValue(true);
-      vi.mocked(scanPackage).mockResolvedValue({
-        packageName: "risky-pkg",
-        scan: {
-          score: 45,
-          maxScore: 100,
-          findings: [
-            {
-              checkId: "SEC-001",
-              name: "Hardcoded secret",
-              description: "Found hardcoded API key",
-              category: "secrets",
-              severity: "high",
-              passed: false,
-              message: "API key found in source",
-            },
-          ],
-          projectType: "library",
-          timestamp: "2026-03-14T00:00:00Z",
-        },
-        trustScore: 0.45,
-        trustLevel: 1,
-        verdict: "warning",
-      });
-
-      const program = createProgram();
-      await program.parseAsync([
-        "node",
-        "test",
-        "check",
-        "risky-pkg",
-        "--scan-if-missing",
-      ]);
-
-      expect(process.exitCode).toBe(2);
-    });
-
-    it("handles scan failure gracefully", async () => {
-      const mockCheckTrust = vi
-        .fn()
-        .mockRejectedValue(
-          new PackageNotFoundError("broken-pkg")
-        );
-      vi.mocked(RegistryClient).mockImplementation(
-        () =>
-          ({
-            checkTrust: mockCheckTrust,
-            batchQuery: vi.fn(),
-            publishScan: vi.fn(),
-          }) as any
-      );
-      vi.mocked(isHmaAvailable).mockResolvedValue(true);
-      vi.mocked(scanPackage).mockRejectedValue(
-        new Error("download failed")
-      );
-
-      const program = createProgram();
-      await program.parseAsync([
-        "node",
-        "test",
-        "check",
-        "broken-pkg",
-        "--scan-if-missing",
-      ]);
-
-      expect(process.exitCode).toBe(1);
-      expect(consoleErrSpy).toHaveBeenCalledWith(
-        "Error: download failed"
-      );
     });
 
     it("handles telemetry failure gracefully (non-fatal)", async () => {
