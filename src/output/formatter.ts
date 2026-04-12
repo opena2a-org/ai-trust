@@ -412,10 +412,9 @@ export function formatScanResult(result: ScanResult): string {
   }
   lines.push(`  ${chalk.bold(vc(verdictText))}`);
 
-  // Score meters
+  // Score meter — show Security (from local scan), not Trust (that's registry)
   lines.push("");
   lines.push(`  Security  ${scoreMeter(result.scan.score, result.scan.maxScore)}`);
-  lines.push(`  Trust     ${scoreMeter(scoreVal)}`);
 
   // Trust level
   const tlColor = trustLevelColor(result.trustLevel);

@@ -25,8 +25,25 @@ export interface ScanResult {
 }
 
 /**
+ * Categories that describe local dev-environment setup, not package security.
+ * Aligned with HMA's PACKAGE_SCAN_LOCAL_ONLY_CATEGORIES in cli.ts.
+ * These are filtered when scanning a downloaded package because findings like
+ * "Missing .gitignore" are meaningless for an npm tarball.
+ */
+const LOCAL_ONLY_CATEGORIES = new Set([
+  "git",
+  "permissions",
+  "environment",
+  "logging",
+  "claude-code",
+  "cursor",
+  "vscode",
+]);
+
+/**
  * Download a package, scan it with HMA, and return results.
  * Cleans up the temp directory after scanning.
+ * Filters local-only findings (git, permissions, etc.) to match HMA check output.
  */
 export async function scanPackage(
   name: string,
@@ -36,6 +53,37 @@ export async function scanPackage(
 
   try {
     const scan = await runHmaScan(download.dir, options);
+
+    // Filter out local-dev-only findings that are meaningless for downloaded packages.
+    // This matches HMA's filterLocalOnlyFindings() so scores are consistent.
+    const originalCount = scan.findings.filter((f) => !f.passed).length;
+    scan.findings = scan.findings.filter(
+      (f) => f.passed || !LOCAL_ONLY_CATEGORIES.has(f.category)
+    );
+    const filteredCount = scan.findings.filter((f) => !f.passed).length;
+
+    // Recalculate score if findings were filtered
+    if (filteredCount < originalCount && scan.maxScore > 0) {
+      // Use the same exponential decay formula as HMA's calculateScore()
+      const SEVERITY_WEIGHTS: Record<string, number> = {
+        critical: 25,
+        high: 15,
+        medium: 8,
+        low: 3,
+      };
+      let weightedSum = 0;
+      for (const f of scan.findings) {
+        if (!f.passed) {
+          weightedSum += SEVERITY_WEIGHTS[f.severity] ?? 8;
+        }
+      }
+      const DECAY_CONSTANT = 150;
+      scan.score =
+        weightedSum === 0
+          ? 100
+          : Math.round(100 * Math.exp(-weightedSum / DECAY_CONSTANT));
+    }
+
     const trustScore = scan.score / scan.maxScore;
     const trustLevel = deriveTrustLevel(scan);
     const verdict = deriveVerdict(scan);
