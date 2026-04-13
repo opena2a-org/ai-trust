@@ -615,7 +615,7 @@ export function formatScanResult(result: ScanResult): string {
 
   // AI analyst findings (from --analyze mode)
   if (result.analystFindings && result.analystFindings.length > 0) {
-    lines.push(divider("AI Analysis"));
+    lines.push(divider("AnaLM Analysis"));
 
     for (const af of result.analystFindings) {
       const r = af.result;

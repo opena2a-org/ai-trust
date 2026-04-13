@@ -22,7 +22,7 @@ export interface ScanResult {
   verdict: "safe" | "warning" | "blocked";
   /** NanoMind semantic analysis results (present when deep scan is enabled) */
   semanticFindings?: SemanticFinding[];
-  /** AI analyst findings from NanoMind Security Analyst (present when --analyze is used) */
+  /** AnaLM findings (present when --analm is used) */
   analystFindings?: AnalystFinding[];
 }
 

@@ -30,7 +30,7 @@ export interface HmaScanResult {
   findings: HmaFinding[];
   /** Semantic analysis results from NanoMind (present when --deep is used) */
   semanticFindings?: SemanticFinding[];
-  /** AI analyst findings from NanoMind Security Analyst (present when --analyze is used) */
+  /** AnaLM findings (present when --analm is used) */
   analystFindings?: AnalystFinding[];
   projectType: string;
   timestamp: string;
@@ -118,8 +118,8 @@ export async function isHmaAvailable(): Promise<boolean> {
 export interface HmaScanOptions {
   /** Enable NanoMind semantic analysis via HMA --deep flag. Defaults to true. */
   deep?: boolean;
-  /** Enable AI-powered analysis via HMA --analyze flag. Defaults to false. */
-  analyze?: boolean;
+  /** Enable AnaLM analysis via HMA --analm flag. Defaults to false. */
+  analm?: boolean;
 }
 
 export async function runHmaScan(
@@ -127,14 +127,14 @@ export async function runHmaScan(
   options: HmaScanOptions = {}
 ): Promise<HmaScanResult> {
   const deep = options.deep ?? true;
-  const analyze = options.analyze ?? false;
+  const analm = options.analm ?? false;
   const hma = await resolveHma();
   const args = [...hma.prefixArgs, "secure", "--format", "json"];
   if (deep) {
     args.push("--deep");
   }
-  if (analyze) {
-    args.push("--analyze");
+  if (analm) {
+    args.push("--analm");
   }
   args.push(targetDir);
 

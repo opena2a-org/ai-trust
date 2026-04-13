@@ -39,8 +39,8 @@ interface CheckOptions {
   rescan?: boolean;
   /** Enable NanoMind semantic analysis (--deep / --no-deep). Defaults to true. */
   deep?: boolean;
-  /** Enable AI-powered analysis (--analyze). Defaults to false. */
-  analyze?: boolean;
+  /** Enable AnaLM analysis (--analm). Defaults to false. */
+  analm?: boolean;
   /** Internal: set when scanning a package not yet in the registry */
   _firstScan?: boolean;
 }
@@ -68,8 +68,8 @@ export function registerCheckCommand(program: Command): void {
       "disable NanoMind semantic analysis (static checks only)"
     )
     .option(
-      "--analyze",
-      "AI-powered threat analysis using NanoMind Security Analyst"
+      "--analm",
+      "AI-powered threat analysis using AnaLM"
     )
     .action(async (rawName: string, opts: CheckOptions) => {
       const globalOpts = program.opts() as {
@@ -199,7 +199,7 @@ async function handleScanFlow(
 
   let scanResult: ScanResult;
   try {
-    scanResult = await scanPackage(name, { deep: opts.deep ?? true, analyze: opts.analyze });
+    scanResult = await scanPackage(name, { deep: opts.deep ?? true, analm: opts.analm });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (globalOpts.json) {
