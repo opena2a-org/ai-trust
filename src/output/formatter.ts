@@ -613,6 +613,53 @@ export function formatScanResult(result: ScanResult): string {
     }
   }
 
+  // AI analyst findings (from --analyze mode)
+  if (result.analystFindings && result.analystFindings.length > 0) {
+    lines.push(divider("AI Analysis"));
+
+    for (const af of result.analystFindings) {
+      const r = af.result;
+      if (af.taskType === "threatAnalysis") {
+        const level = String(r.threatLevel ?? "unknown").toUpperCase();
+        const levelColor =
+          level === "CRITICAL" || level === "HIGH"
+            ? chalk.red
+            : level === "MEDIUM"
+              ? chalk.yellow
+              : chalk.dim;
+        lines.push(
+          `  ${chalk.cyan("\u2502")} ${levelColor.bold(level)}  ${r.attackVector ?? ""}`
+        );
+        if (r.description) {
+          lines.push(`  ${chalk.cyan("\u2502")} ${r.description}`);
+        }
+        if (Array.isArray(r.mitigations)) {
+          for (const m of r.mitigations) {
+            lines.push(`  ${chalk.cyan("\u2502")} ${chalk.cyan("Fix:")} ${m}`);
+          }
+        }
+      } else if (af.taskType === "credentialContextClassification") {
+        const cls = String(r.classification ?? "unknown");
+        const clsColor =
+          cls === "real"
+            ? chalk.red
+            : cls === "test" || cls === "example"
+              ? chalk.green
+              : chalk.yellow;
+        lines.push(
+          `  ${chalk.cyan("\u2502")} Credential: ${clsColor.bold(cls)}`
+        );
+        if (r.reasoning) {
+          lines.push(`  ${chalk.cyan("\u2502")} ${r.reasoning}`);
+        }
+      }
+      lines.push(
+        `  ${chalk.cyan("\u2502")} ${chalk.dim(`${Math.round(af.confidence * 100)}% confidence | ${af.modelVersion}`)}`
+      );
+      lines.push("");
+    }
+  }
+
   // Trust level legend
   if (result.trustLevel < 4) {
     lines.push("");

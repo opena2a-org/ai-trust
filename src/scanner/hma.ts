@@ -15,12 +15,23 @@ export interface SemanticFinding {
   file: string;
 }
 
+export interface AnalystFinding {
+  taskType: string;
+  result: Record<string, unknown>;
+  confidence: number;
+  modelVersion: string;
+  durationMs: number;
+  backend: string;
+}
+
 export interface HmaScanResult {
   score: number;
   maxScore: number;
   findings: HmaFinding[];
   /** Semantic analysis results from NanoMind (present when --deep is used) */
   semanticFindings?: SemanticFinding[];
+  /** AI analyst findings from NanoMind Security Analyst (present when --analyze is used) */
+  analystFindings?: AnalystFinding[];
   projectType: string;
   timestamp: string;
 }
@@ -107,6 +118,8 @@ export async function isHmaAvailable(): Promise<boolean> {
 export interface HmaScanOptions {
   /** Enable NanoMind semantic analysis via HMA --deep flag. Defaults to true. */
   deep?: boolean;
+  /** Enable AI-powered analysis via HMA --analyze flag. Defaults to false. */
+  analyze?: boolean;
 }
 
 export async function runHmaScan(
@@ -114,10 +127,14 @@ export async function runHmaScan(
   options: HmaScanOptions = {}
 ): Promise<HmaScanResult> {
   const deep = options.deep ?? true;
+  const analyze = options.analyze ?? false;
   const hma = await resolveHma();
   const args = [...hma.prefixArgs, "secure", "--format", "json"];
   if (deep) {
     args.push("--deep");
+  }
+  if (analyze) {
+    args.push("--analyze");
   }
   args.push(targetDir);
 
@@ -199,6 +216,20 @@ function parseHmaOutput(stdout: string): HmaScanResult {
         attackClass: (sf.attackClass as string) ?? "unknown",
         confidence: typeof sf.confidence === "number" ? sf.confidence : 0,
         file: (sf.file as string) ?? "",
+      })
+    );
+  }
+
+  // Parse analyst findings when present (from --analyze mode)
+  if (Array.isArray(raw.analystFindings) && raw.analystFindings.length > 0) {
+    result.analystFindings = raw.analystFindings.map(
+      (af: Record<string, unknown>) => ({
+        taskType: (af.taskType as string) ?? "unknown",
+        result: (af.result as Record<string, unknown>) ?? {},
+        confidence: typeof af.confidence === "number" ? af.confidence : 0,
+        modelVersion: (af.modelVersion as string) ?? "unknown",
+        durationMs: typeof af.durationMs === "number" ? af.durationMs : 0,
+        backend: (af.backend as string) ?? "unknown",
       })
     );
   }

@@ -5,11 +5,11 @@
 export { downloadPackage } from "./downloader.js";
 export type { DownloadResult } from "./downloader.js";
 export { isHmaAvailable, runHmaScan } from "./hma.js";
-export type { HmaScanResult, HmaFinding, SemanticFinding, HmaScanOptions } from "./hma.js";
+export type { HmaScanResult, HmaFinding, SemanticFinding, AnalystFinding, HmaScanOptions } from "./hma.js";
 
 import { downloadPackage } from "./downloader.js";
 import { runHmaScan } from "./hma.js";
-import type { HmaScanResult, SemanticFinding, HmaScanOptions } from "./hma.js";
+import type { HmaScanResult, SemanticFinding, AnalystFinding, HmaScanOptions } from "./hma.js";
 
 export interface ScanResult {
   packageName: string;
@@ -22,6 +22,8 @@ export interface ScanResult {
   verdict: "safe" | "warning" | "blocked";
   /** NanoMind semantic analysis results (present when deep scan is enabled) */
   semanticFindings?: SemanticFinding[];
+  /** AI analyst findings from NanoMind Security Analyst (present when --analyze is used) */
+  analystFindings?: AnalystFinding[];
 }
 
 /**
@@ -98,6 +100,10 @@ export async function scanPackage(
 
     if (scan.semanticFindings && scan.semanticFindings.length > 0) {
       result.semanticFindings = scan.semanticFindings;
+    }
+
+    if (scan.analystFindings && scan.analystFindings.length > 0) {
+      result.analystFindings = scan.analystFindings;
     }
 
     return result;
