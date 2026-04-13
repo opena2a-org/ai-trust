@@ -14,6 +14,7 @@ import type { ScanResult } from "../scanner/index.js";
 // ── Visual helpers ─────────────────────────────────────────────���──────
 
 const METER_WIDTH = 20;
+const MINI_METER_WIDTH = 8;
 
 function scoreMeter(value: number, max: number = 100): string {
   const pct = Math.round((value / max) * METER_WIDTH);
@@ -21,6 +22,19 @@ function scoreMeter(value: number, max: number = 100): string {
   const filled = "\u2501".repeat(pct);
   const empty = "\u2501".repeat(METER_WIDTH - pct);
   return `${meterColor(filled)}${chalk.dim(empty)} ${meterColor.bold(String(value))}${chalk.dim(`/${max}`)}`;
+}
+
+function miniMeter(value: number, max: number = 100): string {
+  const pct = Math.round((value / max) * MINI_METER_WIDTH);
+  const meterColor = value >= 70 ? chalk.green : value >= 40 ? chalk.yellow : chalk.red;
+  const filled = "\u2501".repeat(pct);
+  const empty = "\u2501".repeat(MINI_METER_WIDTH - pct);
+  return `${meterColor(filled)}${chalk.dim(empty)} ${meterColor.bold(String(value))}`;
+}
+
+function normalizeScanStatus(status?: string): string | undefined {
+  if (!status) return status;
+  return status.toLowerCase().trim();
 }
 
 function divider(label?: string): string {
@@ -101,25 +115,32 @@ function trustLevelColor(level: number) {
 }
 
 function formatScore(trustScore: number, scanStatus?: string): string {
-  if (scanStatus === "error") return "Scan error";
-  if (scanStatus === "failed") return "Scan failed";
+  const status = normalizeScanStatus(scanStatus);
+  if (status === "error") return "Scan error";
+  if (status === "failed") return "Scan failed";
   const notScanned =
-    !scanStatus ||
-    scanStatus === "" ||
-    scanStatus === "pending" ||
-    scanStatus === "not_applicable";
-  if (notScanned && !hasPassedScan(scanStatus)) {
+    !status ||
+    status === "" ||
+    status === "pending" ||
+    status === "not_applicable";
+  if (notScanned && !hasPassedScan(status)) {
     return "Not scanned";
   }
   return `${Math.round(trustScore * 100)}/100`;
 }
 
+function isScanErrorStatus(scanStatus?: string): boolean {
+  const status = normalizeScanStatus(scanStatus);
+  return status === "error" || status === "failed";
+}
+
 function hasPassedScan(scanStatus?: string): boolean {
-  return scanStatus === "passed" || scanStatus === "warnings";
+  const status = normalizeScanStatus(scanStatus);
+  return status === "passed" || status === "warnings";
 }
 
 function scanStatusColor(status?: string): (text: string) => string {
-  switch (status) {
+  switch (normalizeScanStatus(status)) {
     case "passed":
       return chalk.green;
     case "warnings":
@@ -172,7 +193,7 @@ export function formatCheckResult(answer: TrustAnswer): string {
   const normalized = normalizeVerdict(answer.verdict);
   const scoreDisplay = formatScore(answer.trustScore, answer.scanStatus);
   const isUnscanned = scoreDisplay === "Not scanned";
-  const isScanError = answer.scanStatus === "error" || answer.scanStatus === "failed";
+  const isScanError = isScanErrorStatus(answer.scanStatus);
   const scoreVal = Math.round(answer.trustScore * 100);
 
   // Header
@@ -270,11 +291,11 @@ export function formatBatchResults(
   );
 
   // Table header
-  const nameWidth = 40;
+  const nameWidth = 36;
   const typeWidth = 14;
   const verdictWidth = 10;
   const levelWidth = 12;
-  const scoreWidth = 14;
+  const scoreWidth = 16;
   const scanWidth = 10;
 
   lines.push("");
@@ -327,14 +348,17 @@ export function formatBatchResults(
     const colorTrust = trustLevelColor(result.trustLevel);
     const scoreDisplay = formatScore(result.trustScore, result.scanStatus);
     const scoreVal = Math.round(result.trustScore * 100);
+    const isScanError = isScanErrorStatus(result.scanStatus);
 
-    // Color the score based on value or status
-    const isScanError = result.scanStatus === "error" || result.scanStatus === "failed";
-    const coloredScore = isScanError
-      ? chalk.red(scoreDisplay.padEnd(scoreWidth))
-      : scoreDisplay === "Not scanned"
-        ? chalk.dim(scoreDisplay.padEnd(scoreWidth))
-        : scoreColor(scoreVal)(scoreDisplay.padEnd(scoreWidth));
+    // Score column: mini meter for scanned, text for error/unscanned
+    let scoreCell: string;
+    if (isScanError) {
+      scoreCell = chalk.red.bold("Error") + "         ";
+    } else if (scoreDisplay === "Not scanned") {
+      scoreCell = chalk.dim("\u2501".repeat(MINI_METER_WIDTH)) + " " + chalk.dim("--");
+    } else {
+      scoreCell = miniMeter(scoreVal);
+    }
 
     // Color the scan status
     const statusText = result.scanStatus || "-";
@@ -346,7 +370,7 @@ export function formatBatchResults(
         (result.packageType || "-").padEnd(typeWidth) +
         colorVerdict(normalized.toUpperCase().padEnd(verdictWidth)) +
         chalk.bold(colorTrust(trustLevelLabel(result.trustLevel).padEnd(levelWidth))) +
-        coloredScore +
+        scoreCell + "  " +
         coloredStatus
     );
   }
@@ -357,7 +381,7 @@ export function formatBatchResults(
   );
   const notFound = response.results.filter((r) => !r.found);
   const errorScans = response.results.filter(
-    (r) => r.found && (r.scanStatus === "error" || r.scanStatus === "failed")
+    (r) => r.found && isScanErrorStatus(r.scanStatus)
   );
 
   if (belowThreshold.length > 0 || notFound.length > 0 || errorScans.length > 0) {
@@ -374,8 +398,12 @@ export function formatBatchResults(
     );
     for (const pkg of belowThreshold) {
       const tlc = trustLevelColor(pkg.trustLevel);
+      const pkgScore = Math.round(pkg.trustScore * 100);
+      const scoreSection = isScanErrorStatus(pkg.scanStatus)
+        ? chalk.red.bold("Error") + chalk.dim(" \u2014 rescan for accurate score")
+        : scoreMeter(pkgScore);
       lines.push(
-        `  ${chalk.yellow("\u2502")} ${pkg.name}  ${tlc(trustLevelLabel(pkg.trustLevel))} ${chalk.dim(`(${pkg.trustLevel}/4)`)}`
+        `  ${chalk.yellow("\u2502")} ${pkg.name}  ${scoreSection}  ${tlc(trustLevelLabel(pkg.trustLevel))} ${chalk.dim(`(${pkg.trustLevel}/4)`)}`
       );
     }
   }
@@ -388,7 +416,7 @@ export function formatBatchResults(
     );
     for (const pkg of errorScans) {
       lines.push(
-        `  ${chalk.red("\u2502")} ${pkg.name}  ${chalk.red(pkg.scanStatus || "error")} ${chalk.dim("\u2014 rescan for accurate score")}`
+        `  ${chalk.red("\u2502")} ${pkg.name}  ${chalk.red.bold("Error")} ${chalk.dim("\u2014 rescan for accurate score")}`
       );
     }
   }
