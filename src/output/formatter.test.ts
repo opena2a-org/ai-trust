@@ -360,7 +360,7 @@ describe("formatBatchResults", () => {
     expect(output).toContain("...");
   });
 
-  it("shows 'Not scanned' in table for unscanned packages", () => {
+  it("shows dimmed meter for unscanned packages (not a numeric score)", () => {
     const response = makeBatchResponse([
       makeTrustAnswer({
         name: "chalk",
@@ -372,8 +372,41 @@ describe("formatBatchResults", () => {
     ]);
     const output = formatBatchResults(response, 2);
 
-    expect(output).toContain("Not scanned");
+    expect(output).toContain("--");
     expect(output).not.toMatch(/\b0\/100\b/);
+  });
+
+  it("shows 'Error' not numeric score when scanStatus is error", () => {
+    const response = makeBatchResponse([
+      makeTrustAnswer({
+        name: "onnxruntime-node",
+        trustScore: 0.27,
+        scanStatus: "error",
+        trustLevel: 2,
+        verdict: "warning",
+      }),
+    ]);
+    const output = formatBatchResults(response, 3);
+
+    expect(output).toContain("Error");
+    expect(output).not.toContain("27/100");
+    expect(output).toContain("rescan for accurate score");
+  });
+
+  it("handles case-insensitive scanStatus for error display", () => {
+    const response = makeBatchResponse([
+      makeTrustAnswer({
+        name: "bad-pkg",
+        trustScore: 0.5,
+        scanStatus: "Error",
+        trustLevel: 1,
+        verdict: "warning",
+      }),
+    ]);
+    const output = formatBatchResults(response, 3);
+
+    expect(output).toContain("Error");
+    expect(output).not.toContain("50/100");
   });
 
   it("normalizes registry verdict 'passed' to 'SAFE' in table", () => {
