@@ -139,9 +139,33 @@ export async function runHmaScan(
   args.push(targetDir);
 
   try {
-    // HMA may exit non-zero when findings exist, so we handle that
+    return await runHmaWithArgs(hma.cmd, args, deep);
+  } catch (err: unknown) {
+    // If --analm caused "unknown option", retry without it (older HMA version)
+    if (analm && isUnknownOptionError(err, "--analm")) {
+      const fallbackArgs = args.filter((a) => a !== "--analm");
+      return runHmaWithArgs(hma.cmd, fallbackArgs, deep);
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`HMA scan failed: ${message}`);
+  }
+}
+
+function isUnknownOptionError(err: unknown, flag: string): boolean {
+  if (!err || typeof err !== "object") return false;
+  const stderr = "stderr" in err ? String((err as { stderr: unknown }).stderr) : "";
+  const message = err instanceof Error ? err.message : "";
+  return (stderr + message).includes(`unknown option '${flag}'`);
+}
+
+async function runHmaWithArgs(
+  cmd: string,
+  args: string[],
+  deep: boolean,
+): Promise<HmaScanResult> {
+  try {
     const { stdout } = await execFileAsync(
-      hma.cmd,
+      cmd,
       args,
       { timeout: deep ? 180_000 : 120_000 }
     );
