@@ -54,8 +54,25 @@ async function downloadNpmPackage(name: string): Promise<DownloadResult> {
       timeout: 30_000,
     });
 
+    // Detect the actual extracted directory (usually "package" but some
+    // tarballs like @types/* extract to a different name)
+    let extractedDir = join(tempDir, "package");
+    try {
+      const entries = await readdir(tempDir, { withFileTypes: true });
+      const dirs = entries.filter(
+        (e) => e.isDirectory() && e.name !== "node_modules"
+      );
+      // If "package" doesn't exist, use the first directory found
+      const hasPackage = dirs.some((d) => d.name === "package");
+      if (!hasPackage && dirs.length > 0) {
+        extractedDir = join(tempDir, dirs[0].name);
+      }
+    } catch {
+      // Fall back to "package" if readdir fails
+    }
+
     return {
-      dir: join(tempDir, "package"),
+      dir: extractedDir,
       cleanup: async () => {
         await rm(tempDir, { recursive: true, force: true });
       },

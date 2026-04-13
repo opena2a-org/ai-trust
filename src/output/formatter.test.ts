@@ -95,7 +95,7 @@ describe("formatCheckResult", () => {
     });
     const output = formatCheckResult(answer);
 
-    expect(output).toContain("--rescan");
+    expect(output).toContain("ai-trust check risky-pkg");
   });
 
   it("shows scan suggestion for listed trust level", () => {
@@ -107,7 +107,7 @@ describe("formatCheckResult", () => {
     const output = formatCheckResult(answer);
 
     expect(output).toContain("Scan locally");
-    expect(output).toContain("--rescan");
+    expect(output).toContain("ai-trust check listed-pkg");
   });
 
   it("shows trust level labels correctly for each level", () => {
@@ -299,7 +299,7 @@ describe("formatBatchResults", () => {
     expect(output).toContain("missing-pkg");
     expect(output).toContain("NO DATA");
     expect(output).toContain("--scan-missing");
-    expect(output).toContain("--rescan");
+    expect(output).toContain("ai-trust check <name>");
   });
 
   it("shows all-clear message when everything passes", () => {

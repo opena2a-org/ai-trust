@@ -258,15 +258,15 @@ export function formatCheckResult(answer: TrustAnswer): string {
   lines.push(divider("Next Steps"));
   if (isUnscanned || answer.trustLevel <= 2) {
     lines.push(
-      `  ${chalk.cyan("Scan locally:")}       ai-trust check ${answer.name} --rescan`
+      `  ${chalk.cyan("Scan locally:")}       ai-trust check ${answer.name}`
     );
   } else if (normalized === "blocked" || normalized === "warning") {
     lines.push(
-      `  ${chalk.cyan("Deep scan:")}          ai-trust check ${answer.name} --rescan`
+      `  ${chalk.cyan("Deep scan:")}          ai-trust check ${answer.name}`
     );
   } else {
     lines.push(
-      `  ${chalk.cyan("Fresh scan:")}         ai-trust check ${answer.name} --rescan`
+      `  ${chalk.cyan("Fresh scan:")}         ai-trust check ${answer.name}`
     );
   }
   lines.push(
@@ -453,7 +453,7 @@ export function formatBatchResults(
   lines.push(divider("Next Steps"));
   if (errorScans.length > 0) {
     lines.push(
-      `  ${chalk.cyan("Rescan errors:")}     ai-trust check <name> --rescan`
+      `  ${chalk.cyan("Rescan errors:")}     ai-trust check <name>`
     );
   }
   if (notFound.length > 0) {
@@ -461,7 +461,7 @@ export function formatBatchResults(
       `  ${chalk.cyan("Scan missing:")}      ai-trust audit <file> --scan-missing`
     );
     lines.push(
-      `  ${chalk.cyan("Check individual:")}  ai-trust check <name> --rescan`
+      `  ${chalk.cyan("Check individual:")}  ai-trust check <name>`
     );
   }
   if (belowThreshold.length > 0) {
