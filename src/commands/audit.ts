@@ -5,6 +5,7 @@
 
 import chalk from "chalk";
 import type { Command } from "commander";
+import { classify } from "@opena2a/ai-classifier";
 import { RegistryClient } from "../api/client.js";
 import type { TrustAnswer } from "../api/client.js";
 import { parseDependencyFile, detectEcosystem } from "../utils/parser.js";
@@ -93,8 +94,15 @@ export function registerAuditCommand(program: Command): void {
         const client = new RegistryClient(globalOpts.registryUrl);
         const response = await client.batchQuery(packages);
 
-        // Scan missing packages if requested
-        const notFound = response.results.filter((r) => !r.found);
+        // Scan-missing only applies to packages that might be in ai-trust's
+        // scope. Libraries (chalk, typescript, etc.) get skipped — the user
+        // should run HMA for those. Unknowns are still offered for scanning
+        // because we can't tell yet whether they're AI packages.
+        const notFound = response.results.filter((r) => {
+          if (r.found) return false;
+          const tier = classify({ name: r.name, packageType: r.packageType }).tier;
+          return tier !== "unrelated";
+        });
         const scanOpts = { deep: opts.deep ?? true, ecosystem };
         if (notFound.length > 0 && opts.scanMissing) {
           await scanMissingPackages(

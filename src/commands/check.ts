@@ -7,6 +7,7 @@
 
 import chalk from "chalk";
 import type { Command } from "commander";
+import { classify, isHmaRoute } from "@opena2a/ai-classifier";
 import { RegistryClient, PackageNotFoundError } from "../api/client.js";
 import {
   formatCheckResult,
@@ -85,10 +86,49 @@ export function registerCheckCommand(program: Command): void {
         console.error(chalk.dim("  Note: --rescan is deprecated. Local scan is now the default."));
       }
 
+      // Scope gate: ai-trust is for AI packages only. Libraries are routed
+      // to HackMyAgent for general security scanning. Reject early so the
+      // user doesn't wait through a download + scan for a library we won't
+      // meaningfully audit anyway.
+      const earlyClassification = classify({ name });
+      if (isHmaRoute(earlyClassification)) {
+        if (globalOpts.json) {
+          console.log(formatJson({
+            name,
+            found: false,
+            outOfScope: true,
+            reason: earlyClassification.reasoning,
+            nextSteps: [`hackmyagent check ${name}`],
+          }));
+        } else {
+          console.error("");
+          console.error(
+            `  ${chalk.bold.white(name)}  ${chalk.dim("library")}`
+          );
+          console.error(
+            `  ${chalk.cyan("Out of scope for ai-trust")} ${chalk.dim("\u2014 ai-trust is for AI packages (MCP servers, agents, skills, AI tools, LLMs).")}`
+          );
+          console.error("");
+          console.error(`  For general security scanning, use HackMyAgent:`);
+          console.error(`    ${chalk.cyan(`hackmyagent check ${name}`)}`);
+          console.error("");
+        }
+        process.exitCode = 2;
+        return;
+      }
+
       // --no-scan: registry lookup only (fast mode)
       if (opts.scan === false) {
         try {
           const result = await client.checkTrust(name, opts.type);
+          // Post-registry scope check: the Registry may classify a package
+          // as a library even if we didn't recognize its name up front.
+          const postClass = classify({ name, packageType: result.packageType });
+          if (isHmaRoute(postClass)) {
+            printOutOfScope(name, globalOpts.json);
+            process.exitCode = 2;
+            return;
+          }
           if (globalOpts.json) {
             console.log(formatJson(result));
           } else {
@@ -398,4 +438,28 @@ async function checkHmaReady(): Promise<boolean> {
     return false;
   }
   return true;
+}
+
+function printOutOfScope(name: string, asJson: boolean): void {
+  if (asJson) {
+    console.log(formatJson({
+      name,
+      found: false,
+      outOfScope: true,
+      reason: `${name} is a general-purpose library, not an AI package.`,
+      nextSteps: [`hackmyagent check ${name}`],
+    }));
+  } else {
+    console.error("");
+    console.error(
+      `  ${chalk.bold.white(name)}  ${chalk.dim("library")}`
+    );
+    console.error(
+      `  ${chalk.cyan("Out of scope for ai-trust")} ${chalk.dim("\u2014 ai-trust is for AI packages (MCP servers, agents, skills, AI tools, LLMs).")}`
+    );
+    console.error("");
+    console.error(`  For general security scanning, use HackMyAgent:`);
+    console.error(`    ${chalk.cyan(`hackmyagent check ${name}`)}`);
+    console.error("");
+  }
 }
