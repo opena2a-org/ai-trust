@@ -5,7 +5,6 @@
 
 import chalk from "chalk";
 import type { Command } from "commander";
-import { classify } from "@opena2a/ai-classifier";
 import { RegistryClient } from "../api/client.js";
 import type { TrustAnswer } from "../api/client.js";
 import { parseDependencyFile, detectEcosystem } from "../utils/parser.js";
@@ -94,15 +93,14 @@ export function registerAuditCommand(program: Command): void {
         const client = new RegistryClient(globalOpts.registryUrl);
         const response = await client.batchQuery(packages);
 
-        // Scan-missing only applies to packages that might be in ai-trust's
-        // scope. Libraries (chalk, typescript, etc.) get skipped — the user
-        // should run HMA for those. Unknowns are still offered for scanning
-        // because we can't tell yet whether they're AI packages.
-        const notFound = response.results.filter((r) => {
-          if (r.found) return false;
-          const tier = classify({ name: r.name, packageType: r.packageType }).tier;
-          return tier !== "unrelated";
-        });
+        // Scan every package the registry hasn't seen. Name-only heuristics
+        // aren't safe here: an attacker publishing a squat named like a
+        // common library (e.g. @types/malicious-mcp) would otherwise be
+        // filtered out and never scanned. Registry-confirmed libraries are
+        // already filtered by the `r.found` check — they'll appear in the
+        // trust table with their registry trust data and the downstream
+        // formatter groups them into the "out of scope" footer.
+        const notFound = response.results.filter((r) => !r.found);
         const scanOpts = { deep: opts.deep ?? true, ecosystem };
         if (notFound.length > 0 && opts.scanMissing) {
           await scanMissingPackages(
