@@ -7,7 +7,9 @@
 
 import chalk from "chalk";
 import type { Command } from "commander";
+import { classify } from "@opena2a/ai-classifier";
 import { RegistryClient, PackageNotFoundError } from "../api/client.js";
+import type { TrustAnswer } from "../api/client.js";
 import {
   formatCheckResult,
   formatScanResult,
@@ -89,6 +91,21 @@ export function registerCheckCommand(program: Command): void {
       if (opts.scan === false) {
         try {
           const result = await client.checkTrust(name, opts.type);
+          // Classify using the registry's packageType (authoritative) before
+          // falling back to the name-only allowlist.
+          const tier = classify({ name, packageType: result.packageType }).tier;
+          if (tier === "unrelated") {
+            // Registry-confirmed library. Show the trust data alongside an
+            // out-of-scope note so the user still sees everything we know.
+            printLibraryWithTrust(result, globalOpts.json);
+            // Out of scope is informational (exit 0) UNLESS the registry has
+            // actually flagged this library as blocked/warning — policy
+            // signals always propagate regardless of scope.
+            if (isPolicyFailure(result.verdict)) {
+              process.exitCode = 2;
+            }
+            return;
+          }
           if (globalOpts.json) {
             console.log(formatJson(result));
           } else {
@@ -102,6 +119,15 @@ export function registerCheckCommand(program: Command): void {
           }
         } catch (err) {
           if (err instanceof PackageNotFoundError) {
+            // Registry has no data. The name-only allowlist covers exact
+            // matches like "express" or "chalk" that npm's namespace
+            // uniqueness makes reliable. For those, show out-of-scope.
+            // Otherwise fall through to the standard "not found" handler.
+            const nameTier = classify({ name }).tier;
+            if (nameTier === "unrelated") {
+              printOutOfScopeByName(name, globalOpts.json);
+              return; // exit 0
+            }
             handleNoScanNotFound(name, globalOpts);
           } else {
             const message = err instanceof Error ? err.message : String(err);
@@ -116,8 +142,40 @@ export function registerCheckCommand(program: Command): void {
         return;
       }
 
-      // Default: local HMA scan + registry context
-      // Registry is new and most scores are stale, so always scan fresh
+      // Default: scan flow. Before spending time on a download + HMA scan,
+      // check the registry. If the registry has classified this package as
+      // a library, skip the scan and show the registry answer — scanning
+      // chalk with ai-trust produces confusing output.
+      //
+      // IMPORTANT: we do NOT pre-classify by name alone. A malicious package
+      // whose name happens to match our library allowlist (e.g. a squatted
+      // @types/* entry the registry hasn't catalogued yet) must still be
+      // scanned. Only registry-confirmed libraries skip the scan.
+      try {
+        const registryResult = await client.checkTrust(name, opts.type);
+        const tier = classify({ name, packageType: registryResult.packageType }).tier;
+        if (tier === "unrelated") {
+          printLibraryWithTrust(registryResult, globalOpts.json);
+          // Policy signals propagate even for out-of-scope libraries.
+          if (isPolicyFailure(registryResult.verdict)) {
+            process.exitCode = 2;
+          }
+          return;
+        }
+        // native / adjacent / unknown — fall through to scan
+      } catch (err) {
+        if (!(err instanceof PackageNotFoundError)) {
+          // Unexpected registry error — don't fail the scan, just log and continue.
+          // The user asked for trust info; let the scan produce something useful.
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(chalk.dim(`  Registry lookup failed (${message}); proceeding with local scan.`));
+        }
+        // PackageNotFoundError: registry doesn't know this package — scan it.
+        // We deliberately do NOT consult the name allowlist here; a novel
+        // package with a library-ish name could just as easily be a typosquat
+        // as a legitimate library, and scanning costs nothing beyond latency.
+      }
+
       await handleScanFlow(
         name,
         client,
@@ -398,4 +456,72 @@ async function checkHmaReady(): Promise<boolean> {
     return false;
   }
   return true;
+}
+
+/**
+ * True when a registry verdict represents a policy failure worth surfacing
+ * via exit code 2. A registry-flagged blocked/warning library should still
+ * fail CI even though the package itself is out of ai-trust's scope.
+ */
+function isPolicyFailure(verdict?: string): boolean {
+  return (
+    verdict === "blocked" ||
+    verdict === "warning" ||
+    verdict === "warnings" ||
+    verdict === "failed"
+  );
+}
+
+/**
+ * Print a registry-confirmed library result. We still show whatever trust
+ * data the registry has (publisher, verdict, etc.) so the user isn't left
+ * with an unhelpful "go away" message, then append the HMA CTA.
+ */
+function printLibraryWithTrust(result: TrustAnswer, asJson: boolean): void {
+  if (asJson) {
+    console.log(formatJson({
+      ...result,
+      outOfScope: true,
+      outOfScopeReason: "registry-classified as general-purpose library",
+      nextSteps: [`hackmyagent check ${result.name}`],
+    }));
+    return;
+  }
+  console.log(formatCheckResult(result));
+  console.error("");
+  console.error(
+    `  ${chalk.cyan("Out of scope for ai-trust")} ${chalk.dim("\u2014 the registry classifies this as a general-purpose library.")}`
+  );
+  console.error(`  ${chalk.dim("For a thorough security audit:")}`);
+  console.error(`    ${chalk.cyan(`hackmyagent check ${result.name}`)}`);
+  console.error("");
+}
+
+/**
+ * Print an out-of-scope notice for a package the registry doesn't know about
+ * but whose name matches our library allowlist. Explicitly notes the lack of
+ * registry confirmation so the user knows we haven't verified anything.
+ */
+function printOutOfScopeByName(name: string, asJson: boolean): void {
+  if (asJson) {
+    console.log(formatJson({
+      name,
+      found: false,
+      outOfScope: true,
+      outOfScopeReason: "recognized as general-purpose library by name (no registry data)",
+      nextSteps: [`hackmyagent check ${name}`],
+    }));
+  } else {
+    console.error("");
+    console.error(
+      `  ${chalk.bold.white(name)}  ${chalk.dim("library (by name — no registry data)")}`
+    );
+    console.error(
+      `  ${chalk.cyan("Out of scope for ai-trust")} ${chalk.dim("\u2014 ai-trust is for AI packages (MCP servers, agents, skills, AI tools, LLMs).")}`
+    );
+    console.error("");
+    console.error(`  For general security scanning, use HackMyAgent:`);
+    console.error(`    ${chalk.cyan(`hackmyagent check ${name}`)}`);
+    console.error("");
+  }
 }

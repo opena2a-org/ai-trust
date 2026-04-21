@@ -8,111 +8,33 @@
  */
 
 import chalk from "chalk";
+import {
+  scoreMeter,
+  miniMeter,
+  divider,
+  normalizeVerdict,
+  verdictColor,
+  trustLevelLabel,
+  trustLevelColor,
+  trustLevelLegend,
+  scoreColor,
+  formatScanAge,
+} from "@opena2a/cli-ui";
+import { classify, tierLabel } from "@opena2a/ai-classifier";
+import type { Tier } from "@opena2a/ai-classifier";
 import type { TrustAnswer, BatchResponse } from "../api/client.js";
 import type { ScanResult } from "../scanner/index.js";
 
 // ── Visual helpers ─────────────────────────────────────────────���──────
 
-const METER_WIDTH = 20;
 const MINI_METER_WIDTH = 8;
-
-function scoreMeter(value: number, max: number = 100): string {
-  const pct = Math.round((value / max) * METER_WIDTH);
-  const meterColor = value >= 70 ? chalk.green : value >= 40 ? chalk.yellow : chalk.red;
-  const filled = "\u2501".repeat(pct);
-  const empty = "\u2501".repeat(METER_WIDTH - pct);
-  return `${meterColor(filled)}${chalk.dim(empty)} ${meterColor.bold(String(value))}${chalk.dim(`/${max}`)}`;
-}
-
-function miniMeter(value: number, max: number = 100): string {
-  const pct = Math.round((value / max) * MINI_METER_WIDTH);
-  const meterColor = value >= 70 ? chalk.green : value >= 40 ? chalk.yellow : chalk.red;
-  const filled = "\u2501".repeat(pct);
-  const empty = "\u2501".repeat(MINI_METER_WIDTH - pct);
-  return `${meterColor(filled)}${chalk.dim(empty)} ${meterColor.bold(String(value))}`;
-}
 
 function normalizeScanStatus(status?: string): string | undefined {
   if (!status) return status;
   return status.toLowerCase().trim();
 }
 
-function divider(label?: string): string {
-  if (label) {
-    const pad = Math.max(1, 56 - label.length);
-    return `\n  ${chalk.dim("\u2500\u2500")} ${chalk.bold(label)} ${chalk.dim("\u2500".repeat(pad))}`;
-  }
-  return `  ${chalk.dim("\u2500".repeat(62))}`;
-}
-
-function trustLevelLegend(currentLevel: number): string {
-  const levels = ["Blocked", "Warning", "Listed", "Scanned", "Verified"];
-  return levels
-    .map((l, i) => {
-      if (i === currentLevel) return trustLevelColor(i).bold(l);
-      return chalk.dim(l);
-    })
-    .join(chalk.dim(" > "));
-}
-
-// ── Data helpers ──────────────────────────────────────────────────────
-
-function normalizeVerdict(verdict: string): string {
-  switch (verdict) {
-    case "safe":
-    case "passed":
-      return "safe";
-    case "warning":
-    case "warnings":
-      return "warning";
-    case "blocked":
-    case "failed":
-      return "blocked";
-    case "listed":
-      return "listed";
-    default:
-      return verdict;
-  }
-}
-
-function verdictColor(verdict: string): (text: string) => string {
-  const normalized = normalizeVerdict(verdict);
-  switch (normalized) {
-    case "safe":
-      return chalk.green;
-    case "warning":
-      return chalk.yellow;
-    case "blocked":
-      return chalk.red;
-    case "listed":
-      return chalk.cyan;
-    default:
-      return chalk.gray;
-  }
-}
-
-function trustLevelLabel(level: number): string {
-  switch (level) {
-    case 0:
-      return "Blocked";
-    case 1:
-      return "Warning";
-    case 2:
-      return "Listed";
-    case 3:
-      return "Scanned";
-    case 4:
-      return "Verified";
-    default:
-      return `Unknown (${level})`;
-  }
-}
-
-function trustLevelColor(level: number) {
-  if (level >= 3) return chalk.green;
-  if (level >= 1) return chalk.yellow;
-  return chalk.red;
-}
+// ── ai-trust-specific helpers ─────────────────────────────────────────
 
 function formatScore(trustScore: number, scanStatus?: string): string {
   const status = normalizeScanStatus(scanStatus);
@@ -155,23 +77,28 @@ function scanStatusColor(status?: string): (text: string) => string {
   }
 }
 
-function scoreColor(value: number): (text: string) => string {
-  if (value >= 70) return chalk.green;
-  if (value >= 40) return chalk.yellow;
-  return chalk.red;
-}
+// ── Tier partitioning (ai-trust's scope boundary) ─────────────────────
 
-function formatScanAge(lastScannedAt?: string): string | null {
-  if (!lastScannedAt) return null;
-  const scanned = new Date(lastScannedAt);
-  const now = new Date();
-  const days = Math.floor(
-    (now.getTime() - scanned.getTime()) / (1000 * 60 * 60 * 24)
-  );
-  if (days === 0) return "today";
-  if (days === 1) return "1 day ago";
-  if (days > 90) return `${days} days ago (stale)`;
-  return `${days} days ago`;
+/**
+ * Split batch results into AI-native (Tier 1), unrelated (Tier 3), and
+ * unknown groups using @opena2a/ai-classifier. ai-trust only shows trust
+ * data for native packages; unrelated packages get an HMA CTA footer.
+ */
+function partitionByTier(results: TrustAnswer[]): {
+  native: TrustAnswer[];
+  unrelated: TrustAnswer[];
+  unknown: TrustAnswer[];
+} {
+  const native: TrustAnswer[] = [];
+  const unrelated: TrustAnswer[] = [];
+  const unknown: TrustAnswer[] = [];
+  for (const r of results) {
+    const tier = classify({ name: r.name, packageType: r.packageType }).tier;
+    if (tier === "native") native.push(r);
+    else if (tier === "unrelated") unrelated.push(r);
+    else unknown.push(r);
+  }
+  return { native, unrelated, unknown };
 }
 
 // ── Formatters ────────────────────────────────────────────────────────
@@ -282,14 +209,83 @@ export function formatBatchResults(
   minTrust: number
 ): string {
   const lines: string[] = [];
+  const { native, unrelated, unknown } = partitionByTier(response.results);
 
+  // Header: summarize the scope split before anything else so the user knows
+  // how many of their dependencies are actually in ai-trust's scope.
   lines.push("");
-  lines.push(
-    chalk.bold(
-      `  Trust Audit: ${response.meta.total} packages queried, ${response.meta.found} found, ${response.meta.notFound} not found`
-    )
-  );
+  if (native.length === 0 && unrelated.length > 0) {
+    // Edge case: nothing here is an AI package. Show a focused message and
+    // route the user to HMA for general security scanning.
+    lines.push(
+      chalk.bold(
+        `  No AI packages found in ${response.meta.total} ${
+          response.meta.total === 1 ? "dependency" : "dependencies"
+        }`
+      )
+    );
+    lines.push(
+      chalk.dim(
+        `  ai-trust covers MCP servers, A2A agents, skills, AI tools, and LLMs.`
+      )
+    );
+    lines.push(
+      chalk.dim(
+        `  For general security scanning of libraries, use HackMyAgent.`
+      )
+    );
+    lines.push(divider("Next Steps"));
+    lines.push(`  ${chalk.cyan("General security scan:")}  npx hackmyagent secure .`);
+    if (unknown.length > 0) {
+      lines.push(`  ${chalk.cyan("Check an AI package:")}     ai-trust check <name>`);
+    }
+    lines.push("");
+    return lines.join("\n");
+  }
 
+  const headerParts: string[] = [
+    `${native.length} AI ${native.length === 1 ? "package" : "packages"} audited`,
+  ];
+  if (unrelated.length > 0) {
+    headerParts.push(
+      chalk.dim(
+        `${unrelated.length} ${unrelated.length === 1 ? "library" : "libraries"} out of scope`
+      )
+    );
+  }
+  if (unknown.length > 0) {
+    headerParts.push(
+      chalk.dim(`${unknown.length} unclassified`)
+    );
+  }
+  lines.push(chalk.bold("  " + headerParts.join(chalk.dim(" · "))));
+
+  // If we have no AI packages to show but some unknown ones, render just the
+  // unknown list with a "check to classify" CTA.
+  if (native.length === 0) {
+    if (unknown.length > 0) {
+      lines.push(divider("Unclassified packages"));
+      lines.push(
+        chalk.dim(
+          "  These packages aren't registered as AI and aren't on the known-library allowlist."
+        )
+      );
+      for (const pkg of unknown) {
+        lines.push(`  ${chalk.yellow("\u2502")} ${pkg.name}`);
+      }
+      lines.push(divider("Next Steps"));
+      lines.push(`  ${chalk.cyan("Classify individually:")} ai-trust check <name>`);
+      lines.push(`  ${chalk.cyan("General security scan:")} npx hackmyagent secure .`);
+      lines.push("");
+      return lines.join("\n");
+    }
+    // No native + no unrelated + no unknown = empty result set
+    lines.push(chalk.dim("  No packages to display."));
+    lines.push("");
+    return lines.join("\n");
+  }
+
+  // Tier 1 trust table — the main event.
   // Table header
   const nameWidth = 36;
   const typeWidth = 14;
@@ -324,7 +320,7 @@ export function formatBatchResults(
       )
   );
 
-  for (const result of response.results) {
+  for (const result of native) {
     const name =
       result.name.length > nameWidth - 2
         ? result.name.substring(0, nameWidth - 5) + "..."
@@ -375,12 +371,13 @@ export function formatBatchResults(
     );
   }
 
-  // Summary
-  const belowThreshold = response.results.filter(
+  // Summary — only consider AI-native packages. Unrelated libraries are out
+  // of ai-trust's scope; they don't affect the verdict or trust level checks.
+  const belowThreshold = native.filter(
     (r) => r.found && r.trustLevel < minTrust
   );
-  const notFound = response.results.filter((r) => !r.found);
-  const errorScans = response.results.filter(
+  const notFound = native.filter((r) => !r.found);
+  const errorScans = native.filter(
     (r) => r.found && isScanErrorStatus(r.scanStatus)
   );
 
@@ -432,16 +429,48 @@ export function formatBatchResults(
     }
   }
 
-  if (belowThreshold.length === 0 && notFound.length === 0 && errorScans.length === 0) {
+  const foundNative = native.filter((r) => r.found).length;
+  if (belowThreshold.length === 0 && notFound.length === 0 && errorScans.length === 0 && foundNative > 0) {
     lines.push(
       chalk.green.bold(
-        `  All ${response.meta.found} packages meet minimum trust level ${minTrust}.`
+        `  All ${foundNative} AI ${foundNative === 1 ? "package" : "packages"} meet minimum trust level ${minTrust}.`
       )
     );
   }
 
-  // Trust level legend
-  const hasNonVerified = response.results.some(
+  // Out of scope: libraries. Compact list + HMA CTA — these aren't audited
+  // by ai-trust, they're routed to HackMyAgent for general security scanning.
+  if (unrelated.length > 0) {
+    lines.push(divider("Out of scope (libraries)"));
+    lines.push(
+      chalk.dim(
+        `  ai-trust is for AI packages. For general security, use HackMyAgent.`
+      )
+    );
+    const names = unrelated.map((r) => r.name);
+    const preview = names.slice(0, 6).join(chalk.dim(", "));
+    const more = names.length > 6 ? chalk.dim(` + ${names.length - 6} more`) : "";
+    lines.push(`  ${chalk.dim(preview)}${more}`);
+  }
+
+  // Unknown: packages we couldn't classify. Surface clearly.
+  if (unknown.length > 0) {
+    lines.push(divider("Unclassified"));
+    lines.push(
+      chalk.dim(
+        `  Not in registry and not on the known-library list. Classify them:`
+      )
+    );
+    for (const pkg of unknown.slice(0, 6)) {
+      lines.push(`  ${chalk.yellow("\u2502")} ${pkg.name}`);
+    }
+    if (unknown.length > 6) {
+      lines.push(`  ${chalk.dim(`  + ${unknown.length - 6} more`)}`);
+    }
+  }
+
+  // Trust level legend (only meaningful if there are native packages)
+  const hasNonVerified = native.some(
     (r) => r.found && r.trustLevel < 4
   );
   if (hasNonVerified) {
@@ -469,8 +498,15 @@ export function formatBatchResults(
       `  ${chalk.cyan("Inspect flagged:")}   ai-trust check <name>`
     );
   }
+  if (unknown.length > 0) {
+    lines.push(
+      `  ${chalk.cyan("Classify unknown:")}  ai-trust check <name>`
+    );
+  }
+  // Always offer HMA for library security — even when the current audit has
+  // no libraries, users often come back to audit another file that will.
   lines.push(
-    `  ${chalk.cyan("Security scan:")}     npx hackmyagent secure .`
+    `  ${chalk.cyan("Library security:")}  npx hackmyagent secure .`
   );
 
   lines.push("");

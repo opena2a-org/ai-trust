@@ -271,7 +271,8 @@ describe("formatBatchResults", () => {
     ]);
     const output = formatBatchResults(response, 3);
 
-    expect(output).toContain("Trust Audit");
+    expect(output).toContain("AI package");
+    expect(output).toContain("audited");
     expect(output).toContain("PACKAGE");
     expect(output).toContain("VERDICT");
     expect(output).toContain("TRUST");
@@ -308,7 +309,7 @@ describe("formatBatchResults", () => {
     ]);
     const output = formatBatchResults(response, 3);
 
-    expect(output).toContain("All 1 packages meet minimum trust level 3");
+    expect(output).toContain("All 1 AI package meet minimum trust level 3");
   });
 
   it("shows next steps after batch results", () => {
@@ -391,6 +392,72 @@ describe("formatBatchResults", () => {
     expect(output).toContain("Error");
     expect(output).not.toContain("27/100");
     expect(output).toContain("rescan for accurate score");
+  });
+
+  describe("tier partitioning (v0.3)", () => {
+    it("partitions libraries into the Out of scope section", () => {
+      const response = makeBatchResponse([
+        makeTrustAnswer({ name: "my-mcp", packageType: "mcp_server", trustLevel: 3 }),
+        makeTrustAnswer({ name: "express", packageType: "library", trustLevel: 2, verdict: "listed" }),
+      ]);
+      const output = formatBatchResults(response, 3);
+
+      expect(output).toContain("1 AI package");
+      expect(output).toContain("1 library out of scope");
+      expect(output).toContain("Out of scope (libraries)");
+      expect(output).toContain("express");
+      // The library does NOT appear in the main trust table header area
+      expect(output).toContain("my-mcp");
+    });
+
+    it("shows friendly message when only libraries are present", () => {
+      const response = makeBatchResponse([
+        makeTrustAnswer({ name: "express", packageType: "library" }),
+        makeTrustAnswer({ name: "typescript", packageType: "library" }),
+      ]);
+      const output = formatBatchResults(response, 3);
+
+      expect(output).toContain("No AI packages found");
+      expect(output).toContain("hackmyagent");
+      expect(output).not.toContain("PACKAGE  ");
+    });
+
+    it("library verdicts do not affect the AI package trust threshold check", () => {
+      // A blocked library should NOT make the audit fail because it's out of
+      // ai-trust's scope — we don't adjudicate general libraries.
+      const response = makeBatchResponse([
+        makeTrustAnswer({ name: "my-mcp", packageType: "mcp_server", trustLevel: 3, verdict: "safe" }),
+        makeTrustAnswer({ name: "bad-lib", packageType: "library", trustLevel: 0, verdict: "blocked" }),
+      ]);
+      const output = formatBatchResults(response, 3);
+
+      expect(output).toContain("All 1 AI package meet minimum trust level 3");
+    });
+
+    it("groups unclassified packages into an Unclassified section", () => {
+      const response = makeBatchResponse([
+        makeTrustAnswer({ name: "my-mcp", packageType: "mcp_server" }),
+        makeTrustAnswer({ name: "novel-random-pkg", found: false, packageType: undefined }),
+      ]);
+      const output = formatBatchResults(response, 3);
+
+      expect(output).toContain("1 unclassified");
+      expect(output).toContain("Unclassified");
+      expect(output).toContain("novel-random-pkg");
+    });
+
+    it("classifies @types/* as out of scope via name allowlist even without packageType", () => {
+      const response = makeBatchResponse([
+        makeTrustAnswer({ name: "my-mcp", packageType: "mcp_server" }),
+        makeTrustAnswer({ name: "@types/node", found: false, packageType: undefined }),
+      ]);
+      const output = formatBatchResults(response, 3);
+
+      expect(output).toContain("1 library out of scope");
+      expect(output).toContain("@types/node");
+      // @types/node should appear in the Out of scope section, not Unclassified
+      expect(output).not.toContain("unclassified");
+    });
   });
 
   it("handles case-insensitive scanStatus for error display", () => {

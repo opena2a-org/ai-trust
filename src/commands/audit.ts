@@ -93,7 +93,13 @@ export function registerAuditCommand(program: Command): void {
         const client = new RegistryClient(globalOpts.registryUrl);
         const response = await client.batchQuery(packages);
 
-        // Scan missing packages if requested
+        // Scan every package the registry hasn't seen. Name-only heuristics
+        // aren't safe here: an attacker publishing a squat named like a
+        // common library (e.g. @types/malicious-mcp) would otherwise be
+        // filtered out and never scanned. Registry-confirmed libraries are
+        // already filtered by the `r.found` check — they'll appear in the
+        // trust table with their registry trust data and the downstream
+        // formatter groups them into the "out of scope" footer.
         const notFound = response.results.filter((r) => !r.found);
         const scanOpts = { deep: opts.deep ?? true, ecosystem };
         if (notFound.length > 0 && opts.scanMissing) {

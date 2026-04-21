@@ -536,4 +536,164 @@ describe("check command", () => {
       expect(process.exitCode).toBeUndefined();
     });
   });
+
+  describe("scope — registry authoritative, name-only allowlist last", () => {
+    it("routes a registry-confirmed library to HMA without scanning (--no-scan)", async () => {
+      const mockCheckTrust = vi.fn().mockResolvedValue({
+        name: "express",
+        found: true,
+        verdict: "safe",
+        trustLevel: 3,
+        packageType: "library",
+      });
+      vi.mocked(RegistryClient).mockImplementation(
+        () =>
+          ({
+            checkTrust: mockCheckTrust,
+            batchQuery: vi.fn(),
+            publishScan: vi.fn(),
+          }) as any
+      );
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "check", "express", "--no-scan"]);
+
+      expect(mockCheckTrust).toHaveBeenCalledWith("express", undefined);
+      // Trust data is still shown alongside the out-of-scope note
+      expect(formatCheckResult).toHaveBeenCalled();
+      // Out of scope is informational — exit 0, not 2
+      expect(process.exitCode).toBeUndefined();
+    });
+
+    it("BYPASS GUARD: does not silently skip a novel @types/* package the registry has not seen", async () => {
+      // Regression: an earlier version classified by name BEFORE the registry
+      // lookup, so an attacker publishing @types/<anything> would be routed
+      // away with no scan and no registry check. The fix: always consult the
+      // registry first; if not found, the scan path runs.
+      const mockCheckTrust = vi.fn().mockRejectedValue(new PackageNotFoundError("not in registry"));
+      vi.mocked(RegistryClient).mockImplementation(
+        () =>
+          ({
+            checkTrust: mockCheckTrust,
+            batchQuery: vi.fn(),
+            publishScan: vi.fn(),
+          }) as any
+      );
+      vi.mocked(isHmaAvailable).mockResolvedValue(true);
+      vi.mocked(scanPackage).mockResolvedValue({
+        packageName: "@types/malicious-mcp",
+        scan: {
+          score: 90,
+          maxScore: 100,
+          findings: [],
+          projectType: "library",
+          timestamp: "2026-04-21T00:00:00Z",
+        },
+        trustScore: 0.9,
+        trustLevel: 3,
+        verdict: "safe",
+      });
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node",
+        "test",
+        "check",
+        "@types/malicious-mcp",
+        "--scan-if-missing",
+      ]);
+
+      // The registry was consulted first
+      expect(mockCheckTrust).toHaveBeenCalled();
+      // And because the registry did not know this package, the scan ran
+      // instead of a silent name-only dismissal.
+      expect(scanPackage).toHaveBeenCalled();
+    });
+
+    it("name-only allowlist applies only when the registry has no data (--no-scan)", async () => {
+      // This exercises the legitimate case: user runs `check express --no-scan`
+      // against a registry that has no record (unusual, but possible). The
+      // exact-name match in the allowlist is reliable because npm namespace
+      // uniqueness prevents a new "express" from being published.
+      const mockCheckTrust = vi.fn().mockRejectedValue(new PackageNotFoundError("not in registry"));
+      vi.mocked(RegistryClient).mockImplementation(
+        () =>
+          ({
+            checkTrust: mockCheckTrust,
+            batchQuery: vi.fn(),
+            publishScan: vi.fn(),
+          }) as any
+      );
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "check", "express", "--no-scan"]);
+
+      expect(mockCheckTrust).toHaveBeenCalled();
+      // Exit 0 — out-of-scope by name, not a failure
+      expect(process.exitCode).toBeUndefined();
+    });
+
+    it("propagates blocked verdict on a library via exit code 2 (--no-scan)", async () => {
+      // A registry-flagged library must not lose its policy signal just
+      // because it's out of ai-trust's normal audit scope. CI consumers
+      // gating on exit != 0 should still catch the blocked verdict.
+      const mockCheckTrust = vi.fn().mockResolvedValue({
+        name: "compromised-lib",
+        found: true,
+        verdict: "blocked",
+        trustLevel: 0,
+        trustScore: 0.1,
+        packageType: "library",
+      });
+      vi.mocked(RegistryClient).mockImplementation(
+        () =>
+          ({
+            checkTrust: mockCheckTrust,
+            batchQuery: vi.fn(),
+            publishScan: vi.fn(),
+          }) as any
+      );
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node",
+        "test",
+        "check",
+        "compromised-lib",
+        "--no-scan",
+      ]);
+
+      expect(process.exitCode).toBe(2);
+    });
+
+    it("still surfaces trust data for a registry-confirmed library (--no-scan)", async () => {
+      // Regression: the previous implementation dismissed the registry's
+      // trust answer entirely when packageType=library, so a user who
+      // asked about a library got "Out of scope" with NO trust info at
+      // all — even when the registry had useful data (verdict, publisher).
+      const mockCheckTrust = vi.fn().mockResolvedValue({
+        name: "chalk",
+        found: true,
+        verdict: "safe",
+        trustLevel: 3,
+        trustScore: 0.82,
+        packageType: "library",
+      });
+      vi.mocked(RegistryClient).mockImplementation(
+        () =>
+          ({
+            checkTrust: mockCheckTrust,
+            batchQuery: vi.fn(),
+            publishScan: vi.fn(),
+          }) as any
+      );
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "check", "chalk", "--no-scan"]);
+
+      // formatCheckResult was called — the user sees the registry's data,
+      // not just a bare "go away" message.
+      expect(formatCheckResult).toHaveBeenCalled();
+    });
+  });
 });
