@@ -27,7 +27,7 @@ import {
 } from "@opena2a/cli-ui";
 import { classify, tierLabel } from "@opena2a/ai-classifier";
 import type { Tier } from "@opena2a/ai-classifier";
-import type { TrustAnswer, BatchResponse } from "../api/client.js";
+import type { TrustAnswer, BatchResponse } from "@opena2a/registry-client";
 import type { ScanResult } from "../scanner/index.js";
 
 // ── Visual helpers ─────────────────────────────────────────────���──────

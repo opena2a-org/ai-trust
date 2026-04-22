@@ -4,7 +4,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { formatCheckResult, formatBatchResults, formatScanResult, formatJson } from "./formatter.js";
-import type { TrustAnswer, BatchResponse } from "../api/client.js";
+import type { TrustAnswer, BatchResponse } from "@opena2a/registry-client";
 import type { ScanResult } from "../scanner/index.js";
 
 // Disable chalk colors for predictable test output.

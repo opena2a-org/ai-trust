@@ -8,8 +8,8 @@
 import chalk from "chalk";
 import type { Command } from "commander";
 import { classify } from "@opena2a/ai-classifier";
-import { RegistryClient, PackageNotFoundError } from "../api/client.js";
-import type { TrustAnswer } from "../api/client.js";
+import { RegistryClient, PackageNotFoundError } from "@opena2a/registry-client";
+import type { TrustAnswer } from "@opena2a/registry-client";
 import {
   formatCheckResult,
   formatScanResult,
@@ -80,7 +80,10 @@ export function registerCheckCommand(program: Command): void {
       };
 
       const name = resolveAndLog(rawName);
-      const client = new RegistryClient(globalOpts.registryUrl);
+      const client = new RegistryClient({
+        baseUrl: globalOpts.registryUrl,
+        userAgent: `ai-trust/${AI_TRUST_VERSION}`,
+      });
 
       // --rescan is deprecated — local scan is now the default
       if (opts.rescan) {
@@ -386,7 +389,10 @@ async function submitContribution(
 
   // Publish full findings via unified endpoint for evidence correlation + consensus
   try {
-    const client = new RegistryClient(registryUrl);
+    const client = new RegistryClient({
+      baseUrl: registryUrl,
+      userAgent: `ai-trust/${AI_TRUST_VERSION}`,
+    });
     const resp = await client.publishScan({
       name,
       type: opts?.type,

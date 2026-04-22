@@ -5,8 +5,8 @@
 
 import chalk from "chalk";
 import type { Command } from "commander";
-import { RegistryClient } from "../api/client.js";
-import type { TrustAnswer } from "../api/client.js";
+import { RegistryClient } from "@opena2a/registry-client";
+import type { TrustAnswer } from "@opena2a/registry-client";
 import { parseDependencyFile, detectEcosystem } from "../utils/parser.js";
 import {
   formatBatchResults,
@@ -90,7 +90,10 @@ export function registerAuditCommand(program: Command): void {
           return;
         }
 
-        const client = new RegistryClient(globalOpts.registryUrl);
+        const client = new RegistryClient({
+          baseUrl: globalOpts.registryUrl,
+          userAgent: `ai-trust/${AI_TRUST_VERSION}`,
+        });
         const response = await client.batchQuery(packages);
 
         // Scan every package the registry hasn't seen. Name-only heuristics
@@ -332,7 +335,10 @@ async function handleAuditContribution(
   }
 
   // Publish full findings via unified endpoint for evidence correlation + consensus
-  const client = new RegistryClient(registryUrl);
+  const client = new RegistryClient({
+    baseUrl: registryUrl,
+    userAgent: `ai-trust/${AI_TRUST_VERSION}`,
+  });
   for (const { name, scanResult } of scannedResults) {
     try {
       await client.publishScan({

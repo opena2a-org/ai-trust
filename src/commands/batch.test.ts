@@ -6,10 +6,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Command } from "commander";
 import { registerBatchCommand } from "./batch.js";
 
-vi.mock("../api/client.js", () => ({
+vi.mock("@opena2a/registry-client", () => ({
   RegistryClient: vi.fn().mockImplementation(() => ({
     batchQuery: vi.fn(),
   })),
+  PackageNotFoundError: class PackageNotFoundError extends Error {
+    public readonly packageName: string;
+    constructor(name: string) {
+      super(`Package "${name}" not found.`);
+      this.name = "PackageNotFoundError";
+      this.packageName = name;
+    }
+  },
 }));
 
 vi.mock("../output/formatter.js", () => ({
@@ -17,7 +25,7 @@ vi.mock("../output/formatter.js", () => ({
   formatJson: vi.fn((data: unknown) => JSON.stringify(data)),
 }));
 
-import { RegistryClient } from "../api/client.js";
+import { RegistryClient } from "@opena2a/registry-client";
 import { formatJson } from "../output/formatter.js";
 
 function createProgram(): Command {

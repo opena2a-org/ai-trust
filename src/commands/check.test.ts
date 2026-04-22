@@ -7,7 +7,7 @@ import { Command } from "commander";
 import { registerCheckCommand } from "./check.js";
 
 // Mock the API client, preserving the real PackageNotFoundError class
-vi.mock("../api/client.js", async (importOriginal) => {
+vi.mock("@opena2a/registry-client", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ...actual,
@@ -49,7 +49,7 @@ vi.mock("../telemetry/index.js", () => ({
 import {
   RegistryClient,
   PackageNotFoundError,
-} from "../api/client.js";
+} from "@opena2a/registry-client";
 import {
   formatCheckResult,
   formatScanResult,
