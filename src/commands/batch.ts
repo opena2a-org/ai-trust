@@ -3,10 +3,15 @@
  */
 
 import type { Command } from "commander";
-import { RegistryClient } from "../api/client.js";
-import type { PackageQuery } from "../api/client.js";
+import { RegistryClient } from "@opena2a/registry-client";
+import type { PackageQuery } from "@opena2a/registry-client";
 import { formatBatchResults, formatJson } from "../output/formatter.js";
 import { resolveAndLog } from "../utils/resolve.js";
+import { createRequire } from "node:module";
+
+const batchRequire = createRequire(import.meta.url);
+const batchPkg = batchRequire("../../package.json");
+const AI_TRUST_VERSION: string = batchPkg.version;
 
 export function registerBatchCommand(program: Command): void {
   program
@@ -50,7 +55,10 @@ export function registerBatchCommand(program: Command): void {
           ...(opts.type ? { type: opts.type } : {}),
         }));
 
-        const client = new RegistryClient(globalOpts.registryUrl);
+        const client = new RegistryClient({
+          baseUrl: globalOpts.registryUrl,
+          userAgent: `ai-trust/${AI_TRUST_VERSION}`,
+        });
 
         try {
           const response = await client.batchQuery(packages);

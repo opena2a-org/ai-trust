@@ -6,10 +6,19 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Command } from "commander";
 import { registerAuditCommand } from "./audit.js";
 
-vi.mock("../api/client.js", () => ({
+vi.mock("@opena2a/registry-client", () => ({
   RegistryClient: vi.fn().mockImplementation(() => ({
     batchQuery: vi.fn(),
+    publishScan: vi.fn().mockResolvedValue({ accepted: true }),
   })),
+  PackageNotFoundError: class PackageNotFoundError extends Error {
+    public readonly packageName: string;
+    constructor(name: string) {
+      super(`Package "${name}" not found.`);
+      this.name = "PackageNotFoundError";
+      this.packageName = name;
+    }
+  },
 }));
 
 vi.mock("../utils/parser.js", () => ({
@@ -40,7 +49,7 @@ vi.mock("../telemetry/index.js", () => ({
   sendScanPing: vi.fn(),
 }));
 
-import { RegistryClient } from "../api/client.js";
+import { RegistryClient } from "@opena2a/registry-client";
 import { parseDependencyFile } from "../utils/parser.js";
 
 function createProgram(): Command {

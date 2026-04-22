@@ -4,7 +4,7 @@
 
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
-import type { PackageQuery } from "../api/client.js";
+import type { PackageQuery } from "@opena2a/registry-client";
 
 export async function parseDependencyFile(
   filePath: string
