@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1 (2026-04-22)
+
+### Changed
+- **Trust queries route through `@opena2a/registry-client@0.1.0` (exact pin).** The inline `src/api/client.ts` was deleted; all trust lookups now flow through the shared package (published with SLSA v1 provenance). Identical trust-lookup implementation with hackmyagent and opena2a-cli — any client-side fix lands in one place. Per CA-034 M1. No user-visible output change; registry returns the same canonical trust levels either way.
+
 ## 0.2.3 (2026-03-18)
 
 ### Added
