@@ -3,7 +3,14 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { formatCheckResult, formatBatchResults, formatScanResult, formatJson } from "./formatter.js";
+import {
+  formatCheckResult,
+  formatBatchResults,
+  formatScanResult,
+  formatJson,
+  formatNotFound,
+  translateDownloadError,
+} from "./formatter.js";
 import type { TrustAnswer, BatchResponse } from "@opena2a/registry-client";
 import type { ScanResult } from "../scanner/index.js";
 
@@ -32,12 +39,15 @@ function makeTrustAnswer(overrides: Partial<TrustAnswer> = {}): TrustAnswer {
 }
 
 describe("formatCheckResult", () => {
-  it("shows not-found message when package is not in registry", () => {
+  it("shows not-found block when package is not in registry", () => {
     const answer = makeTrustAnswer({ found: false, name: "unknown-pkg" });
     const output = formatCheckResult(answer);
 
     expect(output).toContain("unknown-pkg");
-    expect(output).toContain("Not found in registry");
+    // cli-ui renderNotFoundBlock 0.3.0 header — shared across all three CLIs.
+    expect(output).toContain("Package not found: unknown-pkg");
+    expect(output).toContain("Next Steps");
+    expect(output).toContain("--scan-if-missing");
   });
 
   it("displays trust details for a found package", () => {
@@ -55,9 +65,13 @@ describe("formatCheckResult", () => {
     expect(output).toContain("No known issues");
     expect(output).toContain("Verified");
     expect(output).toContain("95/100");
-    expect(output).toContain("mcp_server");
-    // Verified packages should not show the trust level legend
-    expect(output).not.toContain("Blocked > Warning");
+    // renderCheckBlock normalizes "mcp_server" -> "mcp server" in the header meta.
+    expect(output).toContain("mcp server");
+    // cli-ui 0.3.0 inlines the trust-level legend on every level (F5: Level
+    // "always present; one truth"). Previously ai-trust hid the legend at
+    // Level 4; the new shared contract always shows it so users see the full
+    // scale alongside where the package sits.
+    expect(output).toContain("Blocked > Warning");
   });
 
   it("shows trust level legend for non-Verified packages", () => {
@@ -165,10 +179,13 @@ describe("formatCheckResult", () => {
     expect(output).not.toContain("Deps");
   });
 
-  it("shows unknown for missing packageType", () => {
+  it("renders not-found block even when packageType is missing", () => {
     const answer = makeTrustAnswer({ packageType: undefined, found: false });
     const output = formatCheckResult(answer);
-    expect(output).toContain("unknown");
+    // Not-found path no longer fabricates an "unknown" type row. The header
+    // alone names the package and ecosystem.
+    expect(output).toContain("Package not found:");
+    expect(output).toContain("test-package");
   });
 
   it("shows 'Not scanned' instead of '0/100' for unscanned packages", () => {
@@ -215,7 +232,15 @@ describe("formatCheckResult", () => {
     });
     const output = formatCheckResult(answer);
 
-    expect(output).toContain("Not yet security-scanned");
+    // cli-ui renderCheckBlock emits "Listed — limited signal" for the
+    // "listed" verdict; the old ai-trust-specific "Not yet security-scanned"
+    // text was a local hand-rolled label that diverged from the shared
+    // contract.
+    expect(output).toContain("Listed");
+    // F6: the meter is suppressed when scanStatus doesn't indicate a
+    // completed scan, and a "not scanned" line is emitted instead.
+    expect(output).toContain("not scanned");
+    expect(output).not.toContain("0/100");
   });
 
   it("does not display confidence in check output", () => {
@@ -558,6 +583,74 @@ describe("formatScanResult", () => {
 
     const output = formatScanResult(result);
     expect(output).not.toContain("Attack:");
+  });
+});
+
+describe("formatNotFound", () => {
+  it("renders the shared cli-ui not-found header", () => {
+    const output = formatNotFound({ pkg: "@anthropic/code-review", ecosystem: "npm" });
+    expect(output).toContain("Package not found: @anthropic/code-review (npm)");
+    expect(output).toContain("Next Steps");
+  });
+
+  it("includes did-you-mean suggestions when provided", () => {
+    const output = formatNotFound({
+      pkg: "code-revie",
+      ecosystem: "npm",
+      suggestions: ["code-review", "ai-code-review"],
+    });
+    expect(output).toContain("Did you mean?");
+    expect(output).toContain("code-review");
+    expect(output).toContain("ai-code-review");
+  });
+
+  it("surfaces the errorHint line when provided", () => {
+    const output = formatNotFound({
+      pkg: "anthropic/code-review",
+      ecosystem: "npm",
+      errorHint: "Looks like a git-style name.",
+    });
+    expect(output).toContain("Looks like a git-style name.");
+  });
+});
+
+describe("translateDownloadError (F3 git-style)", () => {
+  it("translates code-128 on user/repo input to a scoped hint", () => {
+    const translated = translateDownloadError(
+      "anthropic/code-review",
+      'Failed to download "anthropic/code-review": code 128'
+    );
+    expect(translated).toBeDefined();
+    expect(translated?.errorHint).toContain("@anthropic/code-review");
+    expect(translated?.suggestions).toEqual(["@anthropic/code-review"]);
+  });
+
+  it("leaves scoped packages alone (no spurious hint)", () => {
+    const translated = translateDownloadError(
+      "@anthropic/code-review",
+      'Failed to download "@anthropic/code-review": code 128'
+    );
+    expect(translated).toBeUndefined();
+  });
+
+  it("handles plain 'not found on npm' without a specialised hint", () => {
+    const translated = translateDownloadError(
+      "novel-pkg-999",
+      'Failed to download "novel-pkg-999": Package "novel-pkg-999" not found on npm.'
+    );
+    // Recognised as a not-found, no extra hint / suggestions needed — caller
+    // renders a plain block.
+    expect(translated).toBeDefined();
+    expect(translated?.errorHint).toBeUndefined();
+    expect(translated?.suggestions).toBeUndefined();
+  });
+
+  it("returns undefined for unrecognized errors", () => {
+    const translated = translateDownloadError(
+      "some-pkg",
+      "ENOSPC: no space left on device"
+    );
+    expect(translated).toBeUndefined();
   });
 });
 
