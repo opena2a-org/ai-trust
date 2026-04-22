@@ -20,9 +20,17 @@ import {
   scoreColor,
   formatScanAge,
   renderObservationsBlock,
+  renderCheckBlock,
+  renderNotFoundBlock,
+  renderNextSteps,
   buildCategorySummaries,
   buildVerdict,
   type CategorizableFinding,
+  type CheckBlockInput,
+  type CheckTone,
+  type NextStepsCta,
+  type NotFoundBlockInput,
+  type NotFoundTone,
   type VerdictFinding,
 } from "@opena2a/cli-ui";
 import { classify, tierLabel } from "@opena2a/ai-classifier";
@@ -108,67 +116,149 @@ function partitionByTier(results: TrustAnswer[]): {
 
 // ── Formatters ────────────────────────────────────────────────────────
 
+// Color tone painters \u2014 CLIs own chalk per the cli-ui contract.
+function paintCheckTone(tone: CheckTone, s: string): string {
+  if (tone === "good") return chalk.green(s);
+  if (tone === "warning") return chalk.yellow(s);
+  if (tone === "critical") return chalk.red(s);
+  if (tone === "dim") return chalk.dim(s);
+  return s;
+}
+
+function paintNotFoundTone(tone: NotFoundTone, s: string): string {
+  if (tone === "good") return chalk.green(s);
+  if (tone === "warning") return chalk.yellow(s);
+  if (tone === "critical") return chalk.red(s);
+  if (tone === "dim") return chalk.dim(s);
+  return s;
+}
+
+const CHECK_LABEL_WIDTH = 10;
+
+/**
+ * Map TrustAnswer scanStatus vocabulary to renderCheckBlock meter gate.
+ * renderCheckBlock shows Trust meter iff scanStatus is "completed" or
+ * "warnings". The registry uses a wider vocabulary ("complete",
+ * "passed", "error", "failed", "pending", "", etc.). Collapse
+ * "scan-produced-a-usable-score" states to "completed"; suppress the
+ * meter otherwise (F6: a number implies measurement).
+ */
+function mapScanStatusForMeter(status?: string): string | undefined {
+  if (!status) return undefined;
+  const normalized = status.toLowerCase().trim();
+  if (normalized === "" || normalized === "pending" || normalized === "not_applicable") {
+    return undefined;
+  }
+  if (normalized === "error" || normalized === "failed") {
+    return undefined;
+  }
+  if (normalized === "warnings" || normalized === "warning") return "warnings";
+  if (normalized === "complete" || normalized === "completed" || normalized === "passed") {
+    return "completed";
+  }
+  return undefined;
+}
+
+function buildCheckCtas(answer: TrustAnswer, isScanError: boolean): NextStepsCta[] {
+  const normalized = normalizeVerdict(answer.verdict);
+  const meterGate = mapScanStatusForMeter(answer.scanStatus);
+  const isUnscanned = meterGate === undefined && !isScanError;
+
+  const ctas: NextStepsCta[] = [];
+  if (isScanError) {
+    ctas.push({
+      label: "Rescan",
+      command: `ai-trust check ${answer.name}`,
+      primary: true,
+    });
+  } else if (isUnscanned || answer.trustLevel <= 2) {
+    ctas.push({
+      label: "Scan locally",
+      command: `ai-trust check ${answer.name}`,
+      primary: true,
+    });
+  } else if (normalized === "blocked" || normalized === "warning") {
+    ctas.push({
+      label: "Deep scan",
+      command: `ai-trust check ${answer.name}`,
+      primary: true,
+    });
+  } else {
+    ctas.push({
+      label: "Fresh scan",
+      command: `ai-trust check ${answer.name}`,
+      primary: true,
+    });
+  }
+  ctas.push({
+    label: "Full project audit",
+    command: "ai-trust audit package.json",
+  });
+  return ctas;
+}
+
+function renderNextStepsLines(ctas: NextStepsCta[]): string[] {
+  const { lines } = renderNextSteps({ ctas });
+  return lines.map((s) => {
+    const bullet = s.tone === "good" ? chalk.green(s.bullet) : chalk.cyan(s.bullet);
+    const label = s.tone === "good" ? chalk.bold(s.label) : chalk.cyan(s.label);
+    return `  ${bullet} ${label}  ${chalk.dim(s.command)}`;
+  });
+}
+
 export function formatCheckResult(answer: TrustAnswer): string {
   if (!answer.found) {
-    return [
-      "",
-      `  ${chalk.bold(answer.name)}  ${chalk.dim(answer.packageType || "unknown")}`,
-      `  ${chalk.yellow.bold("Not found in registry")}`,
-      "",
-      divider("Next Steps"),
-      `  ${chalk.cyan("Scan locally:")}       ai-trust check ${answer.name} --scan-if-missing`,
-      `  ${chalk.cyan("Full project audit:")} ai-trust audit package.json`,
-      "",
-    ].join("\n");
+    return formatNotFound({
+      pkg: answer.name,
+      ecosystem: "npm",
+    });
   }
 
-  const normalized = normalizeVerdict(answer.verdict);
-  const scoreDisplay = formatScore(answer.trustScore, answer.scanStatus);
-  const isUnscanned = scoreDisplay === "Not scanned";
+  const scanStatusForMeter = mapScanStatusForMeter(answer.scanStatus);
+  const block = renderCheckBlock({
+    name: answer.name,
+    packageType: answer.packageType,
+    trustLevel: answer.trustLevel,
+    trustScore: answer.trustScore,
+    verdict: answer.verdict,
+    scanStatus: scanStatusForMeter,
+    communityScans: answer.communityScans,
+    lastScannedAt: answer.lastScannedAt,
+  });
+
   const isScanError = isScanErrorStatus(answer.scanStatus);
-  const scoreVal = Math.round(answer.trustScore * 100);
+  const out: string[] = [];
 
   // Header
-  const meta: string[] = [answer.packageType || "unknown"];
+  out.push("");
+  const meta = [...block.header.meta];
   const scanAge = formatScanAge(answer.lastScannedAt);
   if (scanAge) meta.push(`scanned ${scanAge}`);
-
-  const lines: string[] = [
-    "",
-    `  ${chalk.bold.white(answer.name)}  ${chalk.dim(meta.join(" \u00b7 "))}`,
-  ];
+  const headerMeta = meta.length > 0 ? `  ${chalk.dim(meta.join(" \u00b7 "))}` : "";
+  out.push(`  ${chalk.bold.white(block.header.name)}${headerMeta}`);
 
   // Verdict
-  let verdictText: string;
   const vc = verdictColor(answer.verdict);
   if (isScanError) {
-    verdictText = "Scan failed \u2014 score is unreliable";
-  } else if (normalized === "blocked") {
-    verdictText = "Blocked by registry";
-  } else if (normalized === "warning") {
-    verdictText = "Review before installing";
-  } else if (isUnscanned) {
-    verdictText = "Not yet security-scanned";
+    out.push(`  ${chalk.bold(chalk.red("Scan failed \u2014 score is unreliable"))}`);
   } else {
-    verdictText = "No known issues";
-  }
-  lines.push(`  ${chalk.bold(vc(verdictText))}`);
-
-  // Score meter
-  lines.push("");
-  if (isScanError) {
-    lines.push(`  Trust     ${chalk.red.bold(scoreDisplay)} ${chalk.dim("\u2014 rescan to get an accurate score")}`);
-  } else if (isUnscanned) {
-    lines.push(`  Trust     ${chalk.dim("not scanned \u2014 trust level reflects registry listing only")}`);
-  } else {
-    lines.push(`  Trust     ${scoreMeter(scoreVal)}`);
+    out.push(`  ${chalk.bold(vc(block.verdict.text))}`);
   }
 
-  // Trust level
-  const tlColor = trustLevelColor(answer.trustLevel);
-  lines.push(
-    `  Level     ${chalk.bold(tlColor(trustLevelLabel(answer.trustLevel)))} ${chalk.dim(`(${answer.trustLevel}/4)`)}`
-  );
+  // Body lines
+  out.push("");
+  for (const line of block.lines) {
+    if (line.label === "Trust" && isScanError) {
+      out.push(
+        `  ${"Trust".padEnd(CHECK_LABEL_WIDTH)}${chalk.red.bold("Scan failed")} ${chalk.dim(
+          "\u2014 rescan to get an accurate score"
+        )}`
+      );
+      continue;
+    }
+    const label = line.label.padEnd(CHECK_LABEL_WIDTH);
+    out.push(`  ${label}${paintCheckTone(line.tone, line.value)}`);
+  }
 
   // Dependencies
   if (answer.dependencies && answer.dependencies.totalDeps > 0) {
@@ -178,35 +268,78 @@ export function formatCheckResult(answer: TrustAnswer): string {
       depParts.push(chalk.red(`${deps.vulnerableDeps} vulnerable`));
     if (deps.minTrustLevel !== undefined)
       depParts.push(`min trust ${deps.minTrustLevel}/4`);
-    lines.push(`  Deps      ${depParts.join(chalk.dim(" \u00b7 "))}`);
+    out.push(`  ${"Deps".padEnd(CHECK_LABEL_WIDTH)}${depParts.join(chalk.dim(" \u00b7 "))}`);
   }
 
-  // Trust level legend
-  if (answer.trustLevel < 4) {
-    lines.push(`  ${trustLevelLegend(answer.trustLevel)}`);
-  }
+  // Next Steps
+  out.push(divider("Next Steps"));
+  out.push(...renderNextStepsLines(buildCheckCtas(answer, isScanError)));
 
-  // Next steps
-  lines.push(divider("Next Steps"));
-  if (isUnscanned || answer.trustLevel <= 2) {
-    lines.push(
-      `  ${chalk.cyan("Scan locally:")}       ai-trust check ${answer.name}`
-    );
-  } else if (normalized === "blocked" || normalized === "warning") {
-    lines.push(
-      `  ${chalk.cyan("Deep scan:")}          ai-trust check ${answer.name}`
-    );
-  } else {
-    lines.push(
-      `  ${chalk.cyan("Fresh scan:")}         ai-trust check ${answer.name}`
-    );
+  out.push("");
+  return out.join("\n");
+}
+
+/**
+ * Render a "package not found" block via cli-ui renderNotFoundBlock.
+ * Closes F2 (divergent not-found shapes) and F3 (raw git exit codes).
+ */
+export function formatNotFound(input: NotFoundBlockInput): string {
+  const { header, lines: bodyLines } = renderNotFoundBlock(input);
+  const out: string[] = [""];
+  out.push(`  ${chalk.yellow.bold(header.text)}`);
+  if (bodyLines.length > 0) {
+    out.push("");
+    for (const l of bodyLines) {
+      if (l.label) {
+        out.push(
+          `  ${chalk.dim(l.label.padEnd(CHECK_LABEL_WIDTH))}${paintNotFoundTone(l.tone, l.value)}`
+        );
+      } else {
+        out.push(`  ${paintNotFoundTone(l.tone, l.value)}`);
+      }
+    }
   }
-  lines.push(
-    `  ${chalk.cyan("Full project audit:")} ai-trust audit package.json`
+  out.push(divider("Next Steps"));
+  out.push(
+    ...renderNextStepsLines([
+      {
+        label: "Scan locally",
+        command: `ai-trust check ${input.pkg} --scan-if-missing`,
+        primary: true,
+      },
+      {
+        label: "Full project audit",
+        command: "ai-trust audit package.json",
+      },
+    ])
   );
+  out.push("");
+  return out.join("\n");
+}
 
-  lines.push("");
-  return lines.join("\n");
+/**
+ * Translate a raw downloader error message into a hint.
+ * Closes F3 \u2014 `anthropic/code-review` (git-style shorthand) fails
+ * with `code 128` which leaks the raw git exit code. Returns hint +
+ * suggestions the caller passes into renderNotFoundBlock.
+ */
+export function translateDownloadError(
+  name: string,
+  message: string
+): { errorHint?: string; suggestions?: string[] } | undefined {
+  const looksGitStyle =
+    /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(name) && !name.startsWith("@");
+  if (looksGitStyle && /code\s*128/i.test(message)) {
+    const scoped = `@${name}`;
+    return {
+      errorHint: `Looks like a git-style name. npm packages use "@scope/name" \u2014 did you mean "${scoped}"?`,
+      suggestions: [scoped],
+    };
+  }
+  if (/not found on npm/i.test(message) || /not found on pypi/i.test(message)) {
+    return {};
+  }
+  return undefined;
 }
 
 export function formatBatchResults(

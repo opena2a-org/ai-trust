@@ -14,6 +14,8 @@ import {
   formatCheckResult,
   formatScanResult,
   formatJson,
+  formatNotFound,
+  translateDownloadError,
 } from "../output/formatter.js";
 import { resolveAndLog } from "../utils/resolve.js";
 import { isHmaAvailable, scanPackage } from "../scanner/index.js";
@@ -263,6 +265,34 @@ async function handleScanFlow(
     scanResult = await scanPackage(name, { deep: opts.deep ?? true, analm: opts.analm });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    // Translate recognized downloader errors into a not-found block so users
+    // see the same UX they get for a clean registry miss instead of a raw
+    // `code 128` git exit code (F3 from the check-command-divergence brief).
+    const translated = translateDownloadError(name, message);
+    if (translated !== undefined) {
+      if (globalOpts.json) {
+        console.log(
+          formatJson({
+            name,
+            found: false,
+            error: message,
+            ...(translated.errorHint ? { hint: translated.errorHint } : {}),
+            ...(translated.suggestions ? { suggestions: translated.suggestions } : {}),
+          })
+        );
+      } else {
+        console.log(
+          formatNotFound({
+            pkg: name,
+            ecosystem: "npm",
+            errorHint: translated.errorHint,
+            suggestions: translated.suggestions,
+          })
+        );
+      }
+      process.exitCode = 2;
+      return;
+    }
     if (globalOpts.json) {
       console.log(formatJson({ name, found: false, error: message }));
     } else {
@@ -426,27 +456,20 @@ function handleNoScanNotFound(
   globalOpts: { registryUrl: string; json: boolean }
 ): void {
   if (globalOpts.json) {
-    console.log(formatJson({
-      name,
-      found: false,
-      error: `Package "${name}" not found in the OpenA2A Registry.`,
-      nextSteps: [
-        `ai-trust check ${name} --scan-if-missing`,
-        `npx hackmyagent secure <project-dir>`,
-      ],
-    }));
+    console.log(
+      formatJson({
+        name,
+        found: false,
+        error: `Package "${name}" not found in the OpenA2A Registry.`,
+        nextSteps: [
+          `ai-trust check ${name} --scan-if-missing`,
+          `npx hackmyagent secure <project-dir>`,
+        ],
+      })
+    );
   } else {
-    console.error(
-      chalk.gray(`Package "${name}" not found in the OpenA2A Registry.`)
-    );
-    console.error("");
-    console.error("  To scan it locally (requires HackMyAgent):");
-    console.error(
-      chalk.cyan(`    ai-trust check ${name} --scan-if-missing`)
-    );
-    console.error("");
-    console.error("  Or scan your full project:");
-    console.error(chalk.cyan("    npx hackmyagent secure ."));
+    // Shared cli-ui renderNotFoundBlock output (F2 from the check-command-divergence brief).
+    console.log(formatNotFound({ pkg: name, ecosystem: "npm" }));
   }
   process.exitCode = 2;
 }

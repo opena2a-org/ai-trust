@@ -23,6 +23,8 @@ vi.mock("../output/formatter.js", () => ({
   formatCheckResult: vi.fn(() => "formatted-check-result"),
   formatScanResult: vi.fn(() => "formatted-scan-result"),
   formatJson: vi.fn((data: unknown) => JSON.stringify(data)),
+  formatNotFound: vi.fn(() => "formatted-not-found"),
+  translateDownloadError: vi.fn(() => undefined),
 }));
 
 // Mock scanner
@@ -54,6 +56,7 @@ import {
   formatCheckResult,
   formatScanResult,
   formatJson,
+  formatNotFound,
 } from "../output/formatter.js";
 import { isHmaAvailable, scanPackage } from "../scanner/index.js";
 import { confirm } from "../utils/prompt.js";
@@ -288,11 +291,12 @@ describe("check command", () => {
       ]);
 
       expect(process.exitCode).toBe(2);
-      expect(consoleErrSpy).toHaveBeenCalledWith(
-        expect.stringContaining("not found in the OpenA2A Registry")
-      );
-      expect(consoleErrSpy).toHaveBeenCalledWith(
-        expect.stringContaining("--scan-if-missing")
+      // Post cli-ui 0.3.0 migration, human-readable output routes through
+      // formatNotFound -> console.log (not console.error). formatNotFound is
+      // mocked at the top of the file, so we assert the routing + call shape
+      // rather than grepping the stubbed text.
+      expect(formatNotFound).toHaveBeenCalledWith(
+        expect.objectContaining({ pkg: "unknown-pkg", ecosystem: "npm" })
       );
     });
   });
