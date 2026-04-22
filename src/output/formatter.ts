@@ -19,6 +19,11 @@ import {
   trustLevelLegend,
   scoreColor,
   formatScanAge,
+  renderObservationsBlock,
+  buildCategorySummaries,
+  buildVerdict,
+  type CategorizableFinding,
+  type VerdictFinding,
 } from "@opena2a/cli-ui";
 import { classify, tierLabel } from "@opena2a/ai-classifier";
 import type { Tier } from "@opena2a/ai-classifier";
@@ -551,6 +556,60 @@ export function formatScanResult(result: ScanResult): string {
   lines.push(
     `  Level     ${chalk.bold(tlColor(trustLevelLabel(result.trustLevel)))} ${chalk.dim(`(${result.trustLevel}/4)`)}`
   );
+
+  // ── Observations + Verdict ──────────────────────────────────────────
+  // Shared block from @opena2a/cli-ui per [CA-030] so ai-trust's local-
+  // scan output stays consistent with hackmyagent secure + opena2a review.
+  // Only wired on formatScanResult (real findings). formatCheckResult is
+  // registry-lookup metadata with no findings to categorize — left for a
+  // future translation layer per brief §7.
+  const categorizable: CategorizableFinding[] = failed.map((f) => ({
+    checkId: f.checkId,
+    name: f.name,
+    category: f.category,
+    passed: false,
+    severity: f.severity as "critical" | "high" | "medium" | "low",
+  }));
+  const verdictFindings: VerdictFinding[] = failed.map((f) => ({
+    severity: f.severity as "critical" | "high" | "medium" | "low",
+    name: f.name,
+    checkId: f.checkId,
+    file: f.file,
+    line: f.line,
+  }));
+  const rawKind = result.scan.projectType?.trim();
+  const projectLabel = rawKind && rawKind !== "unknown" ? rawKind : "package";
+  const categorySummaries = buildCategorySummaries(categorizable);
+  const verdict = buildVerdict(
+    { critical, high, medium, low },
+    { kind: projectLabel },
+    verdictFindings,
+  );
+  const { lines: obsLines } = renderObservationsBlock({
+    surfaces: { kind: projectLabel },
+    checks: {
+      staticCount: result.scan.findings.length,
+      semanticCount: (result.semanticFindings?.length ?? 0),
+    },
+    categories: categorySummaries,
+    verdict,
+  });
+  lines.push("");
+  lines.push(divider("Observations"));
+  const tonePaint = (
+    tone: "default" | "good" | "warning" | "critical",
+    s: string,
+  ): string => {
+    if (tone === "good") return chalk.green(s);
+    if (tone === "warning") return chalk.yellow(s);
+    if (tone === "critical") return chalk.red(s);
+    return s;
+  };
+  const OBS_LABEL_WIDTH = 12;
+  for (const obs of obsLines) {
+    const labelPad = obs.label.padEnd(OBS_LABEL_WIDTH, " ");
+    lines.push(`  ${chalk.dim(labelPad)}${tonePaint(obs.tone, obs.value)}`);
+  }
 
   // Findings
   if (total > 0) {
