@@ -33,6 +33,7 @@ import {
   type NotFoundTone,
   type VerdictFinding,
 } from "@opena2a/cli-ui";
+import { mapScanStatusForMeter } from "@opena2a/check-core";
 import { classify, tierLabel } from "@opena2a/ai-classifier";
 import type { Tier } from "@opena2a/ai-classifier";
 import type { TrustAnswer, BatchResponse } from "@opena2a/registry-client";
@@ -135,29 +136,6 @@ function paintNotFoundTone(tone: NotFoundTone, s: string): string {
 
 const CHECK_LABEL_WIDTH = 10;
 
-/**
- * Map TrustAnswer scanStatus vocabulary to renderCheckBlock meter gate.
- * renderCheckBlock shows Trust meter iff scanStatus is "completed" or
- * "warnings". The registry uses a wider vocabulary ("complete",
- * "passed", "error", "failed", "pending", "", etc.). Collapse
- * "scan-produced-a-usable-score" states to "completed"; suppress the
- * meter otherwise (F6: a number implies measurement).
- */
-function mapScanStatusForMeter(status?: string): string | undefined {
-  if (!status) return undefined;
-  const normalized = status.toLowerCase().trim();
-  if (normalized === "" || normalized === "pending" || normalized === "not_applicable") {
-    return undefined;
-  }
-  if (normalized === "error" || normalized === "failed") {
-    return undefined;
-  }
-  if (normalized === "warnings" || normalized === "warning") return "warnings";
-  if (normalized === "complete" || normalized === "completed" || normalized === "passed") {
-    return "completed";
-  }
-  return undefined;
-}
 
 function buildCheckCtas(answer: TrustAnswer, isScanError: boolean): NextStepsCta[] {
   const normalized = normalizeVerdict(answer.verdict);
@@ -315,31 +293,6 @@ export function formatNotFound(input: NotFoundBlockInput): string {
   );
   out.push("");
   return out.join("\n");
-}
-
-/**
- * Translate a raw downloader error message into a hint.
- * Closes F3 \u2014 `anthropic/code-review` (git-style shorthand) fails
- * with `code 128` which leaks the raw git exit code. Returns hint +
- * suggestions the caller passes into renderNotFoundBlock.
- */
-export function translateDownloadError(
-  name: string,
-  message: string
-): { errorHint?: string; suggestions?: string[] } | undefined {
-  const looksGitStyle =
-    /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(name) && !name.startsWith("@");
-  if (looksGitStyle && /code\s*128/i.test(message)) {
-    const scoped = `@${name}`;
-    return {
-      errorHint: `Looks like a git-style name. npm packages use "@scope/name" \u2014 did you mean "${scoped}"?`,
-      suggestions: [scoped],
-    };
-  }
-  if (/not found on npm/i.test(message) || /not found on pypi/i.test(message)) {
-    return {};
-  }
-  return undefined;
 }
 
 export function formatBatchResults(

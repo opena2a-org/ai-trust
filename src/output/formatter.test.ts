@@ -9,7 +9,6 @@ import {
   formatScanResult,
   formatJson,
   formatNotFound,
-  translateDownloadError,
 } from "./formatter.js";
 import type { TrustAnswer, BatchResponse } from "@opena2a/registry-client";
 import type { ScanResult } from "../scanner/index.js";
@@ -614,45 +613,9 @@ describe("formatNotFound", () => {
   });
 });
 
-describe("translateDownloadError (F3 git-style)", () => {
-  it("translates code-128 on user/repo input to a scoped hint", () => {
-    const translated = translateDownloadError(
-      "anthropic/code-review",
-      'Failed to download "anthropic/code-review": code 128'
-    );
-    expect(translated).toBeDefined();
-    expect(translated?.errorHint).toContain("@anthropic/code-review");
-    expect(translated?.suggestions).toEqual(["@anthropic/code-review"]);
-  });
-
-  it("leaves scoped packages alone (no spurious hint)", () => {
-    const translated = translateDownloadError(
-      "@anthropic/code-review",
-      'Failed to download "@anthropic/code-review": code 128'
-    );
-    expect(translated).toBeUndefined();
-  });
-
-  it("handles plain 'not found on npm' without a specialised hint", () => {
-    const translated = translateDownloadError(
-      "novel-pkg-999",
-      'Failed to download "novel-pkg-999": Package "novel-pkg-999" not found on npm.'
-    );
-    // Recognised as a not-found, no extra hint / suggestions needed — caller
-    // renders a plain block.
-    expect(translated).toBeDefined();
-    expect(translated?.errorHint).toBeUndefined();
-    expect(translated?.suggestions).toBeUndefined();
-  });
-
-  it("returns undefined for unrecognized errors", () => {
-    const translated = translateDownloadError(
-      "some-pkg",
-      "ENOSPC: no space left on device"
-    );
-    expect(translated).toBeUndefined();
-  });
-});
+// translateDownloadError tests moved to @opena2a/check-core — see
+// opena2a/packages/check-core/src/translate-error.test.ts. Both consumers
+// (ai-trust + hackmyagent) now import the single implementation.
 
 describe("formatJson", () => {
   it("returns pretty-printed JSON", () => {

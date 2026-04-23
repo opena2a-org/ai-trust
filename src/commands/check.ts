@@ -15,8 +15,8 @@ import {
   formatScanResult,
   formatJson,
   formatNotFound,
-  translateDownloadError,
 } from "../output/formatter.js";
+import { translateDownloadError } from "@opena2a/check-core";
 import { resolveAndLog } from "../utils/resolve.js";
 import { isHmaAvailable, scanPackage } from "../scanner/index.js";
 import type { ScanResult } from "../scanner/index.js";
