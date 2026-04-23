@@ -1,6 +1,6 @@
 {
   "name": "ai-trust",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Trust verification CLI for AI packages — check MCP servers, A2A agents, AI tools, and LLMs before you install",
   "homepage": "https://opena2a.org/ai-trust",
   "repository": {
