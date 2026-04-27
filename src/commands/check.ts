@@ -16,7 +16,7 @@ import {
   formatJson,
   formatNotFound,
 } from "../output/formatter.js";
-import { translateDownloadError } from "@opena2a/check-core";
+import { buildNotFoundOutput, translateDownloadError } from "@opena2a/check-core";
 import { resolveAndLog } from "../utils/resolve.js";
 import { isHmaAvailable, scanPackage } from "../scanner/index.js";
 import type { ScanResult } from "../scanner/index.js";
@@ -137,7 +137,11 @@ export function registerCheckCommand(program: Command): void {
           } else {
             const message = err instanceof Error ? err.message : String(err);
             if (globalOpts.json) {
-              console.log(formatJson({ name, found: false, error: message }));
+              console.log(formatJson(buildNotFoundOutput({
+                name,
+                ecosystem: "npm",
+                error: message,
+              })));
             } else {
               console.error(`Error: ${message}`);
             }
@@ -212,15 +216,15 @@ async function handleNotFound(
   // Non-TTY: report not found with actionable next steps
   if (!process.stdin.isTTY) {
     if (globalOpts.json) {
-      console.log(formatJson({
+      console.log(formatJson(buildNotFoundOutput({
         name,
-        found: false,
+        ecosystem: "npm",
         error: `Package "${name}" not found in the OpenA2A Registry.`,
         nextSteps: [
           `ai-trust check ${name} --scan-if-missing`,
           `npx hackmyagent secure <project-dir>`,
         ],
-      }));
+      })));
     } else {
       console.error(`Package "${name}" not found in the OpenA2A Registry.\n`);
       console.error("  Scan it locally:");
@@ -271,15 +275,13 @@ async function handleScanFlow(
     const translated = translateDownloadError(name, message);
     if (translated !== undefined) {
       if (globalOpts.json) {
-        console.log(
-          formatJson({
-            name,
-            found: false,
-            error: message,
-            ...(translated.errorHint ? { hint: translated.errorHint } : {}),
-            ...(translated.suggestions ? { suggestions: translated.suggestions } : {}),
-          })
-        );
+        console.log(formatJson(buildNotFoundOutput({
+          name,
+          ecosystem: "npm",
+          error: message,
+          errorHint: translated.errorHint,
+          suggestions: translated.suggestions,
+        })));
       } else {
         console.log(
           formatNotFound({
@@ -294,7 +296,11 @@ async function handleScanFlow(
       return;
     }
     if (globalOpts.json) {
-      console.log(formatJson({ name, found: false, error: message }));
+      console.log(formatJson(buildNotFoundOutput({
+        name,
+        ecosystem: "npm",
+        error: message,
+      })));
     } else {
       console.error(`Error: ${message}`);
     }
@@ -456,17 +462,15 @@ function handleNoScanNotFound(
   globalOpts: { registryUrl: string; json: boolean }
 ): void {
   if (globalOpts.json) {
-    console.log(
-      formatJson({
-        name,
-        found: false,
-        error: `Package "${name}" not found in the OpenA2A Registry.`,
-        nextSteps: [
-          `ai-trust check ${name} --scan-if-missing`,
-          `npx hackmyagent secure <project-dir>`,
-        ],
-      })
-    );
+    console.log(formatJson(buildNotFoundOutput({
+      name,
+      ecosystem: "npm",
+      error: `Package "${name}" not found in the OpenA2A Registry.`,
+      nextSteps: [
+        `ai-trust check ${name} --scan-if-missing`,
+        `npx hackmyagent secure <project-dir>`,
+      ],
+    })));
   } else {
     // Shared cli-ui renderNotFoundBlock output (F2 from the check-command-divergence brief).
     console.log(formatNotFound({ pkg: name, ecosystem: "npm" }));
