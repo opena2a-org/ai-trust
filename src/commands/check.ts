@@ -29,6 +29,7 @@ import {
   saveContributeChoice,
   sendScanPing,
 } from "../telemetry/index.js";
+import { checkSkillOrMcp, parseRichTarget } from "../check/skill-mcp-check.js";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
@@ -80,6 +81,46 @@ export function registerCheckCommand(program: Command): void {
         registryUrl: string;
         json: boolean;
       };
+
+      // Rich-block dispatch (skill: / mcp: prefix). Mirrors HMA's
+      // src/check/ module for parity F12 / F13. When the registry
+      // has a fresh narrative, render the rich block and exit.
+      // Otherwise fall through to the existing classifier flow.
+      const parsed = parseRichTarget(rawName);
+      if (parsed) {
+        const richClient = new RegistryClient({
+          baseUrl: globalOpts.registryUrl,
+          userAgent: `ai-trust/${AI_TRUST_VERSION}`,
+        });
+        const result = await checkSkillOrMcp({
+          parsed,
+          registryUrl: globalOpts.registryUrl,
+          client: richClient,
+          userAgent: `ai-trust/${AI_TRUST_VERSION}`,
+          reportTool: "ai-trust",
+          palette: {
+            reset: "[0m",
+            dim: chalk.dim,
+            bold: chalk.bold,
+            white: chalk.white,
+            green: chalk.green,
+            yellow: chalk.yellow,
+            red: chalk.red,
+            brightRed: chalk.redBright,
+            cyan: chalk.cyan,
+          },
+        });
+        if (result.rendered) {
+          if (globalOpts.json && result.input) {
+            console.log(JSON.stringify(result.input, null, 2));
+          }
+          return;
+        }
+        // No narrative → falls through; classifier picks up parsed.name
+        // as a normal lookup target. Replace the name so downstream
+        // logic (no-scan, scan paths) operates on the unprefixed name.
+        rawName = parsed.name;
+      }
 
       const name = resolveAndLog(rawName);
       const client = new RegistryClient({

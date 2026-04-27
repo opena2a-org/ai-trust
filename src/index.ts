@@ -15,13 +15,16 @@ import { registerBatchCommand } from "./commands/batch.js";
 
 const require = createRequire(import.meta.url);
 const pkg = require("../package.json");
+const VERSION: string = pkg.version;
+const TELEMETRY_TOOL = "ai-trust";
+const NON_TRACKED_TELEMETRY_COMMANDS = new Set<string>(["telemetry", "help"]);
+const telemetryStartedAt = new Map<string, number>();
 
 const program = new Command();
 
 program
   .name("ai-trust")
   .description("Check security trust scores for AI agents and MCP servers before installing them")
-  .version(`ai-trust ${pkg.version} — trust verification for AI packages`, "-v, --version")
   .option(
     "--registry-url <url>",
     "registry base URL",
@@ -34,4 +37,75 @@ registerCheckCommand(program);
 registerAuditCommand(program);
 registerBatchCommand(program);
 
-program.parse();
+(async () => {
+  // Tier-1 anonymous usage telemetry — default ON; opt-out via
+  // OPENA2A_TELEMETRY=off or `ai-trust telemetry off`. Mirrors the
+  // pattern shipped in hackmyagent + opena2a-cli (parity).
+  // Disclosure surfaces: README, --version line, telemetry subcommand,
+  // opena2a.org/telemetry.
+  // Silent-post-consent rule (briefs/scan-result-telemetry-policy.md §5):
+  // ALL ongoing contribution after opt-in is invisible — no per-scan
+  // banner, no "queued for registry" line. ai-trust currently emits
+  // none; preserve that.
+  const tele = await import("@opena2a/telemetry");
+  const cliUi = await import("@opena2a/cli-ui");
+  await tele.init({ tool: TELEMETRY_TOOL, version: VERSION });
+
+  program.version(
+    cliUi.versionLine({
+      tool: TELEMETRY_TOOL,
+      version: VERSION,
+      telemetry: tele.status(),
+    }),
+    "-v, --version",
+    "Output the version number",
+  );
+
+  program
+    .hook("preAction", (_thisCommand, actionCommand) => {
+      const name = actionCommand.name();
+      if (NON_TRACKED_TELEMETRY_COMMANDS.has(name)) return;
+      telemetryStartedAt.set(name, Date.now());
+    })
+    .hook("postAction", (_thisCommand, actionCommand) => {
+      const name = actionCommand.name();
+      const startedAt = telemetryStartedAt.get(name);
+      if (startedAt === undefined) return;
+      telemetryStartedAt.delete(name);
+      void tele.track(name, {
+        success: (process.exitCode ?? 0) === 0,
+        durationMs: Date.now() - startedAt,
+      });
+    });
+
+  program
+    .command("telemetry [action]")
+    .description("Inspect or toggle anonymous usage telemetry: on | off | status")
+    .action((action: string | undefined) => {
+      console.log(
+        cliUi.runTelemetryCommand(action as Parameters<typeof cliUi.runTelemetryCommand>[0], {
+          tool: TELEMETRY_TOOL,
+          getStatus: tele.status,
+          setOptOut: tele.setOptOut,
+        }),
+      );
+    });
+
+  if (process.argv.length <= 2) {
+    program.outputHelp();
+    process.exit(0);
+  }
+
+  try {
+    await program.parseAsync(process.argv);
+  } catch (err) {
+    const inFlight = telemetryStartedAt.keys().next().value;
+    if (inFlight) {
+      const code = err instanceof Error ? err.name : "unknown";
+      tele.error(inFlight, code);
+    }
+    throw err;
+  } finally {
+    await tele.flush();
+  }
+})();
