@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0 (2026-04-27)
+
+### Changed
+- **`@opena2a/check-core` exact-pinned at `0.2.0`** (was `0.1.0`). Ride-along consume — ai-trust does not yet render the rich-context narrative block (that lands with `cli-ui@0.4.0` in session 3 of `briefs/check-rich-context-skills-mcp-v1.md`). Bumping the pin keeps ai-trust on the same data-layer version as `hackmyagent@0.20.0` and prevents check-core 0.1.0 from being silently retained as a transitive dep.
+- **Round 2 `buildNotFoundOutput` adoption (was queued in 0.5.1).** Bundles the five not-found path migrations into the 0.6.0 release window per the `[CA-034] round 2` queueing decision, which held the standalone publish until partner work surfaced. Partner work is the check-core 0.2.0 consume above.
+
+### Brief
+- opena2a-org/briefs/check-rich-context-skills-mcp-v1.md (§8 task 2f, "round 2 PRs ride along")
+
 ## 0.5.1 (2026-04-22)
 
 ### Changed
