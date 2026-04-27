@@ -506,9 +506,12 @@ function isPolicyFailure(verdict?: string): boolean {
 }
 
 /**
- * Print a registry-confirmed library result. We still show whatever trust
- * data the registry has (publisher, verdict, etc.) so the user isn't left
- * with an unhelpful "go away" message, then append the HMA CTA.
+ * Print a registry-confirmed library result. Per the v0.3 spec
+ * (ai-trust/CLAUDE.md "UX philosophy v0.3"), Tier 3 libraries get
+ * ONLY the out-of-scope notice + HMA CTA \u2014 no trust block. Rendering
+ * the trust block on top would surface a misleading "Scan failed \u2014
+ * score is unreliable" line on errored library scans (AI-TRUST-1).
+ * The full trust read for libraries lives in `hackmyagent check`.
  */
 function printLibraryWithTrust(result: TrustAnswer, asJson: boolean): void {
   if (asJson) {
@@ -520,8 +523,10 @@ function printLibraryWithTrust(result: TrustAnswer, asJson: boolean): void {
     }));
     return;
   }
-  console.log(formatCheckResult(result));
   console.error("");
+  console.error(
+    `  ${chalk.bold.white(result.name)}  ${chalk.dim("library (registry-classified)")}`
+  );
   console.error(
     `  ${chalk.cyan("Out of scope for ai-trust")} ${chalk.dim("\u2014 the registry classifies this as a general-purpose library.")}`
   );
