@@ -70,6 +70,12 @@ export interface CheckSkillOrMcpOptions {
   palette: RichBlockPalette;
   /** Optional explicit version pin; defaults to registry's "latest". */
   version?: string;
+  /**
+   * Suppress the human-readable rich-block render. Used by `--json`
+   * callers and the opena2a-parity harness so output is parseable.
+   * The orchestrator still builds and returns `result.input`.
+   */
+  silent?: boolean;
 }
 
 export interface CheckSkillOrMcpResult {
@@ -147,6 +153,10 @@ export async function checkSkillOrMcp(
 
   if (!input) {
     return { rendered: false };
+  }
+
+  if (options.silent) {
+    return { rendered: true, input };
   }
 
   const rendered = renderCheckRichBlock(input);

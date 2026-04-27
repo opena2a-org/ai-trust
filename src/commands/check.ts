@@ -98,6 +98,7 @@ export function registerCheckCommand(program: Command): void {
           client: richClient,
           userAgent: `ai-trust/${AI_TRUST_VERSION}`,
           reportTool: "ai-trust",
+          silent: !!globalOpts.json,
           palette: {
             reset: "[0m",
             dim: chalk.dim,
