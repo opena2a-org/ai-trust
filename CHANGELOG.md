@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.7.0 (2026-04-27)
+
+### Added
+- **`check skill:<name>` and `check mcp:<name>` rich-context block.** Mirrors `hackmyagent check`'s rich block from cli-ui 0.5.0 — header with verdict + score + scan-age, hardcoded-secrets section with rotation guidance, "What is this skill?" / MCP narrative block, deterministic verdict reasoning, threat-model questions, action gradient. Same UX across all three CLIs (parity F12 / F13). Falls through to the existing AI-classifier flow when the registry has no fresh narrative.
+- **Tier-1 anonymous usage telemetry.** Default ON; opt-out via `OPENA2A_TELEMETRY=off` or `ai-trust telemetry off`. Tracks command name, success/failure, duration. No package names, no scan content. Mirrors the pattern shipped in `hackmyagent` and `opena2a-cli`. Disclosure: `--version`, `telemetry status`, README, opena2a.org/telemetry.
+- **`telemetry [on|off|status]` subcommand** to inspect or toggle anonymous usage telemetry.
+
+### Fixed
+- **AI-TRUST-1: Tier 3 library renders out-of-scope only.** Per `CLAUDE.md` v0.3 "UX philosophy", libraries get the redirect to HMA without a trust block on top. Earlier behavior surfaced `formatCheckResult` AND the out-of-scope CTA, which on errored library scans showed "Scan failed — score is unreliable" stacked on "Out of scope for ai-trust" — two unrelated messages competing. The full trust read for libraries lives in `hackmyagent check`.
+
+### Policy
+- **Silent post-consent rule** (`briefs/scan-result-telemetry-policy.md` §5). Once the user has opted in to scan contribution, the act of contributing is invisible — no per-scan banner, no "queued for registry" line. ai-trust currently emits no per-scan contribution prints; this release locks that behavior in by policy. Disclosure lives in the initial consent prompt, `--help`, and the privacy policy.
+
+### Pinned
+- `@opena2a/cli-ui` exact-pinned at `0.5.0` (was `0.3.0`). Required for `renderCheckRichBlock` + sub-block primitives.
+- `@opena2a/telemetry` added at `^0.1.2`.
+
+### Brief
+- opena2a-org/briefs/check-rich-context-skills-mcp-v1.md (§3, §8)
+- opena2a-org/briefs/scan-result-telemetry-policy.md
+
 ## 0.6.0 (2026-04-27)
 
 ### Changed

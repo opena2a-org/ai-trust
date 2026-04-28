@@ -1,6 +1,6 @@
 {
   "name": "ai-trust",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Trust verification CLI for AI packages — check MCP servers, A2A agents, AI tools, and LLMs before you install",
   "homepage": "https://opena2a.org/ai-trust",
   "repository": {
@@ -41,10 +41,11 @@
   "dependencies": {
     "@opena2a/ai-classifier": "^0.1.0",
     "@opena2a/check-core": "0.2.0",
-    "@opena2a/cli-ui": "0.3.0",
+    "@opena2a/cli-ui": "0.5.0",
     "@opena2a/contribute": "^0.1.0",
     "@opena2a/registry-client": "0.1.0",
     "@opena2a/shared": "^0.1.0",
+    "@opena2a/telemetry": "^0.1.2",
     "chalk": "^5.3.0",
     "commander": "^12.1.0",
     "hackmyagent": "^0.17.1"

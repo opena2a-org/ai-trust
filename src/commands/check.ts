@@ -29,6 +29,7 @@ import {
   saveContributeChoice,
   sendScanPing,
 } from "../telemetry/index.js";
+import { checkSkillOrMcp, parseRichTarget } from "../check/skill-mcp-check.js";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
@@ -80,6 +81,47 @@ export function registerCheckCommand(program: Command): void {
         registryUrl: string;
         json: boolean;
       };
+
+      // Rich-block dispatch (skill: / mcp: prefix). Mirrors HMA's
+      // src/check/ module for parity F12 / F13. When the registry
+      // has a fresh narrative, render the rich block and exit.
+      // Otherwise fall through to the existing classifier flow.
+      const parsed = parseRichTarget(rawName);
+      if (parsed) {
+        const richClient = new RegistryClient({
+          baseUrl: globalOpts.registryUrl,
+          userAgent: `ai-trust/${AI_TRUST_VERSION}`,
+        });
+        const result = await checkSkillOrMcp({
+          parsed,
+          registryUrl: globalOpts.registryUrl,
+          client: richClient,
+          userAgent: `ai-trust/${AI_TRUST_VERSION}`,
+          reportTool: "ai-trust",
+          silent: !!globalOpts.json,
+          palette: {
+            reset: "[0m",
+            dim: chalk.dim,
+            bold: chalk.bold,
+            white: chalk.white,
+            green: chalk.green,
+            yellow: chalk.yellow,
+            red: chalk.red,
+            brightRed: chalk.redBright,
+            cyan: chalk.cyan,
+          },
+        });
+        if (result.rendered) {
+          if (globalOpts.json && result.input) {
+            console.log(JSON.stringify(result.input, null, 2));
+          }
+          return;
+        }
+        // No narrative → falls through; classifier picks up parsed.name
+        // as a normal lookup target. Replace the name so downstream
+        // logic (no-scan, scan paths) operates on the unprefixed name.
+        rawName = parsed.name;
+      }
 
       const name = resolveAndLog(rawName);
       const client = new RegistryClient({
@@ -506,9 +548,12 @@ function isPolicyFailure(verdict?: string): boolean {
 }
 
 /**
- * Print a registry-confirmed library result. We still show whatever trust
- * data the registry has (publisher, verdict, etc.) so the user isn't left
- * with an unhelpful "go away" message, then append the HMA CTA.
+ * Print a registry-confirmed library result. Per the v0.3 spec
+ * (ai-trust/CLAUDE.md "UX philosophy v0.3"), Tier 3 libraries get
+ * ONLY the out-of-scope notice + HMA CTA \u2014 no trust block. Rendering
+ * the trust block on top would surface a misleading "Scan failed \u2014
+ * score is unreliable" line on errored library scans (AI-TRUST-1).
+ * The full trust read for libraries lives in `hackmyagent check`.
  */
 function printLibraryWithTrust(result: TrustAnswer, asJson: boolean): void {
   if (asJson) {
@@ -520,8 +565,10 @@ function printLibraryWithTrust(result: TrustAnswer, asJson: boolean): void {
     }));
     return;
   }
-  console.log(formatCheckResult(result));
   console.error("");
+  console.error(
+    `  ${chalk.bold.white(result.name)}  ${chalk.dim("library (registry-classified)")}`
+  );
   console.error(
     `  ${chalk.cyan("Out of scope for ai-trust")} ${chalk.dim("\u2014 the registry classifies this as a general-purpose library.")}`
   );

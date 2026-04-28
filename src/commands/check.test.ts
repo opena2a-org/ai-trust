@@ -563,8 +563,11 @@ describe("check command", () => {
       await program.parseAsync(["node", "test", "check", "express", "--no-scan"]);
 
       expect(mockCheckTrust).toHaveBeenCalledWith("express", undefined);
-      // Trust data is still shown alongside the out-of-scope note
-      expect(formatCheckResult).toHaveBeenCalled();
+      // AI-TRUST-1: per v0.3 spec, libraries get out-of-scope only — no
+      // trust block. Showing both surfaced a misleading "Scan failed —
+      // score is unreliable" line on errored library scans on top of the
+      // out-of-scope CTA.
+      expect(formatCheckResult).not.toHaveBeenCalled();
       // Out of scope is informational — exit 0, not 2
       expect(process.exitCode).toBeUndefined();
     });
@@ -670,11 +673,13 @@ describe("check command", () => {
       expect(process.exitCode).toBe(2);
     });
 
-    it("still surfaces trust data for a registry-confirmed library (--no-scan)", async () => {
-      // Regression: the previous implementation dismissed the registry's
-      // trust answer entirely when packageType=library, so a user who
-      // asked about a library got "Out of scope" with NO trust info at
-      // all — even when the registry had useful data (verdict, publisher).
+    it("AI-TRUST-1: registry-confirmed library renders ONLY out-of-scope CTA, not the trust block", async () => {
+      // Per v0.3 spec, Tier 3 libraries are out of ai-trust's scope and
+      // get the redirect to HMA. The earlier behavior rendered
+      // formatCheckResult on top, which on errored scans surfaced
+      // "Scan failed — score is unreliable" stacked on the out-of-scope
+      // notice — confusing two unrelated concerns. The full trust read
+      // for libraries lives in `hackmyagent check`.
       const mockCheckTrust = vi.fn().mockResolvedValue({
         name: "chalk",
         found: true,
@@ -682,6 +687,7 @@ describe("check command", () => {
         trustLevel: 3,
         trustScore: 0.82,
         packageType: "library",
+        scanStatus: "error",
       });
       vi.mocked(RegistryClient).mockImplementation(
         () =>
@@ -695,9 +701,7 @@ describe("check command", () => {
       const program = createProgram();
       await program.parseAsync(["node", "test", "check", "chalk", "--no-scan"]);
 
-      // formatCheckResult was called — the user sees the registry's data,
-      // not just a bare "go away" message.
-      expect(formatCheckResult).toHaveBeenCalled();
+      expect(formatCheckResult).not.toHaveBeenCalled();
     });
   });
 });
