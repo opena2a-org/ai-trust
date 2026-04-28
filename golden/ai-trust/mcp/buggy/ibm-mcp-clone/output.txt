@@ -1,0 +1,5 @@
+score=51
+trustLevel=1
+verdict=warning
+severities={"critical":2,"high":2,"low":2,"medium":2}
+checkIds=GIT-001,SEM-LLM-001,SEM-LLM-002,SEM-LLM-003,SEM-LLM-004,SEM-LLM-005,SEM-LLM-006,SEM-LLM-007

@@ -7,6 +7,8 @@ export type { DownloadResult } from "./downloader.js";
 export { isHmaAvailable, runHmaScan } from "./hma.js";
 export type { HmaScanResult, HmaFinding, SemanticFinding, AnalystFinding, HmaScanOptions } from "./hma.js";
 
+import { readFile, stat } from "node:fs/promises";
+import { join } from "node:path";
 import { downloadPackage } from "./downloader.js";
 import { runHmaScan } from "./hma.js";
 import type { HmaScanResult, SemanticFinding, AnalystFinding, HmaScanOptions } from "./hma.js";
@@ -51,9 +53,22 @@ export async function scanPackage(
   name: string,
   options: HmaScanOptions & { ecosystem?: "npm" | "pypi" } = {}
 ): Promise<ScanResult> {
-  const download = await downloadPackage(name, options.ecosystem ?? "npm");
+  const ecosystem = options.ecosystem ?? "npm";
+  const download = await downloadPackage(name, ecosystem);
 
   try {
+    // Defense-in-depth: verify the unpacked tarball's package.json `name`
+    // matches the requested name BEFORE running runHmaScan. Without this,
+    // if `npm pack <name>` ever returned a tarball whose contents identify
+    // as a different package (registry redirect, partial-fetch corruption,
+    // future typosquat-misroute), --scan-if-missing would publish a trust
+    // record under the requested name with content from a different package.
+    // The guard does NOT block legitimate scope shorthand resolution
+    // (`server-filesystem` → `@modelcontextprotocol/server-filesystem`);
+    // see assertPackageMatchesName for the canonical-scope rules.
+    if (ecosystem === "npm") {
+      await assertPackageMatchesName(download.dir, name);
+    }
     const scan = await runHmaScan(download.dir, options);
 
     // Filter out local-dev-only findings that are meaningless for downloaded packages.
@@ -110,6 +125,116 @@ export async function scanPackage(
   } finally {
     await download.cleanup();
   }
+}
+
+/**
+ * Scan a local directory directly (no download step). Used for adversarial
+ * corpus fixtures and any other on-disk target. Skips the LOCAL_ONLY filter
+ * because for local sources those categories ARE meaningful (a missing
+ * .gitignore in a real repo is a real finding, unlike in an npm tarball).
+ */
+export async function scanLocalPath(
+  targetDir: string,
+  options: HmaScanOptions = {},
+): Promise<ScanResult> {
+  let st;
+  try {
+    st = await stat(targetDir);
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code ?? "unknown";
+    throw new Error(
+      `scanLocalPath: ${targetDir} could not be read (${code}).`,
+    );
+  }
+  if (!st.isDirectory()) {
+    throw new Error(`scanLocalPath: ${targetDir} is not a directory.`);
+  }
+  const scan = await runHmaScan(targetDir, options);
+  const trustScore = scan.maxScore > 0 ? scan.score / scan.maxScore : 0;
+  const trustLevel = deriveTrustLevel(scan);
+  const verdict = deriveVerdict(scan);
+
+  const result: ScanResult = {
+    packageName: targetDir,
+    scan,
+    trustScore,
+    trustLevel,
+    verdict,
+  };
+  if (scan.semanticFindings && scan.semanticFindings.length > 0) {
+    result.semanticFindings = scan.semanticFindings;
+  }
+  if (scan.analystFindings && scan.analystFindings.length > 0) {
+    result.analystFindings = scan.analystFindings;
+  }
+  return result;
+}
+
+/**
+ * Verify that the unpacked tarball's package.json `name` matches the
+ * requested name. This is a guard against `npm pack <name>` returning the
+ * wrong package (or an empty tarball), which would otherwise produce a
+ * misleading scan result that the publish path could send to the registry.
+ *
+ * If package.json is unreadable or has no `name` field, that's also a
+ * publish-blocker — we don't have enough information to identify what was
+ * actually scanned.
+ */
+export async function assertPackageMatchesName(
+  dir: string,
+  requestedName: string,
+): Promise<void> {
+  let pkgRaw: string;
+  try {
+    pkgRaw = await readFile(join(dir, "package.json"), "utf8");
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code ?? "unknown";
+    throw new Error(
+      `download verification failed: ${dir}/package.json could not be read (${code}); refusing to scan/publish a package whose identity cannot be confirmed.`,
+    );
+  }
+  let parsed: { name?: unknown };
+  try {
+    parsed = JSON.parse(pkgRaw) as { name?: unknown };
+  } catch {
+    throw new Error(
+      `download verification failed: ${dir}/package.json is not valid JSON; refusing to scan/publish.`,
+    );
+  }
+  const actualName = typeof parsed.name === "string" ? parsed.name : "";
+  if (!actualName) {
+    throw new Error(
+      `download verification failed: ${dir}/package.json has no "name" field; refusing to scan/publish.`,
+    );
+  }
+  const norm = (s: string): string => s.toLowerCase();
+  if (norm(actualName) === norm(requestedName)) return;
+
+  // Allow the legitimate case where the request used unscoped shorthand
+  // and npm resolved it to a scoped package (e.g. `server-filesystem` →
+  // `@modelcontextprotocol/server-filesystem`). A real npm scope MUST start
+  // with `@`, contain exactly one `/`, and have non-empty scope + basename.
+  // Anything else (`evil-corp/foo`, `foo/bar/baz`, `/foo`, `@a/b/c`) is
+  // rejected — the guard's purpose is refusing to publish under the wrong
+  // identity, and only canonical scopes are legitimate identity equivalences
+  // for an unscoped request.
+  const slashIdx = actualName.indexOf("/");
+  const isCanonicalScope =
+    actualName.startsWith("@") &&
+    slashIdx > 1 &&
+    slashIdx === actualName.lastIndexOf("/") &&
+    slashIdx < actualName.length - 1;
+  if (
+    isCanonicalScope &&
+    !requestedName.includes("/") &&
+    norm(actualName.slice(slashIdx + 1)) === norm(requestedName)
+  ) {
+    return;
+  }
+
+  throw new Error(
+    `download verification failed: requested "${requestedName}" but tarball contains "${actualName}". Refusing to publish a trust record under the wrong name.`,
+  );
 }
 
 function deriveTrustLevel(scan: HmaScanResult): number {

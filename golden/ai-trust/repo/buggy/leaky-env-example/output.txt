@@ -1,0 +1,5 @@
+score=77
+trustLevel=2
+verdict=warning
+severities={"critical":1,"high":1}
+checkIds=CONFIG-004,GIT-002

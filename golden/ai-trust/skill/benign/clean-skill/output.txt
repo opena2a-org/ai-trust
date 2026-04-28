@@ -1,0 +1,5 @@
+score=60
+trustLevel=1
+verdict=warning
+severities={"high":5,"low":1,"medium":2}
+checkIds=AST-PROMPT-003,AST-PROMPT-004,GIT-001,SKILL-001,SKILL-020,SUPPLY-001,SUPPLY-002,SUPPLY-004
