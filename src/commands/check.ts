@@ -99,10 +99,22 @@ export function registerCheckCommand(program: Command): void {
           );
           process.exit(2);
         }
-        const result = await scanLocalPath(opts.scanPath, {
-          deep: opts.deep ?? true,
-          analm: opts.analm ?? false,
-        });
+        let result;
+        try {
+          result = await scanLocalPath(opts.scanPath, {
+            deep: opts.deep ?? true,
+            analm: opts.analm ?? false,
+          });
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          console.error(chalk.red(`error: ${msg}`));
+          console.error(
+            chalk.dim(
+              "Fix: pass --scan-path to a directory that exists and is readable.",
+            ),
+          );
+          process.exit(2);
+        }
         // Override packageName with the user-supplied name so output is
         // labeled clearly when the same fixture is invoked under different
         // names (e.g. release-smoke harness uses surface/intent/fixture).
