@@ -7,6 +7,8 @@ export type { DownloadResult } from "./downloader.js";
 export { isHmaAvailable, runHmaScan } from "./hma.js";
 export type { HmaScanResult, HmaFinding, SemanticFinding, AnalystFinding, HmaScanOptions } from "./hma.js";
 
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { downloadPackage } from "./downloader.js";
 import { runHmaScan } from "./hma.js";
 import type { HmaScanResult, SemanticFinding, AnalystFinding, HmaScanOptions } from "./hma.js";
@@ -51,9 +53,20 @@ export async function scanPackage(
   name: string,
   options: HmaScanOptions & { ecosystem?: "npm" | "pypi" } = {}
 ): Promise<ScanResult> {
-  const download = await downloadPackage(name, options.ecosystem ?? "npm");
+  const ecosystem = options.ecosystem ?? "npm";
+  const download = await downloadPackage(name, ecosystem);
 
   try {
+    // Verify the downloaded package matches the requested name BEFORE scanning.
+    // Without this, `npm pack <name>` returning an empty/wrong tarball produces
+    // a misleading scan result that --scan-if-missing then publishes to the
+    // registry (registry pollution). Pollution incident: record `8e1020de`,
+    // 2026-04-28 — kitchen-sink (a corpus fixture name, not a real package)
+    // resolved to score=100 / 0 findings and was published. See ai-trust
+    // CLAUDE.md "Adversarial corpus paths" + opena2a-corpus session-94.
+    if (ecosystem === "npm") {
+      await assertPackageMatchesName(download.dir, name);
+    }
     const scan = await runHmaScan(download.dir, options);
 
     // Filter out local-dev-only findings that are meaningless for downloaded packages.
@@ -141,6 +154,59 @@ export async function scanLocalPath(
     result.analystFindings = scan.analystFindings;
   }
   return result;
+}
+
+/**
+ * Verify that the unpacked tarball's package.json `name` matches the
+ * requested name. This is a guard against `npm pack <name>` returning the
+ * wrong package (or an empty tarball), which would otherwise produce a
+ * misleading scan result that the publish path could send to the registry.
+ *
+ * If package.json is unreadable or has no `name` field, that's also a
+ * publish-blocker — we don't have enough information to identify what was
+ * actually scanned.
+ */
+async function assertPackageMatchesName(
+  dir: string,
+  requestedName: string,
+): Promise<void> {
+  let pkgRaw: string;
+  try {
+    pkgRaw = await readFile(join(dir, "package.json"), "utf8");
+  } catch {
+    throw new Error(
+      `download verification failed: ${dir}/package.json missing or unreadable; refusing to scan/publish a package whose identity cannot be confirmed.`,
+    );
+  }
+  let parsed: { name?: unknown };
+  try {
+    parsed = JSON.parse(pkgRaw) as { name?: unknown };
+  } catch {
+    throw new Error(
+      `download verification failed: ${dir}/package.json is not valid JSON; refusing to scan/publish.`,
+    );
+  }
+  const actualName = typeof parsed.name === "string" ? parsed.name : "";
+  if (!actualName) {
+    throw new Error(
+      `download verification failed: ${dir}/package.json has no "name" field; refusing to scan/publish.`,
+    );
+  }
+  // Normalize: strip @scope/ if requested name was unscoped (npm sometimes
+  // resolves shorthand to a scoped package — that's still a match).
+  const norm = (s: string): string => s.toLowerCase();
+  if (norm(actualName) !== norm(requestedName)) {
+    // Allow the case where the requested name is the unscoped shorthand of
+    // a scoped resolved package (e.g. `server-filesystem` → `@modelcontextprotocol/server-filesystem`).
+    const shorthandMatches =
+      actualName.includes("/") &&
+      norm(actualName.split("/").pop() ?? "") === norm(requestedName);
+    if (!shorthandMatches) {
+      throw new Error(
+        `download verification failed: requested "${requestedName}" but tarball contains "${actualName}". Refusing to publish a trust record under the wrong name.`,
+      );
+    }
+  }
 }
 
 function deriveTrustLevel(scan: HmaScanResult): number {
