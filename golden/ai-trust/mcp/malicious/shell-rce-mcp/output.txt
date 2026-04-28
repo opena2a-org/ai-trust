@@ -1,0 +1,5 @@
+score=15
+trustLevel=0
+verdict=blocked
+severities={"critical":9,"high":3,"low":1,"medium":2}
+checkIds=CRED-001,GIT-001,SEM-CRED-001,SEM-CRED-004,SEM-LLM-001,SEM-LLM-002,SEM-LLM-003,SEM-LLM-004,SEM-LLM-005,SEM-LLM-006,SEM-LLM-007,SEM-LLM-008,SEM-LLM-009

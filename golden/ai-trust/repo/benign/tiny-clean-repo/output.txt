@@ -1,0 +1,5 @@
+score=90
+trustLevel=3
+verdict=warning
+severities={"high":1}
+checkIds=GIT-002

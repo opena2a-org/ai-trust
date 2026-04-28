@@ -1,0 +1,5 @@
+score=39
+trustLevel=0
+verdict=blocked
+severities={"critical":2,"high":6,"low":1,"medium":2}
+checkIds=AST-CRED-001,AST-PROMPT-003,AST-PROMPT-004,GIT-001,SKILL-001,SKILL-003,SKILL-020,SKILL-022,SUPPLY-001,SUPPLY-002,SUPPLY-004

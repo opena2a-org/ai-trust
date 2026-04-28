@@ -1,0 +1,5 @@
+score=85
+trustLevel=2
+verdict=safe
+severities={"low":3,"medium":2}
+checkIds=GIT-001,SEM-LLM-001,SEM-LLM-002,SEM-LLM-003,SEM-LLM-004

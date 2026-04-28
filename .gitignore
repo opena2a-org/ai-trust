@@ -1,6 +1,7 @@
 node_modules/
 dist/
 *.tsbuildinfo
+.hackmyagent-cache/
 .env
 .env.*
 *.log

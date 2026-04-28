@@ -18,7 +18,7 @@ import {
 } from "../output/formatter.js";
 import { buildNotFoundOutput, translateDownloadError } from "@opena2a/check-core";
 import { resolveAndLog } from "../utils/resolve.js";
-import { isHmaAvailable, scanPackage } from "../scanner/index.js";
+import { isHmaAvailable, scanPackage, scanLocalPath } from "../scanner/index.js";
 import type { ScanResult } from "../scanner/index.js";
 import { confirm } from "../utils/prompt.js";
 import {
@@ -46,6 +46,8 @@ interface CheckOptions {
   deep?: boolean;
   /** Enable AnaLM analysis (--analm). Defaults to false. */
   analm?: boolean;
+  /** Scan a local directory directly, skipping the npm-pack download. */
+  scanPath?: string;
   /** Internal: set when scanning a package not yet in the registry */
   _firstScan?: boolean;
 }
@@ -76,11 +78,42 @@ export function registerCheckCommand(program: Command): void {
       "--analm",
       "AI-powered threat analysis using AnaLM"
     )
+    .option(
+      "--scan-path <dir>",
+      "scan a local directory directly (skip npm-pack download); used for adversarial-corpus fixtures and on-disk scans"
+    )
     .action(async (rawName: string, opts: CheckOptions) => {
       const globalOpts = program.opts() as {
         registryUrl: string;
         json: boolean;
       };
+
+      // --scan-path: scan a local directory directly. No registry lookup, no
+      // download step, no contribution. Used for adversarial-corpus fixtures
+      // and any on-disk target. The <name> argument is treated as a label
+      // for the result (typically the fixture path).
+      if (opts.scanPath) {
+        if (!(await isHmaAvailable())) {
+          console.error(
+            chalk.red("error: HMA is not available. Install hackmyagent or ensure node_modules/.bin/hackmyagent resolves."),
+          );
+          process.exit(2);
+        }
+        const result = await scanLocalPath(opts.scanPath, {
+          deep: opts.deep ?? true,
+          analm: opts.analm ?? false,
+        });
+        // Override packageName with the user-supplied name so output is
+        // labeled clearly when the same fixture is invoked under different
+        // names (e.g. release-smoke harness uses surface/intent/fixture).
+        result.packageName = rawName;
+        if (globalOpts.json) {
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          console.log(formatScanResult(result));
+        }
+        return;
+      }
 
       // Rich-block dispatch (skill: / mcp: prefix). Mirrors HMA's
       // src/check/ module for parity F12 / F13. When the registry

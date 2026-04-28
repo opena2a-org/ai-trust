@@ -112,6 +112,37 @@ export async function scanPackage(
   }
 }
 
+/**
+ * Scan a local directory directly (no download step). Used for adversarial
+ * corpus fixtures and any other on-disk target. Skips the LOCAL_ONLY filter
+ * because for local sources those categories ARE meaningful (a missing
+ * .gitignore in a real repo is a real finding, unlike in an npm tarball).
+ */
+export async function scanLocalPath(
+  targetDir: string,
+  options: HmaScanOptions = {},
+): Promise<ScanResult> {
+  const scan = await runHmaScan(targetDir, options);
+  const trustScore = scan.maxScore > 0 ? scan.score / scan.maxScore : 0;
+  const trustLevel = deriveTrustLevel(scan);
+  const verdict = deriveVerdict(scan);
+
+  const result: ScanResult = {
+    packageName: targetDir,
+    scan,
+    trustScore,
+    trustLevel,
+    verdict,
+  };
+  if (scan.semanticFindings && scan.semanticFindings.length > 0) {
+    result.semanticFindings = scan.semanticFindings;
+  }
+  if (scan.analystFindings && scan.analystFindings.length > 0) {
+    result.analystFindings = scan.analystFindings;
+  }
+  return result;
+}
+
 function deriveTrustLevel(scan: HmaScanResult): number {
   const ratio = scan.score / scan.maxScore;
   if (ratio >= 0.9) return 3; // Scanned, high trust
