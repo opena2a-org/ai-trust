@@ -7,6 +7,7 @@ For general-purpose libraries (express, typescript, chalk, etc.) use [HackMyAgen
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![npm version](https://img.shields.io/npm/v/ai-trust.svg)](https://www.npmjs.com/package/ai-trust)
+[![Tests](https://img.shields.io/badge/tests-201%20passing-brightgreen)](https://github.com/opena2a-org/ai-trust)
 
 ## Installation
 
@@ -24,6 +25,15 @@ Or run directly with npx:
 
 ```bash
 npx ai-trust check @modelcontextprotocol/server-filesystem
+```
+
+### Verifying what you installed
+
+Every release is published via npm Trusted Publishing with SLSA v1 provenance — there is no long-lived `NPM_TOKEN` in the publish workflow; the GitHub Actions runner exchanges its OIDC token with npm at publish time. To verify the package you installed was actually built from the source you can read on GitHub:
+
+```bash
+npm view ai-trust dist.attestations --json
+# → non-empty result with predicateType "https://slsa.dev/provenance/v1"
 ```
 
 For a full security dashboard covering trust, credentials, shadow AI, and more:
