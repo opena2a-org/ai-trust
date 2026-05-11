@@ -85,7 +85,11 @@ registerBatchCommand(program);
       if (startedAt === undefined) return;
       telemetryStartedAt.delete(name);
       void tele.track(name, {
-        success: (process.exitCode ?? 0) === 0,
+        // Exit 0 = clean, 1 = trust verdict below threshold OR not-found
+        // (the tool did its job — see audit.test.ts which expects exit 1
+        // and 2 for distinct outcomes). Only exit >=2 is a real crash.
+        // Matches @opena2a/telemetry.successFromExitCode (post-0.2.0).
+        success: ((process.exitCode ?? 0) as number) <= 1,
         durationMs: Date.now() - startedAt,
       });
     });
