@@ -85,10 +85,12 @@ registerBatchCommand(program);
       if (startedAt === undefined) return;
       telemetryStartedAt.delete(name);
       void tele.track(name, {
-        // Exit 0 = clean, 1 = trust verdict below threshold OR not-found
-        // (the tool did its job — see audit.test.ts which expects exit 1
-        // and 2 for distinct outcomes). Only exit >=2 is a real crash.
-        success: tele.successFromExitCode(process.exitCode),
+        // Exit 0 = clean, 1 = below-threshold, 2 = not-found. All three
+        // are working outcomes per audit.test.ts. Per [CHIEF-CSR-018] +
+        // [CHIEF-CPO-022], pass [2] so the dashboard treats not-found as
+        // success (crash-rate semantics, not user-outcome semantics).
+        // Real crashes are exit >=3 or out-of-range — those stay failure.
+        success: tele.successFromExitCode(process.exitCode, [2]),
         durationMs: Date.now() - startedAt,
       });
     });
