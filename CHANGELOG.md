@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.2 (2026-05-24)
+
+### Changed
+- **Telemetry dispatcher passes `semanticSuccessCodes: [2]` to `successFromExitCode`.** Per [CHIEF-CSR-018] + [CHIEF-CPO-022] (`briefs/cli-telemetry-success-semantics.md`), invocation telemetry's `success` field follows crash-rate semantics: ai-trust's exit code 2 means "I checked, the package isn't in the registry" — a working outcome, not a crash. The previous dispatcher mis-labeled these as `success: false`, producing a 50% "failure" rate on `ai-trust audit` in the `/admin/cli-usage` rollup over the prior 60 days even though the real crash rate was near 0%. With this release, the dashboard signal reflects actual reliability. Public CLI exit-code contract is unchanged — `check`, `audit`, and `batch` still exit 2 for not-found, exit 1 for below-threshold, exit 0 for clean.
+
+### Pinned
+- `@opena2a/telemetry` bumped from `0.2.0` to `0.3.0` (exact). 0.3.0 adds the optional `semanticSuccessCodes` argument; the bump unlocks the dispatcher change above.
+
+### Brief
+- opena2a-org/briefs/cli-telemetry-success-semantics.md
+
 ## 0.7.0 (2026-04-27)
 
 ### Added
