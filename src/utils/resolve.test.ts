@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { resolvePackageName, resolveAndLog } from "./resolve.js";
+import { resolvePackageName, resolveAndLog, parsePackageTarget } from "./resolve.js";
 
 describe("resolvePackageName", () => {
   it("passes through scoped packages unchanged", () => {
@@ -246,4 +246,69 @@ describe("live registry resolution", () => {
     },
     15_000
   );
+});
+
+describe("parsePackageTarget (issue #50: pip: prefix handling)", () => {
+  it("strips pip: prefix and sets ecosystem to pypi", () => {
+    expect(parsePackageTarget("pip:anthropic")).toEqual({
+      name: "anthropic",
+      ecosystem: "pypi",
+    });
+    expect(parsePackageTarget("pip:requests")).toEqual({
+      name: "requests",
+      ecosystem: "pypi",
+    });
+  });
+
+  it("strips npm: prefix and keeps ecosystem npm", () => {
+    expect(parsePackageTarget("npm:express")).toEqual({
+      name: "express",
+      ecosystem: "npm",
+    });
+  });
+
+  it("defaults to npm ecosystem when no prefix is present", () => {
+    expect(parsePackageTarget("anthropic")).toEqual({
+      name: "anthropic",
+      ecosystem: "npm",
+    });
+    expect(parsePackageTarget("@modelcontextprotocol/server-filesystem")).toEqual({
+      name: "@modelcontextprotocol/server-filesystem",
+      ecosystem: "npm",
+    });
+  });
+
+  it("treats bare prefix (`pip:` with empty name) as a literal name, not a prefix", () => {
+    // No content after the prefix means there's nothing to strip; fall back
+    // to the default. Prevents `check pip:` from quietly becoming `check ""`.
+    expect(parsePackageTarget("pip:")).toEqual({
+      name: "pip:",
+      ecosystem: "npm",
+    });
+    expect(parsePackageTarget("npm:")).toEqual({
+      name: "npm:",
+      ecosystem: "npm",
+    });
+  });
+
+  it("does not strip prefixes other than pip:/npm:", () => {
+    // pypi: / py: / pip3: etc. are NOT recognized — only the canonical
+    // `pip:` form matches. This avoids surprising people who name packages
+    // with colons in them (rare but legal in some ecosystems).
+    expect(parsePackageTarget("pypi:requests")).toEqual({
+      name: "pypi:requests",
+      ecosystem: "npm",
+    });
+    expect(parsePackageTarget("py:requests")).toEqual({
+      name: "py:requests",
+      ecosystem: "npm",
+    });
+  });
+
+  it("preserves scoped names that happen to contain colons in odd places", () => {
+    expect(parsePackageTarget("@scope/pkg:with:colons")).toEqual({
+      name: "@scope/pkg:with:colons",
+      ecosystem: "npm",
+    });
+  });
 });

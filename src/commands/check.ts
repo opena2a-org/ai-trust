@@ -17,7 +17,7 @@ import {
   formatNotFound,
 } from "../output/formatter.js";
 import { buildNotFoundOutput, translateDownloadError } from "@opena2a/check-core";
-import { resolveAndLog } from "../utils/resolve.js";
+import { resolveAndLog, parsePackageTarget } from "../utils/resolve.js";
 import { isHmaAvailable, scanPackage, scanLocalPath } from "../scanner/index.js";
 import type { ScanResult } from "../scanner/index.js";
 import { confirm } from "../utils/prompt.js";
@@ -168,6 +168,13 @@ export function registerCheckCommand(program: Command): void {
         rawName = parsed.name;
       }
 
+      // Strip ecosystem prefix (pip: / npm:) before MCP-shorthand resolution.
+      // Closes #50: prior to this, `check pip:<pkg>` kept the prefix in the
+      // output `name` and reported `ecosystem: "npm"`. Now ecosystem flows
+      // through to every not-found / scan-path output site.
+      const { name: stripped, ecosystem } = parsePackageTarget(rawName);
+      rawName = stripped;
+
       const name = resolveAndLog(rawName);
       const client = new RegistryClient({
         baseUrl: globalOpts.registryUrl,
@@ -220,13 +227,13 @@ export function registerCheckCommand(program: Command): void {
               printOutOfScopeByName(name, globalOpts.json);
               return; // exit 0
             }
-            handleNoScanNotFound(name, globalOpts);
+            handleNoScanNotFound(name, ecosystem, globalOpts);
           } else {
             const message = err instanceof Error ? err.message : String(err);
             if (globalOpts.json) {
               console.log(formatJson(buildNotFoundOutput({
                 name,
-                ecosystem: "npm",
+                ecosystem,
                 error: message,
               })));
             } else {
@@ -274,6 +281,7 @@ export function registerCheckCommand(program: Command): void {
 
       await handleScanFlow(
         name,
+        ecosystem,
         client,
         globalOpts,
         opts,
@@ -282,8 +290,14 @@ export function registerCheckCommand(program: Command): void {
     });
 }
 
+// NOTE: handleNotFound is currently unreferenced (the action handler routes
+// directly to handleNoScanNotFound / handleScanFlow). Kept for now in case
+// a future interactive-not-found flow wants to consume it; the ecosystem
+// param threads pip:/npm: prefix awareness through if it does.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function handleNotFound(
   name: string,
+  ecosystem: "npm" | "pypi",
   client: RegistryClient,
   globalOpts: { registryUrl: string; json: boolean },
   opts: CheckOptions
@@ -292,6 +306,7 @@ async function handleNotFound(
   if (opts.scanIfMissing) {
     await handleScanFlow(
       name,
+      ecosystem,
       client,
       globalOpts,
       { ...opts, _firstScan: true },
@@ -305,7 +320,7 @@ async function handleNotFound(
     if (globalOpts.json) {
       console.log(formatJson(buildNotFoundOutput({
         name,
-        ecosystem: "npm",
+        ecosystem,
         error: `Package "${name}" not found in the OpenA2A Registry.`,
         nextSteps: [
           `ai-trust check ${name} --scan-if-missing`,
@@ -337,11 +352,12 @@ async function handleNotFound(
     return;
   }
 
-  await handleScanFlow(name, client, globalOpts, { ...opts, _firstScan: true }, "Scanning...");
+  await handleScanFlow(name, ecosystem, client, globalOpts, { ...opts, _firstScan: true }, "Scanning...");
 }
 
 async function handleScanFlow(
   name: string,
+  ecosystem: "npm" | "pypi",
   client: RegistryClient,
   globalOpts: { registryUrl: string; json: boolean },
   opts: CheckOptions,
@@ -364,7 +380,7 @@ async function handleScanFlow(
       if (globalOpts.json) {
         console.log(formatJson(buildNotFoundOutput({
           name,
-          ecosystem: "npm",
+          ecosystem,
           error: message,
           errorHint: translated.errorHint,
           suggestions: translated.suggestions,
@@ -373,7 +389,7 @@ async function handleScanFlow(
         console.log(
           formatNotFound({
             pkg: name,
-            ecosystem: "npm",
+            ecosystem,
             errorHint: translated.errorHint,
             suggestions: translated.suggestions,
           })
@@ -385,7 +401,7 @@ async function handleScanFlow(
     if (globalOpts.json) {
       console.log(formatJson(buildNotFoundOutput({
         name,
-        ecosystem: "npm",
+        ecosystem,
         error: message,
       })));
     } else {
@@ -546,12 +562,13 @@ async function submitContribution(
 
 function handleNoScanNotFound(
   name: string,
+  ecosystem: "npm" | "pypi",
   globalOpts: { registryUrl: string; json: boolean }
 ): void {
   if (globalOpts.json) {
     console.log(formatJson(buildNotFoundOutput({
       name,
-      ecosystem: "npm",
+      ecosystem,
       error: `Package "${name}" not found in the OpenA2A Registry.`,
       nextSteps: [
         `ai-trust check ${name} --scan-if-missing`,
@@ -560,7 +577,7 @@ function handleNoScanNotFound(
     })));
   } else {
     // Shared cli-ui renderNotFoundBlock output (F2 from the check-command-divergence brief).
-    console.log(formatNotFound({ pkg: name, ecosystem: "npm" }));
+    console.log(formatNotFound({ pkg: name, ecosystem }));
   }
   process.exitCode = 2;
 }
