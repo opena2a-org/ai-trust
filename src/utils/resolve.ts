@@ -54,3 +54,38 @@ export function resolveAndLog(name: string): string {
   }
   return resolved;
 }
+
+/**
+ * Parse an ecosystem prefix off a `check <target>` argument.
+ *
+ * Recognized prefixes:
+ * - `pip:<name>`  -> { name, ecosystem: "pypi" }
+ * - `npm:<name>`  -> { name, ecosystem: "npm" }  (explicit override)
+ * - no prefix     -> { name: target, ecosystem: "npm" }  (npm-first default)
+ *
+ * The prefix is stripped before downstream Registry lookups so the Registry
+ * sees the canonical package name. The ecosystem value is threaded through
+ * not-found output so the user sees the correct ecosystem label instead of
+ * a misleading "npm" default.
+ *
+ * Mirrors the prefix convention `src/utils/parser.ts` uses for dependency
+ * files (requirements.txt -> pypi, package.json -> npm).
+ */
+export function parsePackageTarget(target: string): {
+  name: string;
+  ecosystem: "npm" | "pypi";
+} {
+  if (target.startsWith("pip:")) {
+    const name = target.slice("pip:".length);
+    if (name.length > 0) {
+      return { name, ecosystem: "pypi" };
+    }
+  }
+  if (target.startsWith("npm:")) {
+    const name = target.slice("npm:".length);
+    if (name.length > 0) {
+      return { name, ecosystem: "npm" };
+    }
+  }
+  return { name: target, ecosystem: "npm" };
+}

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.3 (2026-05-25)
+
+### Fixed
+
+- **`check pip:<pkg>` now strips the prefix and reports `ecosystem: "pypi"` ([#50](https://github.com/opena2a-org/ai-trust/issues/50)).** Prior to this release, `ai-trust check pip:anthropic --no-scan --json` returned `name: "pip:anthropic"` (kept the prefix verbatim) and `ecosystem: "npm"` (wrong). The Registry stores packages by canonical name, so the prefixed query never matched any indexed PyPI package: ai-trust's PyPI no-scan flow was effectively broken for the Registry's entire PyPI corpus. New behavior: the `pip:` prefix is stripped before the Registry query, and ecosystem flows through every not-found / scan-path output site. `check pip:anthropic --no-scan --json` now resolves the real `anthropic` record (`packageType: "ai_tool"`, full trust data). The fix also adds an explicit `npm:` prefix for symmetry. Discovered while building the 3-way PyPI parity fixture at `opena2a-standards/opena2a-parity` (the fixture was blocked on this bug).
+
+### Added
+
+- `parsePackageTarget()` helper in `src/utils/resolve.ts`. Mirrors the prefix convention `src/utils/parser.ts` already uses for dependency files (requirements.txt to pypi, package.json to npm). 6 unit tests cover pip:/npm:/no-prefix/edge cases (bare `pip:`, colons in scoped names, unrecognized prefixes like `pypi:` left alone).
+
+### Threading
+
+- `handleScanFlow` and `handleNoScanNotFound` both take `ecosystem` as a parameter; 7 hardcoded `ecosystem: "npm"` call sites in `src/commands/check.ts` now consume the parsed value. `handleNotFound` (currently unreferenced dead code) also threaded for hygiene, marked with a kept-for-future comment.
+
 ## 0.7.2 (2026-05-24)
 
 ### Changed
