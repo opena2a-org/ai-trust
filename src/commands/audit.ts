@@ -5,7 +5,7 @@
 
 import chalk from "chalk";
 import type { Command } from "commander";
-import { RegistryClient } from "@opena2a/registry-client";
+import { RegistryClient, firstPartySignerFromEnv } from "@opena2a/registry-client";
 import type { TrustAnswer } from "@opena2a/registry-client";
 import { parseDependencyFile, detectEcosystem } from "../utils/parser.js";
 import {
@@ -334,10 +334,17 @@ async function handleAuditContribution(
     // Non-fatal
   }
 
-  // Publish full findings via unified endpoint for evidence correlation + consensus
+  // Publish full findings via unified endpoint for evidence correlation + consensus.
+  // ai-trust is NOT first_party_scanner; when run in our own CI (AI_TRUST_CI_SIGNING_KEY
+  // set, Secretless env-only) the bulk audit self-tags source=ci. End-user runs (no key)
+  // publish as community — the safe default.
   const client = new RegistryClient({
     baseUrl: registryUrl,
     userAgent: `ai-trust/${AI_TRUST_VERSION}`,
+  });
+  const signer = firstPartySignerFromEnv({
+    keyEnv: "AI_TRUST_CI_SIGNING_KEY",
+    source: "ci",
   });
   for (const { name, scanResult } of scannedResults) {
     try {
@@ -359,7 +366,7 @@ async function handleAuditContribution(
         })),
         projectType: scanResult.scan.projectType,
         scanTimestamp: new Date().toISOString(),
-      });
+      }, signer);
     } catch {
       // Non-fatal: contribution should never crash the audit
     }

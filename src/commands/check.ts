@@ -8,7 +8,7 @@
 import chalk from "chalk";
 import type { Command } from "commander";
 import { classify } from "@opena2a/ai-classifier";
-import { RegistryClient, PackageNotFoundError } from "@opena2a/registry-client";
+import { RegistryClient, PackageNotFoundError, firstPartySignerFromEnv } from "@opena2a/registry-client";
 import type { TrustAnswer } from "@opena2a/registry-client";
 import {
   formatCheckResult,
@@ -532,6 +532,12 @@ async function submitContribution(
       baseUrl: registryUrl,
       userAgent: `ai-trust/${AI_TRUST_VERSION}`,
     });
+    // ai-trust is NOT first_party_scanner; self-tag source=ci only when run in our CI
+    // (AI_TRUST_CI_SIGNING_KEY set). End-user `check` runs publish as community.
+    const signer = firstPartySignerFromEnv({
+      keyEnv: "AI_TRUST_CI_SIGNING_KEY",
+      source: "ci",
+    });
     const resp = await client.publishScan({
       name,
       type: opts?.type,
@@ -551,7 +557,7 @@ async function submitContribution(
       })),
       projectType: scanResult.scan.projectType,
       scanTimestamp: new Date().toISOString(),
-    });
+    }, signer);
     if (resp.publishId) {
       console.error(chalk.dim(`  Published to registry (${resp.publishId.slice(0, 8)})`));
     }
