@@ -11,10 +11,12 @@ vi.mock("@opena2a/registry-client", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ...actual,
-    RegistryClient: vi.fn().mockImplementation(() => ({
-      checkTrust: vi.fn(),
-      publishScan: vi.fn(),
-    })),
+    RegistryClient: vi.fn().mockImplementation(function () {
+      return {
+        checkTrust: vi.fn(),
+        publishScan: vi.fn(),
+      };
+    }),
   };
 });
 
@@ -105,12 +107,13 @@ describe("check command", () => {
         trustLevel: 3,
       });
       vi.mocked(RegistryClient).mockImplementation(
-        () =>
-          ({
+        function () {
+          return {
             checkTrust: mockCheckTrust,
             batchQuery: vi.fn(),
             publishScan: vi.fn(),
-          }) as any
+          } as any;
+        }
       );
 
       const program = createProgram();
@@ -127,12 +130,13 @@ describe("check command", () => {
         trustLevel: 3,
       });
       vi.mocked(RegistryClient).mockImplementation(
-        () =>
-          ({
+        function () {
+          return {
             checkTrust: mockCheckTrust,
             batchQuery: vi.fn(),
             publishScan: vi.fn(),
-          }) as any
+          } as any;
+        }
       );
 
       const program = createProgram();
@@ -157,12 +161,13 @@ describe("check command", () => {
         trustLevel: 3,
       });
       vi.mocked(RegistryClient).mockImplementation(
-        () =>
-          ({
+        function () {
+          return {
             checkTrust: mockCheckTrust,
             batchQuery: vi.fn(),
             publishScan: vi.fn(),
-          }) as any
+          } as any;
+        }
       );
 
       const program = createProgram();
@@ -186,12 +191,13 @@ describe("check command", () => {
         trustLevel: 0,
       });
       vi.mocked(RegistryClient).mockImplementation(
-        () =>
-          ({
+        function () {
+          return {
             checkTrust: mockCheckTrust,
             batchQuery: vi.fn(),
             publishScan: vi.fn(),
-          }) as any
+          } as any;
+        }
       );
 
       const program = createProgram();
@@ -208,12 +214,13 @@ describe("check command", () => {
         trustLevel: 1,
       });
       vi.mocked(RegistryClient).mockImplementation(
-        () =>
-          ({
+        function () {
+          return {
             checkTrust: mockCheckTrust,
             batchQuery: vi.fn(),
             publishScan: vi.fn(),
-          }) as any
+          } as any;
+        }
       );
 
       const program = createProgram();
@@ -230,12 +237,13 @@ describe("check command", () => {
         trustLevel: 4,
       });
       vi.mocked(RegistryClient).mockImplementation(
-        () =>
-          ({
+        function () {
+          return {
             checkTrust: mockCheckTrust,
             batchQuery: vi.fn(),
             publishScan: vi.fn(),
-          }) as any
+          } as any;
+        }
       );
 
       const program = createProgram();
@@ -249,12 +257,13 @@ describe("check command", () => {
         .fn()
         .mockRejectedValue(new Error("network failure"));
       vi.mocked(RegistryClient).mockImplementation(
-        () =>
-          ({
+        function () {
+          return {
             checkTrust: mockCheckTrust,
             batchQuery: vi.fn(),
             publishScan: vi.fn(),
-          }) as any
+          } as any;
+        }
       );
 
       const program = createProgram();
@@ -273,12 +282,13 @@ describe("check command", () => {
           new PackageNotFoundError("unknown-pkg")
         );
       vi.mocked(RegistryClient).mockImplementation(
-        () =>
-          ({
+        function () {
+          return {
             checkTrust: mockCheckTrust,
             batchQuery: vi.fn(),
             publishScan: vi.fn(),
-          }) as any
+          } as any;
+        }
       );
 
       const program = createProgram();
@@ -418,12 +428,13 @@ describe("check command", () => {
           new PackageNotFoundError("scan-me")
         );
       vi.mocked(RegistryClient).mockImplementation(
-        () =>
-          ({
+        function () {
+          return {
             checkTrust: mockCheckTrust,
             batchQuery: vi.fn(),
             publishScan: vi.fn(),
-          }) as any
+          } as any;
+        }
       );
       vi.mocked(isHmaAvailable).mockResolvedValue(true);
       vi.mocked(scanPackage).mockResolvedValue({
@@ -460,12 +471,13 @@ describe("check command", () => {
           new PackageNotFoundError("scan-me")
         );
       vi.mocked(RegistryClient).mockImplementation(
-        () =>
-          ({
+        function () {
+          return {
             checkTrust: mockCheckTrust,
             batchQuery: vi.fn(),
             publishScan: vi.fn(),
-          }) as any
+          } as any;
+        }
       );
       vi.mocked(isHmaAvailable).mockResolvedValue(true);
       vi.mocked(scanPackage).mockResolvedValue({
@@ -503,12 +515,13 @@ describe("check command", () => {
           new PackageNotFoundError("scan-me")
         );
       vi.mocked(RegistryClient).mockImplementation(
-        () =>
-          ({
+        function () {
+          return {
             checkTrust: mockCheckTrust,
             batchQuery: vi.fn(),
             publishScan: vi.fn(),
-          }) as any
+          } as any;
+        }
       );
       vi.mocked(isHmaAvailable).mockResolvedValue(true);
       vi.mocked(scanPackage).mockResolvedValue({
@@ -551,12 +564,13 @@ describe("check command", () => {
         packageType: "library",
       });
       vi.mocked(RegistryClient).mockImplementation(
-        () =>
-          ({
+        function () {
+          return {
             checkTrust: mockCheckTrust,
             batchQuery: vi.fn(),
             publishScan: vi.fn(),
-          }) as any
+          } as any;
+        }
       );
 
       const program = createProgram();
@@ -579,12 +593,13 @@ describe("check command", () => {
       // registry first; if not found, the scan path runs.
       const mockCheckTrust = vi.fn().mockRejectedValue(new PackageNotFoundError("not in registry"));
       vi.mocked(RegistryClient).mockImplementation(
-        () =>
-          ({
+        function () {
+          return {
             checkTrust: mockCheckTrust,
             batchQuery: vi.fn(),
             publishScan: vi.fn(),
-          }) as any
+          } as any;
+        }
       );
       vi.mocked(isHmaAvailable).mockResolvedValue(true);
       vi.mocked(scanPackage).mockResolvedValue({
@@ -624,12 +639,13 @@ describe("check command", () => {
       // uniqueness prevents a new "express" from being published.
       const mockCheckTrust = vi.fn().mockRejectedValue(new PackageNotFoundError("not in registry"));
       vi.mocked(RegistryClient).mockImplementation(
-        () =>
-          ({
+        function () {
+          return {
             checkTrust: mockCheckTrust,
             batchQuery: vi.fn(),
             publishScan: vi.fn(),
-          }) as any
+          } as any;
+        }
       );
 
       const program = createProgram();
@@ -653,12 +669,13 @@ describe("check command", () => {
         packageType: "library",
       });
       vi.mocked(RegistryClient).mockImplementation(
-        () =>
-          ({
+        function () {
+          return {
             checkTrust: mockCheckTrust,
             batchQuery: vi.fn(),
             publishScan: vi.fn(),
-          }) as any
+          } as any;
+        }
       );
 
       const program = createProgram();
@@ -690,12 +707,13 @@ describe("check command", () => {
         scanStatus: "error",
       });
       vi.mocked(RegistryClient).mockImplementation(
-        () =>
-          ({
+        function () {
+          return {
             checkTrust: mockCheckTrust,
             batchQuery: vi.fn(),
             publishScan: vi.fn(),
-          }) as any
+          } as any;
+        }
       );
 
       const program = createProgram();

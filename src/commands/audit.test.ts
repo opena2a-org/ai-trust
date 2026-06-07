@@ -7,10 +7,12 @@ import { Command } from "commander";
 import { registerAuditCommand } from "./audit.js";
 
 vi.mock("@opena2a/registry-client", () => ({
-  RegistryClient: vi.fn().mockImplementation(() => ({
-    batchQuery: vi.fn(),
-    publishScan: vi.fn().mockResolvedValue({ accepted: true }),
-  })),
+  RegistryClient: vi.fn().mockImplementation(function () {
+    return {
+      batchQuery: vi.fn(),
+      publishScan: vi.fn().mockResolvedValue({ accepted: true }),
+    };
+  }),
   PackageNotFoundError: class PackageNotFoundError extends Error {
     public readonly packageName: string;
     constructor(name: string) {
@@ -146,7 +148,9 @@ describe("audit command", () => {
       meta: { total: 1, found: 1, notFound: 0 },
     });
     vi.mocked(RegistryClient).mockImplementation(
-      () => ({ checkTrust: vi.fn(), batchQuery: mockBatchQuery }) as any
+      function () {
+        return { checkTrust: vi.fn(), batchQuery: mockBatchQuery } as any;
+      }
     );
 
     const program = createProgram();

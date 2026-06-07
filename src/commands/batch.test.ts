@@ -7,9 +7,11 @@ import { Command } from "commander";
 import { registerBatchCommand } from "./batch.js";
 
 vi.mock("@opena2a/registry-client", () => ({
-  RegistryClient: vi.fn().mockImplementation(() => ({
-    batchQuery: vi.fn(),
-  })),
+  RegistryClient: vi.fn().mockImplementation(function () {
+    return {
+      batchQuery: vi.fn(),
+    };
+  }),
   PackageNotFoundError: class PackageNotFoundError extends Error {
     public readonly packageName: string;
     constructor(name: string) {
@@ -65,7 +67,9 @@ describe("batch command", () => {
       meta: { total: 2, found: 2, notFound: 0 },
     });
     vi.mocked(RegistryClient).mockImplementation(
-      () => ({ checkTrust: vi.fn(), batchQuery: mockBatchQuery }) as any
+      function () {
+        return { checkTrust: vi.fn(), batchQuery: mockBatchQuery } as any;
+      }
     );
 
     const program = createProgram();
@@ -83,7 +87,9 @@ describe("batch command", () => {
       meta: { total: 0, found: 0, notFound: 0 },
     });
     vi.mocked(RegistryClient).mockImplementation(
-      () => ({ checkTrust: vi.fn(), batchQuery: mockBatchQuery }) as any
+      function () {
+        return { checkTrust: vi.fn(), batchQuery: mockBatchQuery } as any;
+      }
     );
 
     const program = createProgram();
@@ -136,7 +142,9 @@ describe("batch command", () => {
       meta: { total: 1, found: 1, notFound: 0 },
     });
     vi.mocked(RegistryClient).mockImplementation(
-      () => ({ checkTrust: vi.fn(), batchQuery: mockBatchQuery }) as any
+      function () {
+        return { checkTrust: vi.fn(), batchQuery: mockBatchQuery } as any;
+      }
     );
 
     const program = createProgram();
@@ -153,7 +161,9 @@ describe("batch command", () => {
       meta: { total: 1, found: 1, notFound: 0 },
     });
     vi.mocked(RegistryClient).mockImplementation(
-      () => ({ checkTrust: vi.fn(), batchQuery: mockBatchQuery }) as any
+      function () {
+        return { checkTrust: vi.fn(), batchQuery: mockBatchQuery } as any;
+      }
     );
 
     const program = createProgram();
@@ -172,7 +182,9 @@ describe("batch command", () => {
       meta: { total: 1, found: 1, notFound: 0 },
     });
     vi.mocked(RegistryClient).mockImplementation(
-      () => ({ checkTrust: vi.fn(), batchQuery: mockBatchQuery }) as any
+      function () {
+        return { checkTrust: vi.fn(), batchQuery: mockBatchQuery } as any;
+      }
     );
 
     const program = createProgram();
@@ -186,7 +198,9 @@ describe("batch command", () => {
   it("sets exit code 1 on API error", async () => {
     const mockBatchQuery = vi.fn().mockRejectedValue(new Error("timeout"));
     vi.mocked(RegistryClient).mockImplementation(
-      () => ({ checkTrust: vi.fn(), batchQuery: mockBatchQuery }) as any
+      function () {
+        return { checkTrust: vi.fn(), batchQuery: mockBatchQuery } as any;
+      }
     );
 
     const program = createProgram();
