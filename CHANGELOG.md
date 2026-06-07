@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.4 (2026-06-07)
+
+### Added
+
+- **Self-tag `source=ci` on publish when run in our CI.** The `audit` (`--scan-missing` bulk) and `check` publish paths now sign their registry contribution with the shared `@opena2a/registry-client` `FirstPartySigner` (0.2.0) when `AI_TRUST_CI_SIGNING_KEY` (a dedicated Ed25519 seed, supplied via the runtime environment only) is set. Signed publishes self-tag `source=ci` over the registry strong canonical (`name|version|score|maxScore|source|nonce|signedAt`) so the registry can authenticate the provenance claim. ai-trust is **not** `first_party_scanner` — `ci` is the correct provenance for our own continuous-integration audits. End-user runs (no key) publish as `community`, the safe default; an unsigned or unverifiable claim is never honored, and the bulk audit signs a fresh nonce per package so a long run never reuses one.
+
 ## 0.7.3 (2026-05-25)
 
 ### Fixed
