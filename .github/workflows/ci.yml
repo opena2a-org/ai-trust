@@ -27,7 +27,9 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [18, 20, 22]
+        # vitest 4 requires Node 20.19+/22.12+ (uses node:util styleText) and
+        # dropped Node 18, which is EOL (2025-04-30). Test on supported LTS only.
+        node-version: [20, 22]
     steps:
       - uses: actions/checkout@v4
 
