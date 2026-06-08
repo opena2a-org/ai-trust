@@ -606,13 +606,26 @@ export function formatBatchResults(
   return lines.join("\n");
 }
 
-export function formatScanResult(result: ScanResult): string {
+export interface FormatScanResultOptions {
+  /**
+   * True when the scanned artifact is a downloaded third-party package
+   * (the default `check <pkg>` npm-pack / pip-download path) rather than the
+   * user's own working tree (`--scan-path`). Threaded into the cli-ui
+   * SurfaceSummary so the verdict guidance is review / choose-a-vetted-version
+   * instead of `secure --fix` on code the user does not own. Defaults to
+   * local (false).
+   */
+  remote?: boolean;
+}
+
+export function formatScanResult(result: ScanResult, opts: FormatScanResultOptions = {}): string {
+  const remote = opts.remote === true;
   const vc = verdictColor(result.verdict);
   const scoreVal = Math.round(result.trustScore * 100);
 
   const lines: string[] = [
     "",
-    `  ${chalk.bold.white(result.packageName)}  ${chalk.dim("local scan")}`,
+    `  ${chalk.bold.white(result.packageName)}  ${chalk.dim(remote ? "downloaded package" : "local scan")}`,
   ];
 
   // Verdict
@@ -697,11 +710,11 @@ export function formatScanResult(result: ScanResult): string {
       }
     : buildVerdict(
         { critical, high, medium, low },
-        { kind: projectLabel },
+        { kind: projectLabel, remote },
         verdictFindings,
       );
   const { lines: obsLines } = renderObservationsBlock({
-    surfaces: { kind: projectLabel },
+    surfaces: { kind: projectLabel, remote },
     checks: {
       // Executed static checks (passed + failed), not just failures — mirrors
       // HMA's "N static" semantics. Falls back to the findings count when an
@@ -887,8 +900,15 @@ export function formatScanResult(result: ScanResult): string {
     );
   }
   if (critical > 0 || high > 0) {
+    // For a downloaded third-party package the findings live in code the user
+    // does not own, so `secure --fix` is the wrong action — the action is to
+    // pin a vetted version or pick an alternative. Keep `secure --fix` only
+    // for local scans (the user's own tree). Stays consistent with the
+    // cli-ui remote-aware Verdict line above.
     lines.push(
-      `  ${chalk.cyan("Auto-fix:")}          npx hackmyagent secure --fix`
+      remote
+        ? `  ${chalk.cyan("Next:")}              Pin a vetted version or choose an alternative — these findings are in the package's own code`
+        : `  ${chalk.cyan("Auto-fix:")}          npx hackmyagent secure --fix`
     );
   }
   lines.push(

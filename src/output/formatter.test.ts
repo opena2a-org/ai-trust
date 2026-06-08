@@ -605,6 +605,107 @@ describe("formatScanResult", () => {
     expect(output).not.toContain("looks safe to use");
   });
 
+  it("remote verdict (downloaded package): medium-only findings avoid `secure --fix`", () => {
+    // cli-ui 0.5.2 surface.remote: a downloaded third-party package's verdict
+    // guidance must be review / choose-a-vetted-version, never `secure --fix`
+    // on code the user does not own.
+    const result = makeScanResult({
+      scan: {
+        score: 70,
+        maxScore: 100,
+        checksEvaluated: 30,
+        findings: [
+          {
+            checkId: "SEC-001",
+            name: "Missing CSP",
+            description: "No CSP header",
+            category: "headers",
+            severity: "medium",
+            passed: false,
+            message: "Content-Security-Policy header missing",
+          },
+        ],
+        projectType: "library",
+        timestamp: "2026-03-15T00:00:00Z",
+      },
+    });
+
+    const remoteOutput = formatScanResult(result, { remote: true });
+    expect(remoteOutput).toContain("downloaded package");
+    expect(remoteOutput).not.toContain("secure --fix");
+    expect(remoteOutput).toMatch(/review|depend/i);
+
+    // Local default keeps the `secure --fix` remediation guidance.
+    const localOutput = formatScanResult(result, { remote: false });
+    expect(localOutput).toContain("local scan");
+    expect(localOutput).toContain("secure --fix");
+  });
+
+  it("remote verdict (downloaded package): high/critical findings still avoid `secure --fix` in Next Steps", () => {
+    // Regression guard: the hand-rolled Next Steps block emits an
+    // `Auto-fix: secure --fix` line for critical/high findings. That line must
+    // be suppressed for a downloaded package, or the output contradicts the
+    // remote-aware Verdict line (header says "downloaded package", Verdict
+    // says "review before depending", but Next Steps says "secure --fix").
+    const result = makeScanResult({
+      verdict: "blocked",
+      scan: {
+        score: 40,
+        maxScore: 100,
+        checksEvaluated: 30,
+        findings: [
+          {
+            checkId: "CRED-001",
+            name: "Hardcoded Credentials",
+            description: "Found hardcoded credentials",
+            category: "secrets",
+            severity: "high",
+            passed: false,
+            message: "API key found in source code",
+          },
+        ],
+        projectType: "library",
+        timestamp: "2026-03-15T00:00:00Z",
+      },
+    });
+
+    const remoteOutput = formatScanResult(result, { remote: true });
+    expect(remoteOutput).toContain("downloaded package");
+    expect(remoteOutput).not.toContain("secure --fix");
+    // The remote Next Steps action points at version selection, not auto-fix.
+    expect(remoteOutput).toMatch(/vetted version|alternative/i);
+
+    // Local scan with the same high finding DOES offer `secure --fix`.
+    const localOutput = formatScanResult(result, { remote: false });
+    expect(localOutput).toContain("secure --fix");
+  });
+
+  it("defaults to local verdict when no options are passed", () => {
+    const result = makeScanResult({
+      scan: {
+        score: 70,
+        maxScore: 100,
+        checksEvaluated: 30,
+        findings: [
+          {
+            checkId: "SEC-001",
+            name: "Missing CSP",
+            description: "No CSP header",
+            category: "headers",
+            severity: "medium",
+            passed: false,
+            message: "Content-Security-Policy header missing",
+          },
+        ],
+        projectType: "library",
+        timestamp: "2026-03-15T00:00:00Z",
+      },
+    });
+    const output = formatScanResult(result);
+    expect(output).toContain("local scan");
+    expect(output).toContain("secure --fix");
+  });
+
   it("still shows the score on a clean scan that DID run checks (suppression must not over-fire)", () => {
     // Guards against a regression that drops the `checksEvaluated === 0`
     // conjunct and suppresses any 0-finding scan — a fully-measured clean

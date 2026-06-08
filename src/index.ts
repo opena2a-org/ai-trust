@@ -63,15 +63,21 @@ registerBatchCommand(program);
   const cliUi = await import("@opena2a/cli-ui");
   await tele.init({ tool: TELEMETRY_TOOL, version: VERSION });
 
-  program.version(
-    cliUi.versionLine({
-      tool: TELEMETRY_TOOL,
-      version: VERSION,
-      telemetry: tele.status(),
-    }),
-    "-v, --version",
-    "Output the version number",
-  );
+  // Stream-split --version (cli-ui 0.5.2): bare `ai-trust x.y.z` to stdout
+  // (single parseable line), telemetry disclosure to stderr. Use a manual
+  // `option:version` handler rather than Commander's `.version()`, which
+  // writes everything to stdout and exits.
+  const vparts = cliUi.versionLineParts({
+    tool: TELEMETRY_TOOL,
+    version: VERSION,
+    telemetry: tele.status(),
+  });
+  program.option("-v, --version", "Output the version number");
+  program.on("option:version", () => {
+    process.stdout.write(vparts.stdout + "\n");
+    if (vparts.stderr) process.stderr.write(vparts.stderr + "\n");
+    process.exit(0);
+  });
 
   program
     .hook("preAction", (_thisCommand, actionCommand) => {

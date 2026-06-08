@@ -27,21 +27,28 @@ Fail the release if any step is red.
 ## 1. Help and version (1 min)
 
 ```bash
-node dist/index.js --version    # prints: ai-trust 0.x.x + telemetry disclosure
+node dist/index.js --version              # prints: ai-trust 0.x.x + telemetry disclosure
+node dist/index.js --version 2>/dev/null  # stdout ONLY: single clean line `ai-trust 0.x.x`
+node dist/index.js --version 2>&1 1>/dev/null  # stderr ONLY: telemetry disclosure
 node dist/index.js --help       # lists check, batch, audit, telemetry subcommands
 node dist/index.js check -h     # check-specific options
 node dist/index.js audit -h     # audit-specific options
 node dist/index.js batch -h     # batch-specific options
 ```
 
-The `--version` output must be two lines:
+As of cli-ui 0.5.2 the `--version` output is stream-split: the bare version
+goes to **stdout** as a single parseable line, and the telemetry disclosure
+goes to **stderr**:
 ```
+# stdout
 ai-trust 0.x.x
+# stderr
 Telemetry: on (opt-out: OPENA2A_TELEMETRY=off  •  details: opena2a.org/telemetry)
 ```
 
-If the second line is missing, the `versionLine()` helper isn't wired or the
-SDK init failed silently.
+If the stderr line is missing, the `versionLineParts()` helper isn't wired or
+the SDK init failed silently. If the telemetry line leaks into stdout, the
+manual `option:version` handler regressed back to Commander's `.version()`.
 
 ---
 
@@ -186,7 +193,7 @@ unset OPENA2A_TELEMETRY
 
 | # | Command | Expected |
 |---|---|---|
-| 5.1 | `node dist/index.js --version` | Two lines: version + `Telemetry: on (opt-out: ...)` |
+| 5.1 | `node dist/index.js --version` | Version line on **stdout** (`ai-trust 0.x.x`, single line) + `Telemetry: on (opt-out: ...)` on **stderr**. `--version 2>/dev/null` shows only the version; `--version 2>&1 1>/dev/null` shows only the telemetry line. |
 | 5.2 | `node dist/index.js telemetry status` | `state: on`, install_id, config path, toggle hint |
 | 5.3 | `node dist/index.js telemetry off` | `Telemetry disabled for ai-trust.` |
 | 5.4 | `node dist/index.js telemetry on` | Re-enables persistently |
