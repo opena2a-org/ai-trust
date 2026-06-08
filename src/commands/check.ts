@@ -625,11 +625,22 @@ function isPolicyFailure(verdict?: string): boolean {
  */
 function printLibraryWithTrust(result: TrustAnswer, asJson: boolean): void {
   if (asJson) {
+    // Out-of-scope JSON must AGREE with the human output, which shows no trust
+    // block for libraries (v0.3 spec). Previously this spread `...result`, so
+    // the top level carried `trustScore` / `trustLevel` / `verdict` — a script
+    // reading those used them as an ai-trust verdict even though ai-trust does
+    // not score general-purpose libraries. Lead with scope, mark `scored:
+    // false`, and nest the registry's raw data under `registryData` (preserved
+    // for reference, but explicitly not an ai-trust verdict). Release-test P2.
     console.log(formatJson({
-      ...result,
+      name: result.name,
+      packageType: result.packageType,
+      found: result.found,
       outOfScope: true,
+      scored: false,
       outOfScopeReason: "registry-classified as general-purpose library",
       nextSteps: [`hackmyagent check ${result.name}`],
+      registryData: result,
     }));
     return;
   }
@@ -656,6 +667,7 @@ function printOutOfScopeByName(name: string, asJson: boolean): void {
       name,
       found: false,
       outOfScope: true,
+      scored: false,
       outOfScopeReason: "recognized as general-purpose library by name (no registry data)",
       nextSteps: [`hackmyagent check ${name}`],
     }));

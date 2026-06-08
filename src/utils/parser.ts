@@ -14,7 +14,7 @@ export async function parseDependencyFile(
 
   // Detect format by filename or extension
   if (fileName.endsWith(".json")) {
-    return parsePackageJson(content);
+    return parsePackageJson(content, fileName);
   }
 
   if (fileName.endsWith(".txt") || fileName === "requirements") {
@@ -24,7 +24,7 @@ export async function parseDependencyFile(
   // Try JSON first, fall back to requirements.txt format
   try {
     JSON.parse(content);
-    return parsePackageJson(content);
+    return parsePackageJson(content, fileName);
   } catch {
     return parseRequirementsTxt(content);
   }
@@ -42,11 +42,24 @@ export function detectEcosystem(filePath: string): "npm" | "pypi" {
   return "npm";
 }
 
-function parsePackageJson(content: string): PackageQuery[] {
-  const pkg = JSON.parse(content) as {
+function parsePackageJson(content: string, fileName = "package.json"): PackageQuery[] {
+  let pkg: {
     dependencies?: Record<string, string>;
     devDependencies?: Record<string, string>;
   };
+  try {
+    pkg = JSON.parse(content);
+  } catch (err) {
+    // A bare parser message ("Expected property name … at position 2") is not
+    // actionable. Wrap it with the file context and a concrete fix so the
+    // error matches the rest of the tool's guidance style (release-test P3).
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `${fileName} is not valid JSON (${detail}). ` +
+        `Fix the syntax — common causes are trailing commas, unquoted keys, or an unclosed brace — then re-run. ` +
+        `Validate it with: node -e "JSON.parse(require('fs').readFileSync('${fileName}','utf8'))"`,
+    );
+  }
 
   const packages: PackageQuery[] = [];
   const seen = new Set<string>();

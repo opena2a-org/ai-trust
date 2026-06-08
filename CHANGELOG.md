@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **Out-of-scope library JSON now agrees with the human output.** `check <library> --json` (e.g. `check express --json --no-scan`) previously spread the registry record at the top level, so a script read `trustScore` / `trustLevel` / `verdict` as an ai-trust verdict even though the human output declares the package out of scope and shows no score. The JSON now leads with `outOfScope: true` / `scored: false`, and the registry's raw data is preserved under `registryData` (reference only, not an ai-trust verdict).
+- **Local-scan output no longer presents a score from zero executed checks.** When a scan finds no analyzable surfaces (0 static checks, no semantic findings), the verdict reads `No analyzable surfaces — not scored` and the Security meter is suppressed instead of showing a vacuous `100/100`. The Observations "Checks" line now reports executed checks (passed + failed, from HMA's `allFindings`) rather than the failure count, so "N static" reflects what was actually measured.
+- **Batch all-clear message is grammatical for a single package.** "All 1 AI package meet minimum trust level N" is now "The AI package meets minimum trust level N".
+
+### Fixed
+
+- **`telemetry <unknown-action>` now exits non-zero.** It printed "Unknown action …" but exited 0; scripts and CI can now detect the usage error (exit 1). Valid actions and the default still exit 0.
+- **Malformed dependency-file JSON now gives an actionable error.** `audit` on a broken `package.json` surfaced only the raw parser string ("Expected property name … at position 2"). It now names the file and suggests the fix (trailing commas / unquoted keys / unclosed brace) plus a one-line validate command.
+
 ## 0.7.4 (2026-06-07)
 
 ### Added

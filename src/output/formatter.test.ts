@@ -333,7 +333,7 @@ describe("formatBatchResults", () => {
     ]);
     const output = formatBatchResults(response, 3);
 
-    expect(output).toContain("All 1 AI package meet minimum trust level 3");
+    expect(output).toContain("The AI package meets minimum trust level 3");
   });
 
   it("shows next steps after batch results", () => {
@@ -455,7 +455,7 @@ describe("formatBatchResults", () => {
       ]);
       const output = formatBatchResults(response, 3);
 
-      expect(output).toContain("All 1 AI package meet minimum trust level 3");
+      expect(output).toContain("The AI package meets minimum trust level 3");
     });
 
     it("groups unclassified packages into an Unclassified section", () => {
@@ -582,6 +582,77 @@ describe("formatScanResult", () => {
 
     const output = formatScanResult(result);
     expect(output).not.toContain("Attack:");
+  });
+
+  it("suppresses the score and says 'not scored' when no analyzable surfaces (0 checks)", () => {
+    const result = makeScanResult({
+      trustScore: 1,
+      scan: {
+        score: 100,
+        maxScore: 100,
+        checksEvaluated: 0,
+        findings: [],
+        projectType: "unknown",
+        timestamp: "2026-03-15T00:00:00Z",
+      },
+    });
+
+    const output = formatScanResult(result);
+    expect(output).toContain("not scored");
+    expect(output).toContain("No analyzable surfaces");
+    // A vacuous 100/100 must NOT appear — it would read as a clean bill of health.
+    expect(output).not.toContain("100/100");
+    expect(output).not.toContain("looks safe to use");
+  });
+
+  it("still shows the score on a clean scan that DID run checks (suppression must not over-fire)", () => {
+    // Guards against a regression that drops the `checksEvaluated === 0`
+    // conjunct and suppresses any 0-finding scan — a fully-measured clean
+    // package (many checks, no findings) must keep its earned score.
+    const result = makeScanResult({
+      trustScore: 1,
+      scan: {
+        score: 100,
+        maxScore: 100,
+        checksEvaluated: 50,
+        findings: [],
+        projectType: "node",
+        timestamp: "2026-03-15T00:00:00Z",
+      },
+    });
+
+    const output = formatScanResult(result);
+    expect(output).toContain("100/100");
+    expect(output).not.toContain("not scored");
+    expect(output).not.toContain("No analyzable surfaces");
+  });
+
+  it("shows the executed-check count (not the findings count) on the Checks line", () => {
+    const result = makeScanResult({
+      scan: {
+        score: 95,
+        maxScore: 100,
+        checksEvaluated: 42,
+        findings: [
+          {
+            checkId: "SEC-001",
+            name: "Missing CSP",
+            description: "No CSP header",
+            category: "headers",
+            severity: "low",
+            passed: false,
+            message: "Content-Security-Policy header missing",
+          },
+        ],
+        projectType: "node",
+        timestamp: "2026-03-15T00:00:00Z",
+      },
+    });
+
+    const output = formatScanResult(result);
+    // 42 executed checks, not "1 static" (the single finding).
+    expect(output).toContain("42 static");
+    expect(output).not.toContain("1 static");
   });
 });
 
