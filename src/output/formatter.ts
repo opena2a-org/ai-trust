@@ -524,7 +524,9 @@ export function formatBatchResults(
   if (belowThreshold.length === 0 && notFound.length === 0 && errorScans.length === 0 && foundNative > 0) {
     lines.push(
       chalk.green.bold(
-        `  All ${foundNative} AI ${foundNative === 1 ? "package" : "packages"} meet minimum trust level ${minTrust}.`
+        foundNative === 1
+          ? `  The AI package meets minimum trust level ${minTrust}.`
+          : `  All ${foundNative} AI packages meet minimum trust level ${minTrust}.`
       )
     );
   }
@@ -621,8 +623,18 @@ export function formatScanResult(result: ScanResult): string {
   const low = failed.filter((f) => f.severity === "low").length;
   const total = failed.length;
 
+  // How much was actually measured. `checksEvaluated` counts executed static
+  // checks (passed + failed); when it is explicitly 0 — and nothing semantic
+  // ran either — the package had no analyzable surfaces, so a 100/100 here
+  // would be a "number implies measurement" artifact, not an earned score.
+  const semanticCount = result.semanticFindings?.length ?? result.scan.semanticFindings?.length ?? 0;
+  const noAnalyzableSurfaces =
+    result.scan.checksEvaluated === 0 && total === 0 && semanticCount === 0;
+
   let verdictText: string;
-  if (critical > 0) {
+  if (noAnalyzableSurfaces) {
+    verdictText = "No analyzable surfaces — not scored";
+  } else if (critical > 0) {
     verdictText = `${critical} critical issue${critical > 1 ? "s" : ""} found`;
   } else if (high > 0) {
     verdictText = `${high} high-severity issue${high > 1 ? "s" : ""} found`;
@@ -633,9 +645,17 @@ export function formatScanResult(result: ScanResult): string {
   }
   lines.push(`  ${chalk.bold(vc(verdictText))}`);
 
-  // Score meter — show Security (from local scan), not Trust (that's registry)
+  // Score meter — show Security (from local scan), not Trust (that's registry).
+  // Suppress the meter entirely when nothing was analyzable: a score from 0
+  // executed checks is meaningless and reads as a clean bill of health.
   lines.push("");
-  lines.push(`  Security  ${scoreMeter(result.scan.score, result.scan.maxScore)}`);
+  if (noAnalyzableSurfaces) {
+    lines.push(
+      `  Security  ${chalk.dim("not scored — no analyzable surfaces (use `hackmyagent check` for a deeper scan)")}`,
+    );
+  } else {
+    lines.push(`  Security  ${scoreMeter(result.scan.score, result.scan.maxScore)}`);
+  }
 
   // Trust level
   const tlColor = trustLevelColor(result.trustLevel);
@@ -666,15 +686,27 @@ export function formatScanResult(result: ScanResult): string {
   const rawKind = result.scan.projectType?.trim();
   const projectLabel = rawKind && rawKind !== "unknown" ? rawKind : "package";
   const categorySummaries = buildCategorySummaries(categorizable);
-  const verdict = buildVerdict(
-    { critical, high, medium, low },
-    { kind: projectLabel },
-    verdictFindings,
-  );
+  // Override the shared verdict when nothing was analyzable — buildVerdict
+  // would otherwise report "looks safe to use" off a vacuous 0-check scan,
+  // contradicting the suppressed score above.
+  const verdict = noAnalyzableSurfaces
+    ? {
+        status: "unknown" as const,
+        message:
+          "No analyzable surfaces — not scored. Use `hackmyagent check` for a deeper scan.",
+      }
+    : buildVerdict(
+        { critical, high, medium, low },
+        { kind: projectLabel },
+        verdictFindings,
+      );
   const { lines: obsLines } = renderObservationsBlock({
     surfaces: { kind: projectLabel },
     checks: {
-      staticCount: result.scan.findings.length,
+      // Executed static checks (passed + failed), not just failures — mirrors
+      // HMA's "N static" semantics. Falls back to the findings count when an
+      // older HMA omitted the executed-checks total.
+      staticCount: result.scan.checksEvaluated ?? result.scan.findings.length,
       semanticCount: (result.semanticFindings?.length ?? 0),
     },
     categories: categorySummaries,

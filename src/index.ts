@@ -106,6 +106,12 @@ registerBatchCommand(program);
           setOptOut: tele.setOptOut,
         }),
       );
+      // An unrecognized action prints "Unknown action …" but must also exit
+      // non-zero so scripts and CI can detect the usage error (release-test P3).
+      const knownActions = new Set(["on", "off", "status", "--help", "-h"]);
+      if (action !== undefined && !knownActions.has(action)) {
+        process.exitCode = 1;
+      }
     });
 
   if (process.argv.length <= 2) {

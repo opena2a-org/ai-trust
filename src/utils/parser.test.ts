@@ -72,6 +72,16 @@ describe("parseDependencyFile", () => {
         parseDependencyFile("/fake/package.json")
       ).rejects.toThrow();
     });
+
+    it("wraps a malformed-JSON error with the file name and an actionable fix", async () => {
+      mockReadFile.mockResolvedValue("{ bad json");
+
+      // Not the bare parser string — names the file and gives a concrete fix
+      // (release-test P3).
+      await expect(
+        parseDependencyFile("/fake/package.json")
+      ).rejects.toThrow(/package\.json is not valid JSON.*Validate it with/s);
+    });
   });
 
   describe("requirements.txt parsing", () => {

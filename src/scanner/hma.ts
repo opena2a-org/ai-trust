@@ -28,6 +28,15 @@ export interface HmaScanResult {
   score: number;
   maxScore: number;
   findings: HmaFinding[];
+  /**
+   * Number of static checks HMA actually executed (passed + failed), from
+   * HMA's `allFindings`. `findings` carries only the failures, so this is the
+   * honest "how much was measured" denominator: when it is 0 there were no
+   * analyzable surfaces and the score is vacuous, not earned. Optional so
+   * older HMA output (and synthetic fixtures) without `allFindings` parse;
+   * the live parser always sets it.
+   */
+  checksEvaluated?: number;
   /** Semantic analysis results from NanoMind (present when --deep is used) */
   semanticFindings?: SemanticFinding[];
   /** AnaLM findings (present when --analm is used) */
@@ -212,9 +221,19 @@ function parseHmaOutput(stdout: string): HmaScanResult {
 
   const raw = JSON.parse(jsonStr);
 
+  // `allFindings` lists every executed check (passed + failed); `findings` is
+  // failures only. Prefer the former as the executed-checks count, falling
+  // back to the failures count when an older HMA omits `allFindings`.
+  const checksEvaluated = Array.isArray(raw.allFindings)
+    ? raw.allFindings.length
+    : Array.isArray(raw.findings)
+      ? raw.findings.length
+      : 0;
+
   const result: HmaScanResult = {
     score: raw.score ?? 0,
     maxScore: raw.maxScore ?? 100,
+    checksEvaluated,
     findings: (raw.findings ?? []).map((f: Record<string, unknown>) => ({
       checkId: f.checkId ?? "",
       name: f.name ?? "",
