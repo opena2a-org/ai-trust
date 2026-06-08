@@ -122,7 +122,8 @@ export function registerCheckCommand(program: Command): void {
         if (globalOpts.json) {
           console.log(JSON.stringify(result, null, 2));
         } else {
-          console.log(formatScanResult(result));
+          // --scan-path scans the user's own on-disk tree → local verdict.
+          console.log(formatScanResult(result, { remote: false }));
         }
         return;
       }
@@ -411,11 +412,12 @@ async function handleScanFlow(
     return;
   }
 
-  // Output scan results
+  // Output scan results. This path scanned a downloaded package (npm-pack /
+  // pip-download), not the user's own tree → remote verdict (no `secure --fix`).
   if (globalOpts.json) {
     console.log(formatJson(scanResult));
   } else {
-    console.log(formatScanResult(scanResult));
+    console.log(formatScanResult(scanResult, { remote: true }));
   }
 
   // Set exit code based on verdict (2 = policy signal, matching audit/batch)
