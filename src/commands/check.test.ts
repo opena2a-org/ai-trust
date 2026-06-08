@@ -183,6 +183,55 @@ describe("check command", () => {
       expect(formatJson).toHaveBeenCalled();
     });
 
+    it("emits the curated camelCase JSON shape (source=registry) under --json", async () => {
+      const mockCheckTrust = vi.fn().mockResolvedValue({
+        name: "my-mcp",
+        found: true,
+        verdict: "passed",
+        trustLevel: 3,
+        trustScore: 0.82,
+        packageType: "mcp_server",
+      });
+      vi.mocked(RegistryClient).mockImplementation(function () {
+        return {
+          checkTrust: mockCheckTrust,
+          batchQuery: vi.fn(),
+          publishScan: vi.fn(),
+        } as any;
+      });
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node",
+        "test",
+        "--json",
+        "check",
+        "my-mcp",
+        "--no-scan",
+      ]);
+
+      // formatJson is mocked to JSON.stringify(data); assert the object it
+      // received is the curated trust shape, not the raw TrustAnswer dump.
+      expect(formatJson).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "my-mcp",
+          source: "registry",
+          found: true,
+          verdict: "passed",
+          trustLevel: 3,
+          trustScore: 0.82,
+          packageType: "mcp_server",
+        })
+      );
+      // The curated registry shape must NOT carry scan-only fields.
+      const arg = vi.mocked(formatJson).mock.calls[0][0] as Record<string, unknown>;
+      expect(arg).not.toHaveProperty("score");
+      expect(arg).not.toHaveProperty("maxScore");
+      // Stdout output must be valid JSON.
+      const printed = consoleSpy.mock.calls.at(-1)?.[0] as string;
+      expect(() => JSON.parse(printed)).not.toThrow();
+    });
+
     it("sets exit code 2 for blocked verdict (policy signal)", async () => {
       const mockCheckTrust = vi.fn().mockResolvedValue({
         name: "bad-pkg",
@@ -720,6 +769,37 @@ describe("check command", () => {
       await program.parseAsync(["node", "test", "check", "chalk", "--no-scan"]);
 
       expect(formatCheckResult).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("AI_TRUST_CLI_PREFIX self-citations (#191)", () => {
+    function checkHelp(): string {
+      const program = createProgram();
+      const cmd = program.commands.find((c) => c.name() === "check")!;
+      let out = "";
+      cmd.configureOutput({ writeOut: (s) => (out += s) });
+      cmd.outputHelp();
+      return out;
+    }
+
+    afterEach(() => {
+      delete process.env.AI_TRUST_CLI_PREFIX;
+    });
+
+    it("renders 'opena2a registry' and zero 'ai-trust check' when prefixed", () => {
+      process.env.AI_TRUST_CLI_PREFIX = "opena2a registry";
+      const help = checkHelp();
+      expect(help).toContain("Usage: opena2a registry [options] <name>");
+      expect(help).toContain("opena2a registry @modelcontextprotocol/server-filesystem");
+      expect(help).not.toContain("ai-trust check");
+    });
+
+    it("renders native 'ai-trust check' when AI_TRUST_CLI_PREFIX is unset", () => {
+      delete process.env.AI_TRUST_CLI_PREFIX;
+      const help = checkHelp();
+      expect(help).toContain("Usage: ai-trust check [options] <name>");
+      expect(help).toContain("ai-trust check @modelcontextprotocol/server-filesystem");
+      expect(help).not.toContain("opena2a registry");
     });
   });
 });
