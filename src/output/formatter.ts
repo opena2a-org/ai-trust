@@ -38,6 +38,7 @@ import { classify, tierLabel } from "@opena2a/ai-classifier";
 import type { Tier } from "@opena2a/ai-classifier";
 import type { TrustAnswer, BatchResponse } from "@opena2a/registry-client";
 import type { ScanResult } from "../scanner/index.js";
+import { checkCitation } from "../utils/cli-prefix.js";
 
 // ── Visual helpers ─────────────────────────────────────────────���──────
 
@@ -143,28 +144,29 @@ function buildCheckCtas(answer: TrustAnswer, isScanError: boolean): NextStepsCta
   const isUnscanned = meterGate === undefined && !isScanError;
 
   const ctas: NextStepsCta[] = [];
+  const checkCmd = `${checkCitation()} ${answer.name}`;
   if (isScanError) {
     ctas.push({
       label: "Rescan",
-      command: `ai-trust check ${answer.name}`,
+      command: checkCmd,
       primary: true,
     });
   } else if (isUnscanned || answer.trustLevel <= 2) {
     ctas.push({
       label: "Scan locally",
-      command: `ai-trust check ${answer.name}`,
+      command: checkCmd,
       primary: true,
     });
   } else if (normalized === "blocked" || normalized === "warning") {
     ctas.push({
       label: "Deep scan",
-      command: `ai-trust check ${answer.name}`,
+      command: checkCmd,
       primary: true,
     });
   } else {
     ctas.push({
       label: "Fresh scan",
-      command: `ai-trust check ${answer.name}`,
+      command: checkCmd,
       primary: true,
     });
   }
@@ -282,7 +284,7 @@ export function formatNotFound(input: NotFoundBlockInput): string {
     ...renderNextStepsLines([
       {
         label: "Scan locally",
-        command: `ai-trust check ${input.pkg} --scan-if-missing`,
+        command: `${checkCitation()} ${input.pkg} --scan-if-missing`,
         primary: true,
       },
       {

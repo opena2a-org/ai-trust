@@ -30,6 +30,8 @@ import {
   sendScanPing,
 } from "../telemetry/index.js";
 import { checkSkillOrMcp, parseRichTarget } from "../check/skill-mcp-check.js";
+import { checkCitation } from "../utils/cli-prefix.js";
+import { buildCheckJson } from "../output/check-json.js";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
@@ -53,7 +55,7 @@ interface CheckOptions {
 }
 
 export function registerCheckCommand(program: Command): void {
-  program
+  const checkCmd = program
     .command("check <name>")
     .description("Look up trust information for a single package")
     .option(
@@ -120,7 +122,7 @@ export function registerCheckCommand(program: Command): void {
         // names (e.g. release-smoke harness uses surface/intent/fixture).
         result.packageName = rawName;
         if (globalOpts.json) {
-          console.log(JSON.stringify(result, null, 2));
+          console.log(formatJson(buildCheckJson({ kind: "scan", scan: result })));
         } else {
           // --scan-path scans the user's own on-disk tree → local verdict.
           console.log(formatScanResult(result, { remote: false }));
@@ -207,7 +209,7 @@ export function registerCheckCommand(program: Command): void {
             return;
           }
           if (globalOpts.json) {
-            console.log(formatJson(result));
+            console.log(formatJson(buildCheckJson({ kind: "registry", answer: result })));
           } else {
             console.log(formatCheckResult(result));
           }
@@ -289,6 +291,34 @@ export function registerCheckCommand(program: Command): void {
         `Scanning ${name}...`
       );
     });
+
+  // Self-citations honor AI_TRUST_CLI_PREFIX. When opena2a-cli bundles us it
+  // sets AI_TRUST_CLI_PREFIX="opena2a registry", and the `ai-trust check`
+  // token pair is replaced wholesale (the `check` verb is absorbed because
+  // `opena2a registry` IS the check command). Unset → native `ai-trust check`.
+  //
+  // Commander auto-generates the usage line from the program name + command
+  // name (`ai-trust check [options] <name>`). Override commandUsage so the
+  // prefix surfaces there too; when unset, reproduce the native string exactly.
+  checkCmd.configureHelp({
+    commandUsage(cmd) {
+      const args = cmd.usage(); // "[options] <name>"
+      return `${checkCitation()} ${args}`;
+    },
+  });
+
+  // Examples block, routed through the same prefix helper so a prefixed
+  // invocation never leaks `ai-trust check` into the help text.
+  checkCmd.addHelpText("after", () => {
+    const cite = checkCitation();
+    return `
+Examples:
+  ${cite} @modelcontextprotocol/server-filesystem
+  ${cite} some-mcp-server --no-scan
+  ${cite} unknown-pkg --scan-if-missing
+  ${cite} some-pkg --json
+`;
+  });
 }
 
 // NOTE: handleNotFound is currently unreferenced (the action handler routes
@@ -324,14 +354,14 @@ async function handleNotFound(
         ecosystem,
         error: `Package "${name}" not found in the OpenA2A Registry.`,
         nextSteps: [
-          `ai-trust check ${name} --scan-if-missing`,
+          `${checkCitation()} ${name} --scan-if-missing`,
           `npx hackmyagent secure <project-dir>`,
         ],
       })));
     } else {
       console.error(`Package "${name}" not found in the OpenA2A Registry.\n`);
       console.error("  Scan it locally:");
-      console.error(`    ai-trust check ${name} --scan-if-missing`);
+      console.error(`    ${checkCitation()} ${name} --scan-if-missing`);
       console.error("");
       console.error("  Or scan your full project:");
       console.error("    npx hackmyagent secure .");
@@ -415,7 +445,7 @@ async function handleScanFlow(
   // Output scan results. This path scanned a downloaded package (npm-pack /
   // pip-download), not the user's own tree → remote verdict (no `secure --fix`).
   if (globalOpts.json) {
-    console.log(formatJson(scanResult));
+    console.log(formatJson(buildCheckJson({ kind: "scan", scan: scanResult })));
   } else {
     console.log(formatScanResult(scanResult, { remote: true }));
   }
@@ -492,7 +522,7 @@ async function handleContribute(
         );
         console.error(
           chalk.cyan(
-            `    ai-trust check ${name} --scan-if-missing --contribute`
+            `    ${checkCitation()} ${name} --scan-if-missing --contribute`
           )
         );
       }
@@ -579,7 +609,7 @@ function handleNoScanNotFound(
       ecosystem,
       error: `Package "${name}" not found in the OpenA2A Registry.`,
       nextSteps: [
-        `ai-trust check ${name} --scan-if-missing`,
+        `${checkCitation()} ${name} --scan-if-missing`,
         `npx hackmyagent secure <project-dir>`,
       ],
     })));
