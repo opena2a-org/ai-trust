@@ -117,16 +117,30 @@ function runAiTrustScanPath(label: string, dir: string): AiTrustResult {
   }
   try {
     const data = JSON.parse(stdout.slice(jsonStart));
-    const fails = (data.scan?.findings ?? []).filter(
-      (f: { passed?: boolean }) => f.passed === false,
-    ) as { checkId: string; severity: string }[];
+    // The curated `check --json` (issue #61) emits score/findings at the TOP
+    // level; older/uncurated output nested them under `scan`. Prefer top-level,
+    // fall back to nested so the harness reads either shape. Top-level findings
+    // are already failed-only but still carry `passed: false`, so the filter is
+    // a no-op safety net.
+    const rawFindings = (data.findings ?? data.scan?.findings ?? []) as {
+      checkId: string;
+      severity: string;
+      passed?: boolean;
+    }[];
+    const fails = rawFindings.filter((f) => f.passed !== true);
     const findings = [...new Set(fails.map((f) => f.checkId))].sort();
     const severities = fails.reduce<Record<string, number>>((acc, f) => {
       acc[f.severity] = (acc[f.severity] ?? 0) + 1;
       return acc;
     }, {});
+    const score =
+      typeof data.score === 'number'
+        ? data.score
+        : typeof data.scan?.score === 'number'
+          ? data.scan.score
+          : -1;
     return {
-      score: typeof data.scan?.score === 'number' ? data.scan.score : -1,
+      score,
       trustLevel: typeof data.trustLevel === 'number' ? data.trustLevel : -1,
       verdict: typeof data.verdict === 'string' ? data.verdict : 'unknown',
       findings,
