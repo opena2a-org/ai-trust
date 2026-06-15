@@ -24,7 +24,6 @@ import {
   renderNotFoundBlock,
   renderNextSteps,
   buildCategorySummaries,
-  buildVerdict,
   type CategorizableFinding,
   type CheckBlockInput,
   type CheckTone,
@@ -33,6 +32,7 @@ import {
   type NotFoundTone,
   type VerdictFinding,
 } from "@opena2a/cli-ui";
+import { buildScoreAwareVerdict } from "./score-aware-verdict.js";
 import { mapScanStatusForMeter } from "@opena2a/check-core";
 import { classify, tierLabel } from "@opena2a/ai-classifier";
 import type { Tier } from "@opena2a/ai-classifier";
@@ -646,18 +646,32 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
   const noAnalyzableSurfaces =
     result.scan.checksEvaluated === 0 && total === 0 && semanticCount === 0;
 
-  let verdictText: string;
-  if (noAnalyzableSurfaces) {
-    verdictText = "No analyzable surfaces — not scored";
-  } else if (critical > 0) {
-    verdictText = `${critical} critical issue${critical > 1 ? "s" : ""} found`;
-  } else if (high > 0) {
-    verdictText = `${high} high-severity issue${high > 1 ? "s" : ""} found`;
-  } else if (total > 0) {
-    verdictText = `${total} issue${total > 1 ? "s" : ""} found`;
-  } else {
-    verdictText = "No security issues found";
-  }
+  // Single source of truth for ai-trust's human verdict: derive BOTH the top
+  // headline and the Observations-block message from the score-aware enum
+  // (result.verdict from deriveVerdict), so the terminal never contradicts
+  // `--json`. cli-ui's severity-first buildVerdict stays for HMA/opena2a
+  // own-code scans — verdict calibration is intentionally context-specific
+  // (own-code vs third-party). See score-aware-verdict.ts.
+  const verdictFindings: VerdictFinding[] = failed.map((f) => ({
+    severity: f.severity as "critical" | "high" | "medium" | "low",
+    name: f.name,
+    checkId: f.checkId,
+    file: f.file,
+    line: f.line,
+  }));
+  const rawKind = result.scan.projectType?.trim();
+  const projectLabel = rawKind && rawKind !== "unknown" ? rawKind : "package";
+  const scoreAwareVerdict = noAnalyzableSurfaces
+    ? null
+    : buildScoreAwareVerdict(
+        result.verdict,
+        { critical, high, medium, low, total },
+        verdictFindings,
+        { kind: projectLabel, remote },
+      );
+  const verdictText = scoreAwareVerdict
+    ? scoreAwareVerdict.headline
+    : "No analyzable surfaces — not scored";
   lines.push(`  ${chalk.bold(vc(verdictText))}`);
 
   // Score meter — show Security (from local scan), not Trust (that's registry).
@@ -691,30 +705,18 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
     passed: false,
     severity: f.severity as "critical" | "high" | "medium" | "low",
   }));
-  const verdictFindings: VerdictFinding[] = failed.map((f) => ({
-    severity: f.severity as "critical" | "high" | "medium" | "low",
-    name: f.name,
-    checkId: f.checkId,
-    file: f.file,
-    line: f.line,
-  }));
-  const rawKind = result.scan.projectType?.trim();
-  const projectLabel = rawKind && rawKind !== "unknown" ? rawKind : "package";
   const categorySummaries = buildCategorySummaries(categorizable);
-  // Override the shared verdict when nothing was analyzable — buildVerdict
-  // would otherwise report "looks safe to use" off a vacuous 0-check scan,
-  // contradicting the suppressed score above.
-  const verdict = noAnalyzableSurfaces
-    ? {
+  // Same score-aware verdict computed above feeds the Observations block, so
+  // the block message and the top headline always agree. When nothing was
+  // analyzable, override to "unknown" (a vacuous 0-check scan must not read as
+  // "looks safe to use").
+  const verdict = scoreAwareVerdict
+    ? { status: scoreAwareVerdict.status, message: scoreAwareVerdict.message }
+    : {
         status: "unknown" as const,
         message:
           "No analyzable surfaces — not scored. Use `hackmyagent check` for a deeper scan.",
-      }
-    : buildVerdict(
-        { critical, high, medium, low },
-        { kind: projectLabel, remote },
-        verdictFindings,
-      );
+      };
   const { lines: obsLines } = renderObservationsBlock({
     surfaces: { kind: projectLabel, remote },
     checks: {
