@@ -248,6 +248,7 @@ Security issues: `security@opena2a.org` (coordinated disclosure, response within
 - [OpenA2A Registry](https://registry.opena2a.org). Trust scores and scan data.
 - [OpenA2A CLI](https://github.com/opena2a-org/opena2a). Unified security CLI.
 - [HackMyAgent](https://github.com/opena2a-org/hackmyagent). Local scanning for unverified packages.
+- [aicomply](https://github.com/opena2a-org/aicomply). Inline PII, credential, and regulated-data classification for agent I/O before it reaches an LLM.
 
 Part of the [OpenA2A](https://opena2a.org) security platform.
 
