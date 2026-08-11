@@ -17,7 +17,47 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # The consumer-resolution gate, on the release path.
+  #
+  # `dependency-audit.yml` triggers on `pull_request` and `push: main`; this
+  # workflow triggers on `push: tags`. Those sets do not intersect, so before
+  # this job existed the gate never ran on the one event that makes a tree
+  # permanent and public. A supply-chain gate that skips the publish is the
+  # gate skipping the only irreversible step.
+  #
+  # It runs BEFORE `release`, which `needs:` it, so a red gate blocks
+  # `npm publish` rather than reporting alongside it. And it measures the
+  # CANDIDATE — the tarball this tag would publish — because at tag time the
+  # published tree is the PREVIOUS release and says nothing about the one being
+  # cut.
+  #
+  # Note this is not the same tarball `npm publish` uploads; it is packed the
+  # same way from the same checkout, and what it is being asked is a question
+  # about the dependency closure the manifest resolves to, which is identical.
+  consumer-audit:
+    name: Consumer resolution audit (candidate artifact)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Pack the artifact this tag would publish
+        id: pack
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/candidate"
+          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/candidate" >/dev/null
+          tarball="$(find "$RUNNER_TEMP/candidate" -maxdepth 1 -name '*.tgz' | head -n1)"
+          test -n "$tarball"
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+      - name: Audit the tree a consumer would resolve from this tag
+        run: npm run audit:consumer -- --target "${{ steps.pack.outputs.tarball }}"
+
   release:
+    needs: consumer-audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
