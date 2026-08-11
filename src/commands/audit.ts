@@ -16,7 +16,7 @@ import { isHmaAvailable, scanPackage } from "../scanner/index.js";
 import type { ScanResult } from "../scanner/index.js";
 import { confirm } from "../utils/prompt.js";
 import {
-  isContributeEnabled,
+  resolveContributeChoice,
   queueScanResult,
   flushQueue,
   recordScanAndMaybeShowTip,
@@ -55,6 +55,10 @@ export function registerAuditCommand(program: Command): void {
     .option(
       "--contribute",
       "contribute scan results to community registry"
+    )
+    .option(
+      "--no-contribute",
+      "do not share these scans' results with the community registry (overrides config)"
     )
     .option(
       "--no-deep",
@@ -224,14 +228,18 @@ async function scanMissingPackages(
 
       scannedResults.push({ name: pkg.name, scanResult });
 
-      // Anonymous scan ping for adoption tracking
-      sendScanPing(
-        pkg.name,
-        scanResult.verdict,
-        Math.round(scanResult.trustScore * 100),
-        registryUrl,
-        scanOpts.ecosystem
-      );
+      // Anonymous scan ping. Shares the SAME contribution consent as the
+      // full contribution flow below -- see resolveContributeChoice's
+      // doc comment for why --no-contribute must be able to stop it.
+      if (resolveContributeChoice(opts.contribute)) {
+        sendScanPing(
+          pkg.name,
+          scanResult.verdict,
+          Math.round(scanResult.trustScore * 100),
+          registryUrl,
+          scanOpts.ecosystem
+        );
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(
@@ -261,7 +269,7 @@ async function handleAuditContribution(
   registryUrl: string,
   ecosystem: "npm" | "pypi" = "npm"
 ): Promise<void> {
-  const alreadyEnabled = opts.contribute || isContributeEnabled() === true;
+  const alreadyEnabled = resolveContributeChoice(opts.contribute);
 
   // These are first scans of missing packages — proactively encourage sharing
   if (!alreadyEnabled) {

@@ -217,6 +217,26 @@ export function incrementScanCount(): number {
 }
 
 /**
+ * Resolve whether a scan should contribute to the community registry,
+ * giving an explicit --contribute / --no-contribute flag priority over
+ * the persisted config choice. Mirrors hackmyagent's handleContribution
+ * priority ordering (contributeFlag === true/false beats config either
+ * way; only an unset flag falls through to isContributeEnabled()).
+ *
+ * Both the full contribution flow (queueScanResult) and the scan-adoption
+ * ping (sendScanPing) must use this -- sendScanPing sends package name +
+ * verdict + score, which is scan-result data under the two-bucket
+ * telemetry policy (briefs/scan-result-telemetry-policy.md), not
+ * invocation telemetry, so it needs the same consent as a full
+ * contribution and the same --no-contribute override.
+ */
+export function resolveContributeChoice(flag: boolean | undefined): boolean {
+  if (flag === true) return true;
+  if (flag === false) return false;
+  return isContributeEnabled() === true;
+}
+
+/**
  * Save the user's contribution choice to the config file.
  */
 export function saveContributeChoice(enabled: boolean): void {

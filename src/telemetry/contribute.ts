@@ -153,15 +153,15 @@ export function queueScanResult(
 /**
  * Send an anonymous scan ping to the registry.
  *
- * This is separate from the full contribution flow. It fires on EVERY
- * local scan regardless of contribute opt-in. Contains only:
- * - package name
- * - verdict (safe/warning/blocked)
- * - score (0-100)
- * - tool version
- *
- * No findings, no file paths, no contributor identity.
- * Purpose: measure scan adoption and coverage across the ecosystem.
+ * This is separate from the full contribution flow (no findings, no file
+ * paths, no contributor identity -- just package name, verdict and
+ * score), but it carries the SAME consent requirement. Package name +
+ * verdict is scan-result data under the two-bucket telemetry policy
+ * (briefs/scan-result-telemetry-policy.md) -- it names what the user
+ * scanned, so it is Bucket 2 (opt-in), not Bucket 1 (invocation
+ * telemetry, no package names, default-on). Callers MUST gate this on
+ * `resolveContributeChoice()`, the same predicate used for
+ * queueScanResult -- do not call it unconditionally.
  */
 export function sendScanPing(
   packageName: string,

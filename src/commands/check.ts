@@ -22,7 +22,7 @@ import { isHmaAvailable, scanPackage, scanLocalPath } from "../scanner/index.js"
 import type { ScanResult } from "../scanner/index.js";
 import { confirm } from "../utils/prompt.js";
 import {
-  isContributeEnabled,
+  resolveContributeChoice,
   queueScanResult,
   flushQueue,
   recordScanAndMaybeShowTip,
@@ -69,6 +69,10 @@ export function registerCheckCommand(program: Command): void {
     .option(
       "--contribute",
       "auto-contribute scan results to community registry"
+    )
+    .option(
+      "--no-contribute",
+      "do not share this scan's results with the community registry (overrides config)"
     )
     .option("--no-scan", "registry lookup only, skip local scan")
     .option("--rescan", "deprecated (local scan is now the default)")
@@ -455,14 +459,17 @@ async function handleScanFlow(
     process.exitCode = 2;
   }
 
-  // Anonymous scan ping — fires on every local scan regardless of contribute opt-in.
-  // Lets the registry track scan volume and coverage without any findings data.
-  sendScanPing(
-    name,
-    scanResult.verdict,
-    Math.round(scanResult.trustScore * 100),
-    globalOpts.registryUrl
-  );
+  // Anonymous scan ping. Shares the SAME contribution consent as the full
+  // contribution flow below -- package name + verdict is scan-result data,
+  // not invocation telemetry, so --no-contribute must be able to stop it.
+  if (resolveContributeChoice(opts.contribute)) {
+    sendScanPing(
+      name,
+      scanResult.verdict,
+      Math.round(scanResult.trustScore * 100),
+      globalOpts.registryUrl
+    );
+  }
 
   // Community contribution flow
   await handleContribute(name, scanResult, globalOpts, opts);
@@ -476,7 +483,7 @@ async function handleContribute(
   globalOpts: { registryUrl: string; json: boolean },
   opts: CheckOptions
 ): Promise<void> {
-  const alreadyEnabled = opts.contribute || isContributeEnabled() === true;
+  const alreadyEnabled = resolveContributeChoice(opts.contribute);
 
   // For first scans of missing packages, be more proactive about contribution.
   // Ask once and remember the choice — never spam on repeated scans.
