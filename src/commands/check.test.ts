@@ -41,14 +41,24 @@ vi.mock("../utils/prompt.js", () => ({
 }));
 
 // Mock telemetry
-vi.mock("../telemetry/index.js", () => ({
-  isContributeEnabled: vi.fn().mockReturnValue(undefined),
-  recordScanAndMaybeShowTip: vi.fn().mockReturnValue(null),
-  queueScanResult: vi.fn(),
-  flushQueue: vi.fn().mockResolvedValue(false),
-  saveContributeChoice: vi.fn(),
-  sendScanPing: vi.fn(),
-}));
+vi.mock("../telemetry/index.js", () => {
+  const isContributeEnabled = vi.fn().mockReturnValue(undefined);
+  return {
+    isContributeEnabled,
+    // Mirrors the real resolveContributeChoice: an explicit flag beats
+    // config either way; only an unset flag falls through to config.
+    resolveContributeChoice: vi.fn((flag: boolean | undefined) => {
+      if (flag === true) return true;
+      if (flag === false) return false;
+      return isContributeEnabled() === true;
+    }),
+    recordScanAndMaybeShowTip: vi.fn().mockReturnValue(null),
+    queueScanResult: vi.fn(),
+    flushQueue: vi.fn().mockResolvedValue(false),
+    saveContributeChoice: vi.fn(),
+    sendScanPing: vi.fn(),
+  };
+});
 
 import {
   RegistryClient,
@@ -62,7 +72,12 @@ import {
 } from "../output/formatter.js";
 import { isHmaAvailable, scanPackage } from "../scanner/index.js";
 import { confirm } from "../utils/prompt.js";
-import { queueScanResult, flushQueue } from "../telemetry/index.js";
+import {
+  queueScanResult,
+  flushQueue,
+  sendScanPing,
+  isContributeEnabled,
+} from "../telemetry/index.js";
 
 function createProgram(): Command {
   const program = new Command();
@@ -466,6 +481,79 @@ describe("check command", () => {
         expect.stringContaining("--rescan is deprecated")
       );
       expect(scanPackage).toHaveBeenCalled();
+    });
+  });
+
+  describe("scan ping consent gating (regression: package name + verdict + score is scan-result data, requires the same consent as full contribution)", () => {
+    beforeEach(() => {
+      vi.mocked(isHmaAvailable).mockResolvedValue(true);
+      vi.mocked(scanPackage).mockResolvedValue({
+        packageName: "ping-pkg",
+        scan: {
+          score: 90,
+          maxScore: 100,
+          findings: [],
+          projectType: "library",
+          timestamp: "2026-04-12T00:00:00Z",
+        },
+        trustScore: 0.9,
+        trustLevel: 3,
+        verdict: "safe",
+      });
+    });
+
+    it("does NOT ping when contribution has never been configured (default state)", async () => {
+      vi.mocked(isContributeEnabled).mockReturnValue(undefined);
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "check", "ping-pkg"]);
+
+      expect(sendScanPing).not.toHaveBeenCalled();
+    });
+
+    it("pings when --contribute is passed", async () => {
+      vi.mocked(isContributeEnabled).mockReturnValue(undefined);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "check", "ping-pkg", "--contribute",
+      ]);
+
+      expect(sendScanPing).toHaveBeenCalledWith(
+        "ping-pkg", "safe", 90, "https://api.test.com"
+      );
+    });
+
+    it("pings when contribution is enabled via persisted config, with no flag", async () => {
+      vi.mocked(isContributeEnabled).mockReturnValue(true);
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "check", "ping-pkg"]);
+
+      expect(sendScanPing).toHaveBeenCalled();
+    });
+
+    it("--no-contribute is a registered option and does not error", async () => {
+      vi.mocked(isContributeEnabled).mockReturnValue(undefined);
+
+      const program = createProgram();
+      // Regression for the exact reported bug: this used to throw
+      // "error: unknown option '--no-contribute'" because the flag was
+      // advertised in --help but never registered with Commander.
+      await expect(
+        program.parseAsync(["node", "test", "check", "ping-pkg", "--no-contribute"])
+      ).resolves.not.toThrow();
+    });
+
+    it("--no-contribute overrides a persisted opt-in and suppresses the ping", async () => {
+      vi.mocked(isContributeEnabled).mockReturnValue(true);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "check", "ping-pkg", "--no-contribute",
+      ]);
+
+      expect(sendScanPing).not.toHaveBeenCalled();
     });
   });
 

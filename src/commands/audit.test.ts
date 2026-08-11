@@ -42,17 +42,29 @@ vi.mock("../utils/prompt.js", () => ({
   confirm: vi.fn().mockResolvedValue(false),
 }));
 
-vi.mock("../telemetry/index.js", () => ({
-  isContributeEnabled: vi.fn().mockReturnValue(undefined),
-  recordScanAndMaybeShowTip: vi.fn().mockReturnValue(null),
-  queueScanResult: vi.fn(),
-  flushQueue: vi.fn().mockResolvedValue(false),
-  saveContributeChoice: vi.fn(),
-  sendScanPing: vi.fn(),
-}));
+vi.mock("../telemetry/index.js", () => {
+  const isContributeEnabled = vi.fn().mockReturnValue(undefined);
+  return {
+    isContributeEnabled,
+    // Mirrors the real resolveContributeChoice: an explicit flag beats
+    // config either way; only an unset flag falls through to config.
+    resolveContributeChoice: vi.fn((flag: boolean | undefined) => {
+      if (flag === true) return true;
+      if (flag === false) return false;
+      return isContributeEnabled() === true;
+    }),
+    recordScanAndMaybeShowTip: vi.fn().mockReturnValue(null),
+    queueScanResult: vi.fn(),
+    flushQueue: vi.fn().mockResolvedValue(false),
+    saveContributeChoice: vi.fn(),
+    sendScanPing: vi.fn(),
+  };
+});
 
 import { RegistryClient } from "@opena2a/registry-client";
 import { parseDependencyFile } from "../utils/parser.js";
+import { isHmaAvailable, scanPackage } from "../scanner/index.js";
+import { sendScanPing, isContributeEnabled } from "../telemetry/index.js";
 
 function createProgram(): Command {
   const program = new Command();
@@ -185,5 +197,78 @@ describe("audit command", () => {
 
     expect(process.exitCode).toBe(1);
     expect(consoleErrSpy).toHaveBeenCalledWith("Error: File not found");
+  });
+
+  describe("scan ping consent gating (regression: package name + verdict + score is scan-result data, requires the same consent as full contribution)", () => {
+    beforeEach(() => {
+      vi.mocked(parseDependencyFile).mockResolvedValue([{ name: "ping-pkg" }]);
+      const mockBatchQuery = vi.fn().mockResolvedValue({
+        results: [{ name: "ping-pkg", found: false }],
+        meta: { total: 1, found: 0, notFound: 1 },
+      });
+      vi.mocked(RegistryClient).mockImplementation(
+        function () {
+          return { checkTrust: vi.fn(), batchQuery: mockBatchQuery } as any;
+        }
+      );
+      vi.mocked(isHmaAvailable).mockResolvedValue(true);
+      vi.mocked(scanPackage).mockResolvedValue({
+        packageName: "ping-pkg",
+        scan: {
+          score: 90,
+          maxScore: 100,
+          findings: [],
+          projectType: "library",
+          timestamp: "2026-04-12T00:00:00Z",
+        },
+        trustScore: 0.9,
+        trustLevel: 3,
+        verdict: "safe",
+      });
+    });
+
+    it("does NOT ping when contribution has never been configured (default state)", async () => {
+      vi.mocked(isContributeEnabled).mockReturnValue(undefined);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "audit", "package.json", "--scan-missing",
+      ]);
+
+      expect(sendScanPing).not.toHaveBeenCalled();
+    });
+
+    it("pings when --contribute is passed", async () => {
+      vi.mocked(isContributeEnabled).mockReturnValue(undefined);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "audit", "package.json", "--scan-missing", "--contribute",
+      ]);
+
+      expect(sendScanPing).toHaveBeenCalled();
+    });
+
+    it("--no-contribute is a registered option and does not error", async () => {
+      vi.mocked(isContributeEnabled).mockReturnValue(undefined);
+
+      const program = createProgram();
+      await expect(
+        program.parseAsync([
+          "node", "test", "audit", "package.json", "--scan-missing", "--no-contribute",
+        ])
+      ).resolves.not.toThrow();
+    });
+
+    it("--no-contribute overrides a persisted opt-in and suppresses the ping", async () => {
+      vi.mocked(isContributeEnabled).mockReturnValue(true);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "audit", "package.json", "--scan-missing", "--no-contribute",
+      ]);
+
+      expect(sendScanPing).not.toHaveBeenCalled();
+    });
   });
 });

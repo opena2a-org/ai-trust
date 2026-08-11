@@ -18,6 +18,7 @@ export {
 
 export {
   isContributeEnabled,
+  resolveContributeChoice,
   shouldPromptContribute,
   incrementScanCount,
   saveContributeChoice,

@@ -8,19 +8,45 @@
  *
  * Exercises the built `dist/index.js` end-to-end.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { resolve, join } from "node:path";
+import { tmpdir } from "node:os";
 
 const CLI_PATH = resolve(__dirname, "../dist/index.js");
 const STRIP_ANSI = /\x1b\[[0-9;]*m/g;
+
+// @opena2a/telemetry's env opt-out is one-way (it can only force OFF, never
+// force ON over a persisted config -- see its own config.js loadConfig:
+// `enabled = !envDisabled && fileEnabled`). So OPENA2A_TELEMETRY=on here does
+// NOT override a real machine's ~/.config/opena2a/telemetry.json if that file
+// already has enabled:false, and this suite would read whatever opt-out state
+// happens to be persisted on the machine running it. Isolate XDG_CONFIG_HOME
+// to a fresh directory so these tests are deterministic regardless of host
+// state -- a fresh directory has no telemetry.json yet, so loadConfig's
+// `fileEnabled ?? true` default applies, matching what "on" tests expect.
+let xdgConfigHome: string;
+
+beforeAll(() => {
+  xdgConfigHome = mkdtempSync(join(tmpdir(), "ai-trust-version-test-"));
+});
+
+afterAll(() => {
+  rmSync(xdgConfigHome, { recursive: true, force: true });
+});
 
 function runVersion(flag: string, telemetry = "on"): { stdout: string; stderr: string; status: number } {
   const res = spawnSync(process.execPath, [CLI_PATH, flag], {
     encoding: "utf8",
     timeout: 20000,
-    env: { ...process.env, NODE_OPTIONS: "", NO_COLOR: "1", OPENA2A_TELEMETRY: telemetry },
+    env: {
+      ...process.env,
+      NODE_OPTIONS: "",
+      NO_COLOR: "1",
+      OPENA2A_TELEMETRY: telemetry,
+      XDG_CONFIG_HOME: xdgConfigHome,
+    },
   });
   return {
     stdout: (res.stdout ?? "").replace(STRIP_ANSI, ""),
