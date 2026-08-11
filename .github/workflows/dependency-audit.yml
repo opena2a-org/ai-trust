@@ -41,6 +41,11 @@ on:
   pull_request:
   push:
     branches: [main]
+  # The published tree can go bad with nothing in this repo changing — an
+  # advisory published against an untouched transitive dependency does it. That
+  # question is asked on a timer, because no diff can trigger it.
+  schedule:
+    - cron: '0 6 * * 1'
 
 permissions:
   contents: read
@@ -51,8 +56,15 @@ concurrency:
 
 jobs:
   # The ordinary audit: this repo's committed lockfile.
+  #
+  # Excluded from the weekly schedule on purpose. This job is red today for
+  # reasons tracked separately, and a job that is already red carries no
+  # differential signal — putting it on a timer would add a weekly red
+  # notification that tells nobody anything new. It stays on pull_request and
+  # push, where a human is already looking at the result.
   audit:
     name: Repo lockfile audit
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -88,14 +100,33 @@ jobs:
       - name: Fail on high or critical advisories
         run: npm audit --package-lock-only --audit-level=high
 
-  # The consumer audit: the tree a user resolves from the published package.
+  # The consumer audit, in two halves, because there are two artifacts and the
+  # first version of this wiring measured only one of them — the wrong one for
+  # a pull request.
   #
-  # Fork-safe, on stronger terms than the job above: the script installs with
-  # `--ignore-scripts`, so no dependency's install script runs, and its target
-  # is a published registry spec rather than this checkout — nothing from a
-  # fork's branch enters the scratch directory at all.
-  consumer-audit:
-    name: Consumer resolution audit
+  # It passed no `--target`, so the script fell back to the published
+  # `ai-trust@<latest>` and resolved the ALREADY-PUBLISHED package on every PR.
+  # A PR that added a vulnerable dependency therefore went GREEN, because the
+  # gate was reading npm rather than what the PR would publish. That is this
+  # gate's own stated rule — a gate is defined by the artifact it measures —
+  # broken by the gate itself.
+  #
+  #   consumer-audit-candidate  packs this branch and audits the tarball.
+  #                             Runs on pull_request and push, and the same
+  #                             check gates the release path in `release.yml`
+  #                             BEFORE `npm publish`. This is the one that can
+  #                             fail on a diff.
+  #   consumer-audit-published  audits the published `ai-trust@<latest>`. Runs
+  #                             on the weekly schedule. A different question —
+  #                             has the tree users already installed drifted? —
+  #                             that no PR can turn green and no diff triggers.
+  #
+  # Both print `[CANDIDATE]` / `[PUBLISHED]` in every banner and in the closing
+  # line, because the two numbers are not comparable and a reader has to be able
+  # to tell which tree a red build describes.
+  consumer-audit-candidate:
+    name: Consumer resolution audit (candidate artifact)
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -103,7 +134,39 @@ jobs:
         with:
           node-version: 24
           # No `cache: npm`, and no `npm ci`: the script uses only node
-          # builtins and the npm CLI, and resolves its target from the
-          # registry rather than from this tree.
-      - name: Audit the tree a consumer resolves
+          # builtins and the npm CLI, and measures a packed tarball's own
+          # resolution rather than this tree's.
+
+      # `--ignore-scripts` so a fork's `prepack`/`prepare` cannot execute on the
+      # runner, and NO build step, deliberately. What decides whether a user
+      # inherits an advisory is the manifest's dependency closure, which
+      # `npm pack` carries whether or not `dist/` was compiled — so building
+      # would buy no measurement and would cost arbitrary code execution from a
+      # pull request's branch.
+      - name: Pack the artifact this branch would publish
+        id: pack
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/candidate"
+          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/candidate" >/dev/null
+          tarball="$(find "$RUNNER_TEMP/candidate" -maxdepth 1 -name '*.tgz' | head -n1)"
+          test -n "$tarball"
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+
+      - name: Audit the tree a consumer would resolve from this branch
+        run: npm run audit:consumer -- --target "${{ steps.pack.outputs.tarball }}"
+
+  consumer-audit-published:
+    name: Consumer resolution audit (published artifact)
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # Nothing from this checkout is installed: the target is a published
+      # registry spec, resolved with `--ignore-scripts`. A failure here is not
+      # fixable by merging anything; it clears when a fix is RELEASED.
+      - name: Audit the tree a consumer resolves from npm today
         run: npm run audit:consumer
