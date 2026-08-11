@@ -1,0 +1,109 @@
+name: Dependency audit
+
+# Two jobs, two different artifacts, on purpose.
+#
+# `audit` measures THIS REPO'S lockfile. `consumer-audit` measures the tree a
+# user resolves from the PUBLISHED package. They are kept separate rather than
+# folded together so the two numbers stay legible as the two different
+# measurements they are — a reviewer seeing "N here, M there" should be able to
+# tell which tree each one describes.
+#
+# Why both exist, and why the second one is the load-bearing half:
+#
+# On 2026-08-10 the published `opena2a-cli@0.10.13` production tree was found
+# to carry a high advisory (GHSA-xcpc-8h2w-3j85, adm-zip) through
+# `hackmyagent -> onnxruntime-node -> adm-zip`. Every repo-level audit in the
+# org was green at the time, including `hackmyagent`'s own — because an
+# ordinary `npm audit` runs against a repo lockfile, which carries
+# devDependencies and honours local `overrides`, and `overrides` are not
+# published. The artifact we audit is not the artifact we ship.
+#
+# `hackmyagent` responded by adding a consumer-resolution job. `ai-trust` never
+# received that fan-out and had no audit workflow of any kind, while being one
+# of the two packages that shipped the advisory to users. This file closes
+# that.
+#
+# The rule it encodes: a gate is defined by the artifact it measures. A gate
+# that measures the repo when the risk lives in the published tree is
+# decorative regardless of its colour.
+#
+# Threshold is `high` on purpose. Gating on `moderate` would let any newly
+# published moderate advisory — against a dependency no PR touched, on code
+# that may not even load — block unrelated work, and an unwaivable false
+# critical costs more than a miss. Moderate and low findings are still printed.
+#
+# Honest cost of both jobs: `npm audit` queries a live advisory database, so a
+# PR can go red for something its own diff did not introduce. That is intended.
+# A new high advisory against a shipped CLI's dependency tree should stop the
+# line, and the fix is to raise the floor rather than to make this advisory.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The ordinary audit: this repo's committed lockfile.
+  audit:
+    name: Repo lockfile audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          # No `cache: npm` on purpose — nothing is installed below, so there
+          # is no download to cache.
+
+      # `--package-lock-only` audits the committed lockfile directly. Two
+      # reasons it is preferred over `npm ci` followed by an audit:
+      #
+      # 1. It installs nothing, so no dependency's install script executes.
+      #    This job runs on `pull_request`, which includes pull requests from
+      #    forks, and a job that runs `npm ci` on a fork's branch executes
+      #    whatever that branch put in a `postinstall` — least acceptable in
+      #    the CI of a tool whose subject is supply-chain risk.
+      # 2. It audits the versions the repo actually pins rather than a tree
+      #    resolved fresh on the runner, which is the thing being gated.
+
+      # Informational, never fails: the full picture including moderate and
+      # low, so a reviewer can see what is accumulating below the threshold.
+      - name: Full advisory report (informational)
+        run: npm audit --package-lock-only || true
+
+      # Also informational: the production-only subset, which is the part of
+      # this lockfile that has any chance of reaching a user. The difference
+      # between this and the report above is the devDependency-only noise.
+      - name: Production-only advisory report (informational)
+        run: npm audit --package-lock-only --omit=dev || true
+
+      # The gate.
+      - name: Fail on high or critical advisories
+        run: npm audit --package-lock-only --audit-level=high
+
+  # The consumer audit: the tree a user resolves from the published package.
+  #
+  # Fork-safe, on stronger terms than the job above: the script installs with
+  # `--ignore-scripts`, so no dependency's install script runs, and its target
+  # is a published registry spec rather than this checkout — nothing from a
+  # fork's branch enters the scratch directory at all.
+  consumer-audit:
+    name: Consumer resolution audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          # No `cache: npm`, and no `npm ci`: the script uses only node
+          # builtins and the npm CLI, and resolves its target from the
+          # registry rather than from this tree.
+      - name: Audit the tree a consumer resolves
+        run: npm run audit:consumer
