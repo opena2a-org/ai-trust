@@ -2,7 +2,7 @@ name: Dependency audit
 
 # Two jobs, two different artifacts, on purpose.
 #
-# `audit` measures THIS REPO'S lockfile. `consumer-audit` measures the tree a
+# `build-tree-audit` measures THIS REPO'S lockfile. `consumer-audit` measures the tree a
 # user resolves from the PUBLISHED package. They are kept separate rather than
 # folded together so the two numbers stay legible as the two different
 # measurements they are — a reviewer seeing "N here, M there" should be able to
@@ -55,16 +55,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # The ordinary audit: this repo's committed lockfile.
+  # This repo's committed lockfile — the tree `npm ci` installs on CI runners
+  # and maintainer machines.
   #
-  # Excluded from the weekly schedule on purpose. This job is red today for
-  # reasons tracked separately, and a job that is already red carries no
-  # differential signal — putting it on a timer would add a weekly red
-  # notification that tells nobody anything new. It stays on pull_request and
-  # push, where a human is already looking at the result.
-  audit:
-    name: Repo lockfile audit
-    if: github.event_name != 'schedule'
+  # Named for the artifact it measures rather than `audit`, which claimed the
+  # whole domain and made this job's red indistinguishable from the consumer
+  # job's at a glance.
+  #
+  # It matters on its own terms, separately from what users resolve:
+  # `release.yml`'s publish job runs `npm ci` — executing every dependency's
+  # install script — in the same job that holds `id-token: write` and runs
+  # `npm publish --provenance`. This is the tree an attacker would use to alter
+  # what we publish, and nothing else here measures it.
+  #
+  # It runs on the weekly schedule too. It previously did not, because it was
+  # permanently red and a permanently red job carries no differential signal —
+  # but that justification expired when the job went green, and a gate that
+  # only ever runs on diffs cannot see an advisory published against a
+  # dependency nobody touched.
+  build-tree-audit:
+    name: Build tree audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -97,8 +107,22 @@ jobs:
         run: npm audit --package-lock-only --omit=dev || true
 
       # The gate.
-      - name: Fail on high or critical advisories
-        run: npm audit --package-lock-only --audit-level=high
+      #
+      # Asserts "high/critical advisory ids, minus the ids already formally
+      # accepted for the SHIPPED artifact, is empty" rather than "the count is
+      # zero". The severity threshold is unchanged and there is no suppression
+      # primitive — a new high advisory fails on the run it appears. What the
+      # set difference buys is the ability to tell "new and unexamined" from
+      # "known and adjudicated", which a count cannot, and which is why this
+      # job previously sat red long enough to stop being read.
+      #
+      # Acceptances live in `scripts/lib/accepted-advisories.mjs`, the same
+      # list the consumer job enforces. The coupling is one-way by
+      # construction: an id can be waived here only because it is already
+      # accepted for users. See that file for why `derive()` is deliberately
+      # not run from this job.
+      - name: Fail on unaccepted high or critical advisories
+        run: node scripts/audit-build-tree.mjs
 
   # The consumer audit, in two halves, because there are two artifacts and the
   # first version of this wiring measured only one of them — the wrong one for

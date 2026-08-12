@@ -122,41 +122,28 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ACCEPTED_ADVISORIES } from './lib/accepted-advisories.mjs';
 
 const SELF = fileURLToPath(import.meta.url);
 const REPO_ROOT = path.resolve(path.dirname(SELF), '..');
 const PACKAGE_NAME = JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')).name;
 
 /**
- * Advisories accepted in the consumer tree, keyed by GHSA id.
+ * Environment-dependent re-derivations, attached by advisory id.
  *
- * An entry is a statement that a user installing this tool gets this advisory
- * and we decided to ship anyway. It has to survive a reader asking "why is my
- * audit red because of your CLI", so `reason` names the blocker, not the
- * severity — and it must not restate anything a `derive` can compute.
+ * The acceptance itself — id, package, reason, review date — lives in
+ * `lib/accepted-advisories.mjs`, because the build-tree gate consumes the same
+ * acceptance and must not import from this file (it ends in a bare `main();`,
+ * so importing it would run a full network install as a side effect).
+ *
+ * What stays HERE is the half that only makes sense against a consumer's
+ * installed tree. `ALLOWED` is then assembled from the shared list below, so
+ * an advisory cannot be accepted for the build tree without this gate also
+ * enforcing it — that is the one-way coupling, made structural rather than
+ * documented.
  */
-const ALLOWED = [
-  {
-    id: 'GHSA-xcpc-8h2w-3j85',
-    package: 'adm-zip',
-    reason:
-      'adm-zip <0.6.0, reached only through onnxruntime-node, which hackmyagent needs ' +
-      'for local NanoMind inference and which ai-trust inherits by depending on ' +
-      'hackmyagent. There is no stable version of onnxruntime-node that resolves ' +
-      'clean: it pins adm-zip inside a caret on 0.5.x and the patched release is ' +
-      '0.6.0, outside that caret. An `overrides` block does not help — overrides are ' +
-      'applied only to the tree that declares them and are not carried in a published ' +
-      'tarball, so a consumer resolves the vulnerable version regardless of what this ' +
-      'repo pins. Removing the dependency means removing local inference from ' +
-      'hackmyagent, which is a decision for that package, not this one. Whether any ' +
-      'admissible version of adm-zip is now patched is DERIVED below against the live ' +
-      'registry rather than claimed here; when the answer becomes yes, the derivation ' +
-      'fails the gate and the remedy is to raise the resolution, not to re-date this. ' +
-      'Blast radius is availability-only and install-time; the concrete per-platform ' +
-      'reachability is DERIVED below on every run rather than asserted here, because ' +
-      'the last time that claim was written as prose it was wrong in our favour and ' +
-      'stayed wrong for weeks.',
-    reviewBy: '2026-11-01',
+const DERIVATIONS = {
+  'GHSA-xcpc-8h2w-3j85': {
     /**
      * Re-derive the reachability claim from onnxruntime-node's own install
      * metadata in the installed tree. Throws — failing the gate — if the
@@ -302,7 +289,25 @@ const ALLOWED = [
       ];
     },
   },
-];
+};
+
+/**
+ * Advisories accepted in the consumer tree, keyed by GHSA id.
+ *
+ * An entry is a statement that a user installing this tool gets this advisory
+ * and we decided to ship anyway. It has to survive a reader asking "why is my
+ * audit red because of your CLI", so `reason` names the blocker, not the
+ * severity — and it must not restate anything a `derive` can compute.
+ *
+ * Built from the shared acceptance list rather than declared here, so the
+ * build-tree gate cannot be given an acceptance this gate does not also
+ * enforce. An id carrying a derivation gets it attached; one without is still
+ * enforced, just without an environment claim to re-check.
+ */
+const ALLOWED = ACCEPTED_ADVISORIES.map((accepted) => {
+  const derivation = DERIVATIONS[accepted.id];
+  return derivation ? { ...accepted, ...derivation } : { ...accepted };
+});
 
 /**
  * Packages that must never appear in a consumer tree below the root, at any
@@ -758,9 +763,9 @@ function main() {
         `${counts.moderate ?? 0} moderate, ${counts.low ?? 0} low`
     );
     console.log(
-      "(This repo's own lockfile is audited by the `audit` job and reports a different\n" +
-        ' number: it includes devDependencies and honours local overrides, neither of\n' +
-        ' which reaches a consumer.)\n'
+      "(This repo's own lockfile is audited by the `build-tree-audit` job and reports\n" +
+        ' a different number: it includes devDependencies and honours local overrides,\n' +
+        ' neither of which reaches a consumer.)\n'
     );
 
     const found = highAndCritical(report);
