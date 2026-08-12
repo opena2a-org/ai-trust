@@ -1,17 +1,26 @@
 name: CI
 
+# `package-lock.json` is in both filters deliberately. It was missing, and the
+# omission was found by a pull request that changed ONLY the lockfile — a
+# 45-version dependency refresh — and therefore ran no tests at all. The
+# lockfile is what decides which code actually executes; a change to it
+# deserves a test run at least as much as a `package.json` edit does, which
+# was already covered. `parity.yml` already listed it, so the two workflows
+# also disagreed about whether the lockfile was worth reacting to.
 on:
   push:
     branches: [main]
     paths:
       - 'src/**'
       - 'package.json'
+      - 'package-lock.json'
       - 'tsconfig.json'
   pull_request:
     branches: [main]
     paths:
       - 'src/**'
       - 'package.json'
+      - 'package-lock.json'
       - 'tsconfig.json'
 
 concurrency:
