@@ -5,12 +5,18 @@
  * ## Which artifact this measures, and why it is a real one
  *
  * Not the tree a user resolves (that is `audit-consumer-resolution.mjs`).
- * This is the tree `npm ci` installs on our CI runners and maintainer
- * machines. It matters on its own terms because `release.yml`'s publish job
- * runs `npm ci` — executing every dependency's install script — in the same
- * job that holds `id-token: write` and runs `npm publish --provenance`. That
- * is the tree an attacker would use to alter what we publish, and nothing
- * else in this repo measures it.
+ * This is the tree a maintainer installs with a plain `npm ci`, which
+ * executes every dependency's install script — including onnxruntime-node's,
+ * which fetches a native binary with no signature or checksum check. Nothing
+ * else in this repo measures that tree.
+ *
+ * It used to matter for a sharper reason: `release.yml` ran that same plain
+ * `npm ci` in the job holding `id-token: write`, so this was literally the
+ * tree an attacker would use to alter what we publish. That is no longer
+ * true — the release path installs with `--ignore-scripts` and the publish
+ * identity now lives in a job that runs no dependency code. The gate outlives
+ * the fix that removed its sharpest justification, because a maintainer's
+ * laptop still runs those scripts.
  *
  * ## Why this is not a plain `npm audit --audit-level=high`
  *
