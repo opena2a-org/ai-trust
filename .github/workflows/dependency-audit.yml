@@ -62,11 +62,19 @@ jobs:
   # whole domain and made this job's red indistinguishable from the consumer
   # job's at a glance.
   #
-  # It matters on its own terms, separately from what users resolve:
-  # `release.yml`'s publish job runs `npm ci` — executing every dependency's
-  # install script — in the same job that holds `id-token: write` and runs
-  # `npm publish --provenance`. This is the tree an attacker would use to alter
-  # what we publish, and nothing else here measures it.
+  # It matters on its own terms, separately from what users resolve. This is
+  # the tree a maintainer installs with a plain `npm ci`, which executes every
+  # dependency's install script — including onnxruntime-node's, which fetches
+  # a native binary with no signature or checksum check. Nothing else here
+  # measures that tree.
+  #
+  # It used to matter for a sharper reason: `release.yml` ran that same plain
+  # `npm ci` in the job holding `id-token: write`, so the build tree was
+  # literally the tree an attacker would use to alter what we publish. That is
+  # no longer true — the release path now installs with `--ignore-scripts` and
+  # the publish identity lives in a job that runs no dependency code at all.
+  # The gate survives the fix that removed its sharpest justification, because
+  # a maintainer's laptop still runs the scripts.
   #
   # It runs on the weekly schedule too. It previously did not, because it was
   # permanently red and a permanently red job carries no differential signal —

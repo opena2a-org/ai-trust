@@ -5,14 +5,18 @@ on:
     tags:
       - 'v*'
 
-permissions:
-  contents: write
-  id-token: write
+# No workflow-level grant. Every job below declares its own block, and a
+# job-level block REPLACES rather than merges — anything not listed becomes
+# `none`. This file previously granted `contents: write` + `id-token: write`
+# workflow-wide, which any job that forgot to override silently inherited.
+# That is exactly how the publish identity came to sit in the same job as
+# `npm ci`.
+permissions: {}
 
-# Opt the v4-line JavaScript actions (checkout, setup-node) into Node 24
-# today. They run on Node 20 by default and emit a deprecation warning on
-# every release; the runner forces Node 24 on 2026-06-02. Setting this env
-# now silences the warning AND avoids surprise breakage in June.
+# Opt the v4-line JavaScript actions (checkout, setup-node) into Node 24.
+# They defaulted to Node 20 and emitted a deprecation warning on every
+# release; the runner now forces Node 24, so this is kept to pin the
+# behaviour rather than to silence a warning.
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -56,42 +60,225 @@ jobs:
       - name: Audit the tree a consumer would resolve from this tag
         run: npm run audit:consumer -- --target "${{ steps.pack.outputs.tarball }}"
 
-  release:
+  # BUILD — compiles and tests. Holds no publish identity.
+  #
+  # `npm ci --ignore-scripts` is the load-bearing flag, not a nicety. A plain
+  # `npm ci` executes every dependency's install script; onnxruntime-node's
+  # postinstall downloads a nupkg from api.nuget.org and extracts a native .so
+  # with no signature or checksum check. That is unverified third-party code
+  # running in the job that produces the bytes we sign.
+  #
+  # Skipping it is safe HERE and was measured, not assumed: with
+  # `--ignore-scripts`, `npm run build` is clean, all 258 tests pass, and even
+  # `release-smoke:corpus` is 9/0. Nothing in the published tarball comes from
+  # an install script either — `files` is ["dist","README.md"], and dist is
+  # tsc output. If a future dependency genuinely needs its postinstall to
+  # build or test, do not delete this flag: move that dependency's work into
+  # an explicit, reviewable step.
+  build:
     needs: consumer-audit
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      pkgname: ${{ steps.pack.outputs.pkgname }}
+      version: ${{ steps.pack.outputs.version }}
+      tarball: ${{ steps.pack.outputs.tarball }}
+      sha256: ${{ steps.pack.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
-          registry-url: https://registry.npmjs.org
-      - run: npm ci
+
+      - run: npm ci --ignore-scripts
+
+      # The tag is the publish trigger, so a tag that disagrees with the
+      # manifest publishes the wrong version or dies at the registry after
+      # the point of no return. Assert it here, where failing is free.
+      - name: Tag must match the manifest version
+        run: |
+          set -euo pipefail
+          manifest="v$(node -p "require('./package.json').version")"
+          if [ "$manifest" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match package.json (${manifest})."
+            echo "Retag the commit whose manifest says ${GITHUB_REF_NAME}, or bump the manifest."
+            exit 1
+          fi
+          echo "Tag ${GITHUB_REF_NAME} matches the manifest."
+
+      # build before test: version-stream-split.test.ts spawns ../dist/index.js.
       - run: npm run build
       - run: npm test
 
-      - name: Publish to npm with provenance (OIDC trusted publishing)
-        run: npm publish --provenance --access public
-
-      - name: Verify provenance attached
+      - name: Pack the artifact the publish job will sign
+        id: pack
         run: |
-          pkg_version=$(node -p "require('./package.json').version")
-          pkg_name=$(node -p "require('./package.json').name")
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/dist"
+          # No prepare/prepack/prepublishOnly in package.json, so this does not
+          # rebuild — the tarball is exactly what `npm run build` just produced.
+          npm pack --pack-destination "$RUNNER_TEMP/dist" >/dev/null
+          # Exactly one, and no surprises in the name: this value crosses a job
+          # boundary into the hardened job, so it is validated at both ends.
+          count="$(find "$RUNNER_TEMP/dist" -maxdepth 1 -name '*.tgz' | wc -l | tr -d ' ')"
+          test "$count" = "1" || { echo "::error::expected exactly one tarball, found $count"; exit 1; }
+          tarball="$(basename "$(find "$RUNNER_TEMP/dist" -maxdepth 1 -name '*.tgz')")"
+          case "$tarball" in
+            *[!a-zA-Z0-9@._-]*) echo "::error::unexpected characters in tarball name"; exit 1 ;;
+          esac
+          {
+            echo "tarball=$tarball"
+            echo "sha256=$(sha256sum "$RUNNER_TEMP/dist/$tarball" | cut -d' ' -f1)"
+            echo "version=$(node -p "require('./package.json').version")"
+            echo "pkgname=$(node -p "require('./package.json').name")"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-tarball
+          path: ${{ runner.temp }}/dist/*.tgz
+          if-no-files-found: error
+
+  # PUBLISH — holds the publish identity. Runs no dependency code.
+  #
+  # No `npm ci` and no checkout. `npm publish <tarball>` reads the manifest
+  # from INSIDE the tarball and builds the SLSA predicate purely from GITHUB_*
+  # env vars, so nothing else needs to be on disk. Every lifecycle hook
+  # (prepack/postpack/prepublishOnly/publish/postpublish) is gated on
+  # `spec.type === 'directory'` in the npm CLI, so publishing a tarball fires
+  # none of them — verified against npm 11.19.0 source, and measured: 0 of 4
+  # hooks fired on a probe package defining all four.
+  #
+  # Omitting checkout is also deliberate: actions/checkout leaves a
+  # credential-bearing .git/config behind by default, and putting a second
+  # credential into the one job being hardened defeats the point.
+  #
+  # HONEST RESIDUE, because this should not be read as more than it is:
+  # `setup-node` and `download-artifact` are still third-party JavaScript from
+  # mutable tags, executing with the OIDC token in the environment. This is
+  # much less exposure than `npm ci`, not zero. SHA-pinning every action is a
+  # separate change and has not been done here.
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # OIDC trusted publishing. `contents` is `none` by
+                        # replacement — the publish path needs no repo write.
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          # No `cache: npm` — it hashes package-lock.json, which does not exist
+          # without a checkout, and the step hard-fails when it cannot find one.
+
+      # Trusted publishing and the tarball publish path both require a recent
+      # npm. The runner image supplies it and this job never runs `npm ci`, so
+      # assert rather than assume.
+      - name: npm must be new enough for trusted publishing
+        run: |
+          set -euo pipefail
+          have="$(npm --version)"
+          need="11.5.1"
+          if [ "$(printf '%s\n%s\n' "$need" "$have" | sort -V | head -n1)" != "$need" ]; then
+            echo "::error::npm $have is older than the required $need for OIDC trusted publishing."
+            exit 1
+          fi
+          echo "npm $have"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-tarball
+          path: ${{ runner.temp }}/dist
+
+      # Values crossing from `build` are passed through `env:`, never
+      # interpolated into a `run:` body. GitHub expands ${{ }} into the script
+      # text BEFORE bash parses it, so a crafted value would execute as code —
+      # in precisely the job this split exists to protect. Job outputs cannot
+      # be written by another job, and the name was validated at the source.
+      - name: Verify transport integrity (does not attest content)
+        env:
+          TARBALL: ${{ needs.build.outputs.tarball }}
+          EXPECT_SHA: ${{ needs.build.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          case "$TARBALL" in
+            *[!a-zA-Z0-9@._-]*|"") echo "::error::refusing unexpected tarball name"; exit 1 ;;
+          esac
+          cd "$RUNNER_TEMP/dist"
+          echo "${EXPECT_SHA}  ${TARBALL}" | sha256sum -c -
+
+      # Idempotent: a re-run after a green publish but a red later step must be
+      # able to reach the remaining steps instead of dying here forever.
+      # `npm publish` refuses to republish a version unconditionally.
+      - name: Publish to npm with provenance (OIDC trusted publishing)
+        env:
+          TARBALL: ${{ needs.build.outputs.tarball }}
+          PKG_NAME: ${{ needs.build.outputs.pkgname }}
+          PKG_VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          if npm view "${PKG_NAME}@${PKG_VERSION}" version >/dev/null 2>&1; then
+            echo "::notice::${PKG_NAME}@${PKG_VERSION} is already on npm — skipping publish."
+            exit 0
+          fi
+          # --registry is explicit because publishConfig inside the tarball's
+          # own manifest is flattened into the publish options, and registry is
+          # not otherwise a CLI flag — so a poisoned manifest could redirect
+          # this. The CLI flag wins.
+          npm publish "$RUNNER_TEMP/dist/${TARBALL}" \
+            --provenance \
+            --access public \
+            --registry=https://registry.npmjs.org/
+
+      # This gate was previously incapable of failing. It captured stderr into
+      # the variable it tested (`2>&1`), so an E404 — exactly what registry
+      # propagation lag returns, which is the whole reason for the poll —
+      # produced a long non-empty string and passed on the first iteration.
+      # Measured against the real registry: `npm view <pkg>@99.99.99
+      # dist.attestations --json 2>&1` returns ~740 characters of error.
+      # Now: stdout only, and the shape is asserted rather than its emptiness.
+      - name: Verify provenance attached
+        env:
+          PKG_NAME: ${{ needs.build.outputs.pkgname }}
+          PKG_VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -uo pipefail
           deadline=$((SECONDS + 300))
-          attestations=""
           while [ $SECONDS -lt $deadline ]; do
-            attestations=$(npm view "${pkg_name}@${pkg_version}" dist.attestations --json 2>&1 || true)
-            if [ -n "$attestations" ] && [ "$attestations" != "null" ] && [ "$attestations" != "{}" ]; then
-              echo "Provenance verified for ${pkg_name}@${pkg_version}"
+            if attestations="$(npm view "${PKG_NAME}@${PKG_VERSION}" dist.attestations --json 2>/dev/null)" \
+               && [ -n "$attestations" ] \
+               && echo "$attestations" | jq -e '.provenance.predicateType == "https://slsa.dev/provenance/v1"' >/dev/null 2>&1; then
+              echo "Provenance verified for ${PKG_NAME}@${PKG_VERSION}"
+              echo "$attestations"
               exit 0
             fi
             echo "Attestations not yet visible, retrying in 15s... (elapsed ${SECONDS}s)"
             sleep 15
           done
-          echo "::error::Provenance attestations missing from npm for ${pkg_name}@${pkg_version} after 5 minutes"
+          echo "::error::No SLSA v1 provenance attestation on npm for ${PKG_NAME}@${PKG_VERSION} after 5 minutes."
           exit 1
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+  # GITHUB RELEASE — the only job with repo write.
+  #
+  # Separate so that no single job holds both the npm publish identity and
+  # `contents: write`. action-gh-release is third-party, and this keeps it
+  # away from the OIDC token.
+  github-release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # Checked out because the action's behaviour from an empty workspace is
+      # not something this repo has ever exercised, and a failure here lands
+      # AFTER an irreversible publish. persist-credentials: false because
+      # nothing here needs to push.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
