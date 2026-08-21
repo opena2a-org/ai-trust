@@ -51,7 +51,10 @@ jobs:
           echo "" > /tmp/full_files.txt
           TOTAL_SIZE=0
           MAX_FULL_SIZE=200000
-          while IFS= read -r file; do
+          # The loop reads the file list on fd 3 and nl reads via stdin redirect:
+          # a changed file literally named '-' must not let any command in the
+          # body consume the list itself (nl treats the operand '-' as stdin).
+          while IFS= read -r file <&3; do
             case "$file" in
               *.test.* | *.spec.* | package-lock.json | *.lock) continue ;;
             esac
@@ -64,13 +67,21 @@ jobs:
             fi
             TOTAL_SIZE=$NEW_TOTAL
             printf '\n=== %s ===\n' "$file" >> /tmp/full_files.txt
-            nl -ba "$file" >> /tmp/full_files.txt
-          done < /tmp/changed_files.txt
+            nl -ba < "$file" >> /tmp/full_files.txt
+          done 3< /tmp/changed_files.txt
 
-          # Previous review comments (for re-review awareness on synchronize)
-          gh api "repos/${{ github.repository }}/pulls/$PR_NUMBER/reviews" \
-            --jq '[.[] | select(.body | test("Claude Code Review")) | .body] | last // ""' \
-            2>/dev/null | head -c 4000 > /tmp/previous_review.txt || echo "" > /tmp/previous_review.txt
+          # Previous review comments (for re-review awareness on synchronize).
+          # Posting goes through `gh pr comment` (issue comments) since #69, so
+          # the fetch reads the same endpoint. The login filter keeps a human
+          # quoting "Claude Code Review" from being fed back as the model's own
+          # prior verdict. --paginate matters: without it only the OLDEST 30
+          # comments are returned, so a busy PR would replay a stale early
+          # review (or none) as if it were the latest. --slurp yields one array
+          # of page-arrays; jq runs standalone because gh rejects --slurp
+          # combined with --jq.
+          gh api --paginate --slurp "repos/${{ github.repository }}/issues/$PR_NUMBER/comments?per_page=100" 2>/dev/null \
+            | jq -r '[.[][] | select(.user.login == "github-actions[bot]") | select(.body | test("Claude Code Review")) | .body] | last // ""' \
+            | head -c 4000 > /tmp/previous_review.txt || echo "" > /tmp/previous_review.txt
 
       - name: Build review prompt
         run: |
