@@ -8,8 +8,9 @@
 import chalk from "chalk";
 import type { Command } from "commander";
 import { classify } from "@opena2a/ai-classifier";
-import { RegistryClient, PackageNotFoundError, firstPartySignerFromEnv } from "@opena2a/registry-client";
-import type { TrustAnswer } from "@opena2a/registry-client";
+import { PackageNotFoundError, firstPartySignerFromEnv } from "@opena2a/registry-client";
+import type { RegistryClient, TrustAnswer } from "@opena2a/registry-client";
+import { createRegistryClient } from "../utils/registry-client.js";
 import {
   formatCheckResult,
   formatScanResult,
@@ -140,7 +141,7 @@ export function registerCheckCommand(program: Command): void {
       // Otherwise fall through to the existing classifier flow.
       const parsed = parseRichTarget(rawName);
       if (parsed) {
-        const richClient = new RegistryClient({
+        const richClient = createRegistryClient({
           baseUrl: globalOpts.registryUrl,
           userAgent: `ai-trust/${AI_TRUST_VERSION}`,
         });
@@ -183,7 +184,7 @@ export function registerCheckCommand(program: Command): void {
       rawName = stripped;
 
       const name = resolveAndLog(rawName);
-      const client = new RegistryClient({
+      const client = createRegistryClient({
         baseUrl: globalOpts.registryUrl,
         userAgent: `ai-trust/${AI_TRUST_VERSION}`,
       });
@@ -567,7 +568,7 @@ async function submitContribution(
 
   // Publish full findings via unified endpoint for evidence correlation + consensus
   try {
-    const client = new RegistryClient({
+    const client = createRegistryClient({
       baseUrl: registryUrl,
       userAgent: `ai-trust/${AI_TRUST_VERSION}`,
     });
