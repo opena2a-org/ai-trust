@@ -5,8 +5,9 @@
 
 import chalk from "chalk";
 import type { Command } from "commander";
-import { RegistryClient, firstPartySignerFromEnv } from "@opena2a/registry-client";
+import { firstPartySignerFromEnv } from "@opena2a/registry-client";
 import type { TrustAnswer } from "@opena2a/registry-client";
+import { createRegistryClient } from "../utils/registry-client.js";
 import { parseDependencyFile, detectEcosystem } from "../utils/parser.js";
 import {
   formatBatchResults,
@@ -94,7 +95,7 @@ export function registerAuditCommand(program: Command): void {
           return;
         }
 
-        const client = new RegistryClient({
+        const client = createRegistryClient({
           baseUrl: globalOpts.registryUrl,
           userAgent: `ai-trust/${AI_TRUST_VERSION}`,
         });
@@ -346,7 +347,7 @@ async function handleAuditContribution(
   // ai-trust is NOT first_party_scanner; when run in our own CI (AI_TRUST_CI_SIGNING_KEY
   // set, Secretless env-only) the bulk audit self-tags source=ci. End-user runs (no key)
   // publish as community — the safe default.
-  const client = new RegistryClient({
+  const client = createRegistryClient({
     baseUrl: registryUrl,
     userAgent: `ai-trust/${AI_TRUST_VERSION}`,
   });

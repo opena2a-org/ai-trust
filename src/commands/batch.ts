@@ -3,8 +3,8 @@
  */
 
 import type { Command } from "commander";
-import { RegistryClient } from "@opena2a/registry-client";
 import type { PackageQuery } from "@opena2a/registry-client";
+import { createRegistryClient } from "../utils/registry-client.js";
 import { formatBatchResults, formatJson } from "../output/formatter.js";
 import { resolveAndLog } from "../utils/resolve.js";
 import { createRequire } from "node:module";
@@ -55,7 +55,7 @@ export function registerBatchCommand(program: Command): void {
           ...(opts.type ? { type: opts.type } : {}),
         }));
 
-        const client = new RegistryClient({
+        const client = createRegistryClient({
           baseUrl: globalOpts.registryUrl,
           userAgent: `ai-trust/${AI_TRUST_VERSION}`,
         });
