@@ -53,41 +53,4 @@
  * Dates expire, and an expired date fails BOTH gates.
  */
 export const ACCEPTED_ADVISORIES = [
-  {
-    id: 'GHSA-xcpc-8h2w-3j85',
-    package: 'adm-zip',
-    reviewBy: '2026-11-01',
-    reason:
-      'adm-zip <0.6.0, reached only through onnxruntime-node, which hackmyagent needs ' +
-      'for local NanoMind inference and which ai-trust inherits by depending on ' +
-      'hackmyagent. There is no stable version of onnxruntime-node that resolves ' +
-      'clean: it pins adm-zip inside a caret on 0.5.x and the patched release is ' +
-      '0.6.0, outside that caret. An `overrides` block does not help — overrides are ' +
-      'applied only to the tree that declares them and are not carried in a published ' +
-      'tarball, so a consumer resolves the vulnerable version regardless of what this ' +
-      'repo pins. Removing the dependency means removing local inference from ' +
-      'hackmyagent, which is a decision for that package, not this one. Whether any ' +
-      'admissible version of adm-zip is now patched is RE-DERIVED BY THE CONSUMER GATE ' +
-      'against the live registry on every run rather than claimed here; when the answer ' +
-      'becomes yes, that derivation fails and the remedy is to raise the resolution, ' +
-      'not to re-date this. Blast radius is availability-only and install-time; the ' +
-      'concrete per-platform reachability is likewise re-derived there on every run ' +
-      'rather than asserted here, because the last time that claim was written as prose ' +
-      'it was wrong in our favour and stayed wrong for weeks.',
-
-    /**
-     * The build tree's reachability is DIFFERENT from a consumer's, and worse.
-     * It gets its own sentence because accepting it under a consumer-shaped
-     * reason would be exactly the prose drift this file warns about.
-     */
-    buildTreeNote:
-      'In the build tree this is not the low-reachability case it is for most ' +
-      'consumers. Of the six platforms onnxruntime-node ships install manifests for, ' +
-      'linux/x64 is the ONLY one whose postinstall actually downloads and parses an ' +
-      'archive with adm-zip — and linux/x64 is what our CI runs. Accepted at ' +
-      'install-time availability impact only. It is NOT clearance for the fetch-and- ' +
-      'execute path underneath it: that postinstall retrieves a native binary with no ' +
-      'signature or checksum check, which is tracked separately and is a strictly ' +
-      'stronger problem than this advisory.',
-  },
 ];
