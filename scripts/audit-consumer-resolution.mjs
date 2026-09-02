@@ -188,13 +188,20 @@ const FORBIDDEN_PACKAGES = [
       reason:
         'Not fixable from this repo at the currently published pin. Every hackmyagent ' +
         'release through 0.26.1 declares `ai-trust: ^0.2.6`, so pinning any of them ' +
-        'reintroduces the cycle no matter which one is chosen. hackmyagent 0.27.0 is ' +
-        'the first release that drops the ai-trust edge; the remedy is to raise the ' +
-        'pin here to >=0.27.0 and publish, after which this waiver must be DELETED ' +
-        '(it will fail as stale on the next run, which is the intended forcing ' +
-        'function). Until that release ships, users installing ai-trust do resolve a ' +
+        'reintroduces the cycle; 0.27.0 is the first release that drops the ai-trust ' +
+        'edge, and the remedy is still to raise the pin to >=0.27.0, publish, and then ' +
+        'DELETE this entry (it will fail as stale on the next run, which is the ' +
+        'intended forcing function). Re-examined 2026-09-01: the remedy is blocked, ' +
+        'not forgotten. Every published hackmyagent >= 0.27.0 falls inside ' +
+        'GHSA-ccp3-g7fv-9cqr (critical, affects >= 0.17.11, no patched version ' +
+        'published as of that date), as does the current pin, and raising the pin now ' +
+        'would move this package\'s production dependency onto a version under an open ' +
+        'critical advisory with no patched version, which we will not do. Reopen the ' +
+        'day hackmyagent publishes a version the advisory names as patched: raise the ' +
+        'pin to that exact version, publish, and delete this entry together with the ' +
+        'ai-trust entry below. Until then users installing ai-trust do resolve a ' +
         'second scanner copy, and this entry records that we know.',
-      reviewBy: '2026-09-15',
+      reviewBy: '2026-10-07',
     },
   },
   {
@@ -212,8 +219,9 @@ const FORBIDDEN_PACKAGES = [
         'disappears when the hackmyagent pin reaches >=0.27.0, which dropped the ' +
         'ai-trust edge. Nothing in this repo can suppress it before then — the nested ' +
         'copy is a transitive dependency of a dependency, and `overrides` are not ' +
-        'published. Delete this entry with the other one.',
-      reviewBy: '2026-09-15',
+        'published. Re-examined 2026-09-01 with the entry above and blocked by the ' +
+        'same advisory. Delete this entry with the other one.',
+      reviewBy: '2026-10-07',
     },
   },
 ];
