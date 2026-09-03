@@ -7,11 +7,20 @@ name: CI
 # deserves a test run at least as much as a `package.json` edit does, which
 # was already covered. `parity.yml` already listed it, so the two workflows
 # also disagreed about whether the lockfile was worth reacting to.
+#
+# `.github/workflows/**` and `scripts/**` joined them for the same reason, one
+# step further out. The suite now asserts things ABOUT those files — the
+# release job order, the publish job's permissions, the guard before every
+# `npm ci`, the behaviour of scripts/release-artifact-review.mjs — and a test
+# that does not run when its subject changes is decoration. A pull request
+# that edits only release.yml is exactly the one those assertions exist for.
 on:
   push:
     branches: [main]
     paths:
       - 'src/**'
+      - 'scripts/**'
+      - '.github/workflows/**'
       - 'package.json'
       - 'package-lock.json'
       - 'tsconfig.json'
@@ -19,6 +28,8 @@ on:
     branches: [main]
     paths:
       - 'src/**'
+      - 'scripts/**'
+      - '.github/workflows/**'
       - 'package.json'
       - 'package-lock.json'
       - 'tsconfig.json'
@@ -47,7 +58,31 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: npm
 
+      # A tracked `.npmrc` (or its yarn/pnpm/direnv siblings) rewrites where
+      # `npm ci` resolves from and what credential it presents, and it does so
+      # from a file a reviewer skims past. No job may install with one of those
+      # in the tree; there are none today and this is what keeps it that way.
+      # No `if:` and no `continue-on-error:` — a guard that can be skipped is
+      # not a guard.
+      - name: No tracked package-manager configuration
+        run: |
+          set -euo pipefail
+          if git ls-files | grep -E '(^|/)(\.npmrc|\.yarnrc(\.yml)?|\.pnpmfile\.cjs|\.envrc)$'; then
+            echo "::error::Tracked package-manager configuration found (listed above)."
+            echo "It can redirect the registry or attach a credential for every install in this job."
+            exit 1
+          fi
+          echo "No tracked .npmrc/.yarnrc/.yarnrc.yml/.pnpmfile.cjs/.envrc."
+
       - run: npm ci
       - run: npm run build
+
+      # The suite exercises scripts/release-artifact-review.mjs, whose
+      # consumer-closure check reads the GitHub security-advisories API and
+      # npm deprecation fields live. Unauthenticated runner IPs share a
+      # 60/hour advisory-API budget and rate-limit mid-suite; the job's own
+      # read-only token lifts that without widening any permission.
       - run: npm test
+        env:
+          GH_TOKEN: ${{ github.token }}
       - run: npm run lint
