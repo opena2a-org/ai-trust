@@ -92,6 +92,22 @@ jobs:
           node-version: 24
           cache: npm
 
+      # A tracked `.npmrc` (or its yarn/pnpm/direnv siblings) rewrites where
+      # `npm ci` resolves from and what credential it presents, and it does so
+      # from a file a reviewer skims past. No job may install with one of those
+      # in the tree; there are none today and this is what keeps it that way.
+      # No `if:` and no `continue-on-error:` — a guard that can be skipped is
+      # not a guard.
+      - name: No tracked package-manager configuration
+        run: |
+          set -euo pipefail
+          if git ls-files | grep -E '(^|/)(\.npmrc|\.yarnrc(\.yml)?|\.pnpmfile\.cjs|\.envrc)$'; then
+            echo "::error::Tracked package-manager configuration found (listed above)."
+            echo "It can redirect the registry or attach a credential for every install in this job."
+            exit 1
+          fi
+          echo "No tracked .npmrc/.yarnrc/.yarnrc.yml/.pnpmfile.cjs/.envrc."
+
       - run: npm ci --ignore-scripts
 
       # The tag is the publish trigger, so a tag that disagrees with the
@@ -141,6 +157,99 @@ jobs:
           path: ${{ runner.temp }}/dist/*.tgz
           if-no-files-found: error
 
+  # REVIEW — the blocking look at the BYTES, between build and publish.
+  #
+  # `consumer-audit` asks what the MANIFEST resolves to. Nothing asked what is
+  # actually IN the tarball: which files, whether it runs on a clean machine,
+  # whether a key rode along in dist/. Those are properties of the artifact, so
+  # the only place to measure them is after `npm pack` and before
+  # `npm publish` — after publish there is no undo, because npm refuses to
+  # unpublish a version with dependents past 72 hours and the bytes are already
+  # on every mirror.
+  #
+  # It re-verifies the sha256 before reviewing. Without that, this job could
+  # certify one artifact while `publish` uploads another: both download the
+  # same artifact NAME, and a name is not a content check.
+  #
+  # `npm ci --ignore-scripts` is here because one of the checks is a credential
+  # scan by `hackmyagent`, which is a dependency of this package, and the
+  # script will not substitute an `npx` download for it — a scanner fetched at
+  # gate time is a scanner nobody pinned. This job holds no publish identity
+  # and writes nothing, so an install here is not the exposure the build/publish
+  # split exists to remove.
+  review:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # Passed straight through from `build`. This exists so `publish` can need
+    # REVIEW alone: a job only sees the outputs of the jobs it lists in
+    # `needs:`, so `needs: review` with `needs.build.outputs.*` in the body
+    # would silently evaluate to the empty string — the publish job would then
+    # sha256-check an empty filename instead of the artifact. Re-exporting also
+    # says the right thing about provenance: publish consumes the values the
+    # REVIEW job vouched for, not values it fetched around the reviewer.
+    outputs:
+      pkgname: ${{ needs.build.outputs.pkgname }}
+      version: ${{ needs.build.outputs.version }}
+      tarball: ${{ needs.build.outputs.tarball }}
+      sha256: ${{ needs.build.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: No tracked package-manager configuration
+        run: |
+          set -euo pipefail
+          if git ls-files | grep -E '(^|/)(\.npmrc|\.yarnrc(\.yml)?|\.pnpmfile\.cjs|\.envrc)$'; then
+            echo "::error::Tracked package-manager configuration found (listed above)."
+            echo "It can redirect the registry or attach a credential for every install in this job."
+            exit 1
+          fi
+          echo "No tracked .npmrc/.yarnrc/.yarnrc.yml/.pnpmfile.cjs/.envrc."
+
+      - run: npm ci --ignore-scripts
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-tarball
+          path: ${{ runner.temp }}/dist
+
+      # Same reasoning as the publish job's copy: values crossing a job boundary
+      # go through `env:` rather than into the script text, and the name is
+      # re-validated at this end too.
+      - name: The artifact under review must be the one build packed
+        env:
+          TARBALL: ${{ needs.build.outputs.tarball }}
+          EXPECT_SHA: ${{ needs.build.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          case "$TARBALL" in
+            *[!a-zA-Z0-9@._-]*|"") echo "::error::refusing unexpected tarball name"; exit 1 ;;
+          esac
+          cd "$RUNNER_TEMP/dist"
+          echo "${EXPECT_SHA}  ${TARBALL}" | sha256sum -c -
+
+      # Non-zero fails the job, and `publish` needs this job, so a red review
+      # means the tag does not ship. The script exits non-zero for a failed
+      # check AND for a check it could not run: unknown is not a pass.
+      #
+      # GH_TOKEN feeds the consumer-closure check's reads of the GitHub
+      # security-advisories API — unauthenticated runner IPs share a tiny
+      # rate budget, and a rate-limited read would surface as a blocking
+      # `precondition`. It is the job's own read-only token, granted nothing
+      # beyond this job's `contents: read`. `--advisory-states published`
+      # because draft and triage advisories of other repositories are not
+      # readable by this repository's token anyway.
+      - name: Review the packed tarball
+        env:
+          TARBALL: ${{ needs.build.outputs.tarball }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-artifact-review.mjs --tarball "$RUNNER_TEMP/dist/$TARBALL" --advisory-states published
+
   # PUBLISH — holds the publish identity. Runs no dependency code.
   #
   # No `npm ci` and no checkout. `npm publish <tarball>` reads the manifest
@@ -161,7 +270,7 @@ jobs:
   # much less exposure than `npm ci`, not zero. SHA-pinning every action is a
   # separate change and has not been done here.
   publish:
-    needs: build
+    needs: review
     runs-on: ubuntu-latest
     permissions:
       id-token: write   # OIDC trusted publishing. `contents` is `none` by
@@ -193,15 +302,16 @@ jobs:
           name: npm-tarball
           path: ${{ runner.temp }}/dist
 
-      # Values crossing from `build` are passed through `env:`, never
+      # Values crossing from `build` — via `review`, which re-exports them and
+      # is the only job this one needs — are passed through `env:`, never
       # interpolated into a `run:` body. GitHub expands ${{ }} into the script
       # text BEFORE bash parses it, so a crafted value would execute as code —
       # in precisely the job this split exists to protect. Job outputs cannot
       # be written by another job, and the name was validated at the source.
       - name: Verify transport integrity (does not attest content)
         env:
-          TARBALL: ${{ needs.build.outputs.tarball }}
-          EXPECT_SHA: ${{ needs.build.outputs.sha256 }}
+          TARBALL: ${{ needs.review.outputs.tarball }}
+          EXPECT_SHA: ${{ needs.review.outputs.sha256 }}
         run: |
           set -euo pipefail
           case "$TARBALL" in
@@ -215,9 +325,9 @@ jobs:
       # `npm publish` refuses to republish a version unconditionally.
       - name: Publish to npm with provenance (OIDC trusted publishing)
         env:
-          TARBALL: ${{ needs.build.outputs.tarball }}
-          PKG_NAME: ${{ needs.build.outputs.pkgname }}
-          PKG_VERSION: ${{ needs.build.outputs.version }}
+          TARBALL: ${{ needs.review.outputs.tarball }}
+          PKG_NAME: ${{ needs.review.outputs.pkgname }}
+          PKG_VERSION: ${{ needs.review.outputs.version }}
         run: |
           set -euo pipefail
           if npm view "${PKG_NAME}@${PKG_VERSION}" version >/dev/null 2>&1; then
@@ -242,8 +352,8 @@ jobs:
       # Now: stdout only, and the shape is asserted rather than its emptiness.
       - name: Verify provenance attached
         env:
-          PKG_NAME: ${{ needs.build.outputs.pkgname }}
-          PKG_VERSION: ${{ needs.build.outputs.version }}
+          PKG_NAME: ${{ needs.review.outputs.pkgname }}
+          PKG_VERSION: ${{ needs.review.outputs.version }}
         run: |
           set -uo pipefail
           deadline=$((SECONDS + 300))
