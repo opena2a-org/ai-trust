@@ -20,7 +20,14 @@
 import { describe, it, expect } from "vitest";
 import { spawnSync } from "node:child_process";
 import { gzipSync } from "node:zlib";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -74,22 +81,11 @@ const NETWORK_FREE_CHECKS = [
 ];
 
 /** The checks whose verdict genuinely reads the network. */
-const NETWORK_READING_CHECKS = ["global-install-smoke", "dependency-advisories", "consumer-closure"];
-
-/**
- * PROVISIONAL — see qgf/refs/rev2-provisional-ci-clause-note.md. AC3's
- * sentence "under CI=true or GITHUB_ACTIONS=true a precondition ... is a test
- * failure, never a skip" collides with HMA-18's no-CI-reads-in-tests
- * meta-gate, and the CISO is ruling on that one sentence. This repo carries
- * no such meta-gate, so the CI read is kept — but isolated HERE, in one
- * helper, so the pending amendment (either direction) is a one-line change.
- * When strict, a network-dependent check reporting `precondition` fails the
- * suite; when lenient (a developer machine with no network), it is tolerated
- * on the network-reading checks only, and loudly logged, never silent.
- */
-function strictNetworkAssertions(): boolean {
-  return process.env.CI === "true" || process.env.GITHUB_ACTIONS === "true";
-}
+const NETWORK_READING_CHECKS = [
+  "global-install-smoke",
+  "dependency-advisories",
+  "consumer-closure",
+];
 
 /**
  * The control's class, assembled at runtime from parts so this repository
@@ -139,7 +135,8 @@ function writeTarball(outPath: string, files: Record<string, string>): string {
 // fixtures
 // ---------------------------------------------------------------------------
 
-const WORKING_CLI = '#!/usr/bin/env node\nconsole.log("ait03-review-fixture 1.0.0");\n';
+const WORKING_CLI =
+  '#!/usr/bin/env node\nconsole.log("ait03-review-fixture 1.0.0");\n';
 
 interface FixtureOptions {
   manifest?: Record<string, unknown>;
@@ -198,11 +195,15 @@ function review(tarball: string): Review {
 }
 
 function failing(result: Review): string[] {
-  return [...result.census.entries()].filter(([, status]) => status === "fail").map(([name]) => name);
+  return [...result.census.entries()]
+    .filter(([, status]) => status === "fail")
+    .map(([name]) => name);
 }
 
 function blocked(result: Review): string[] {
-  return [...result.census.entries()].filter(([, status]) => status === "precondition").map(([name]) => name);
+  return [...result.census.entries()]
+    .filter(([, status]) => status === "precondition")
+    .map(([name]) => name);
 }
 
 /** One scratch directory for the whole suite; every tarball is built into it. */
@@ -227,16 +228,22 @@ describe("release-artifact-review: red first, per check (AIT-03.AC3)", () => {
   const cases: [string, string, Record<string, string>][] = [
     // Inside dist/, so `entry-allowlist` still passes and only the dotfile
     // rule can be the one that fires.
-    ["no-dotfiles", "a dotfile entry", fixture({ extra: { "package/dist/.hidden-key": "sk-not-a-real-key\n" } })],
+    [
+      "no-dotfiles",
+      "a dotfile entry",
+      fixture({ extra: { "package/dist/.hidden-key": "sk-not-a-real-key\n" } }),
+    ],
     [
       "no-test-material",
       "a fixtures/ entry",
-      fixture({ extra: { "package/dist/fixtures/sample.js": "module.exports = {};\n" } }),
+      fixture({
+        extra: { "package/dist/fixtures/sample.js": "module.exports = {};\n" },
+      }),
     ],
     [
       "no-install-scripts",
       "a postinstall script",
-      fixture({ manifest: { scripts: { postinstall: "node -e \"0\"" } } }),
+      fixture({ manifest: { scripts: { postinstall: 'node -e "0"' } } }),
     ],
     [
       "pinned-first-party-deps",
@@ -256,7 +263,9 @@ describe("release-artifact-review: red first, per check (AIT-03.AC3)", () => {
     [
       "entry-allowlist",
       "an entry outside dist/ and the three metadata files",
-      fixture({ extra: { "package/scripts/leftover.js": "module.exports = {};\n" } }),
+      fixture({
+        extra: { "package/scripts/leftover.js": "module.exports = {};\n" },
+      }),
     ],
     // The file name sorts BEFORE the planted control (`zz-…`) on purpose: the
     // scanner collapses duplicate checkIds onto the first file in walk order,
@@ -267,7 +276,9 @@ describe("release-artifact-review: red first, per check (AIT-03.AC3)", () => {
       "credential-scan",
       "a dist/ file carrying a value of the control's class",
       fixture({
-        extra: { "package/dist/leaked-config.js": `const OPENAI_API_KEY = "${controlClassValue()}";\n` },
+        extra: {
+          "package/dist/leaked-config.js": `const OPENAI_API_KEY = "${controlClassValue()}";\n`,
+        },
       }),
     ],
   ];
@@ -298,10 +309,14 @@ describe("release-artifact-review: red first, per check (AIT-03.AC3)", () => {
       let deprecatedVersion: string | undefined;
       let lastProbe = "";
       for (const version of candidates) {
-        const probe = spawnSync("npm", ["view", `hackmyagent@${version}`, "deprecated"], {
-          encoding: "utf8",
-          timeout: 2 * MINUTES,
-        });
+        const probe = spawnSync(
+          "npm",
+          ["view", `hackmyagent@${version}`, "deprecated"],
+          {
+            encoding: "utf8",
+            timeout: 2 * MINUTES,
+          },
+        );
         lastProbe = `${probe.stdout ?? ""}${probe.stderr ?? ""}`;
         if (probe.status === 0 && (probe.stdout ?? "").trim()) {
           deprecatedVersion = version;
@@ -310,23 +325,10 @@ describe("release-artifact-review: red first, per check (AIT-03.AC3)", () => {
       }
 
       if (!deprecatedVersion) {
-        if (strictNetworkAssertions()) {
-          throw new Error(
-            `no hackmyagent candidate (${candidates.join(", ")}) reads as deprecated via npm view — ` +
-              `cannot build the consumer-closure red fixture: ${lastProbe.slice(0, 300)}`,
-          );
-        }
-        // Lenient (no registry reachable): the red reading cannot be taken,
-        // so take the honest one instead — the review must refuse loudly, as
-        // a precondition, never go green. Say so in the log.
-        console.warn(
-          "consumer-closure red case: registry unreachable, asserting the precondition path instead " +
-            "of the fail path — under CI this branch is a hard failure",
+        throw new Error(
+          `no hackmyagent candidate (${candidates.join(", ")}) reads as deprecated via npm view — ` +
+            `cannot build the consumer-closure red fixture: ${lastProbe.slice(0, 300)}`,
         );
-        const offline = review(build("consumer-closure", fixture({ manifest: { dependencies: { hackmyagent: candidates[0] } } })));
-        expect(offline.status, offline.output).not.toBe(0);
-        expect(offline.census.get("consumer-closure"), offline.output).toBe("precondition");
-        return;
       }
 
       console.log(
@@ -334,7 +336,12 @@ describe("release-artifact-review: red first, per check (AIT-03.AC3)", () => {
           `(npm view reports it deprecated at test time)`,
       );
       const result = review(
-        build("consumer-closure", fixture({ manifest: { dependencies: { hackmyagent: deprecatedVersion } } })),
+        build(
+          "consumer-closure",
+          fixture({
+            manifest: { dependencies: { hackmyagent: deprecatedVersion } },
+          }),
+        ),
       );
       expect(result.status, result.output).not.toBe(0);
       // A `precondition` is not a pass for this case: the census must say FAIL.
@@ -351,7 +358,11 @@ describe("release-artifact-review: red first, per check (AIT-03.AC3)", () => {
       const result = review(
         build("no-dist", {
           "package/package.json":
-            JSON.stringify({ name: "ait03-review-fixture", version: "1.0.0" }, null, 2) + "\n",
+            JSON.stringify(
+              { name: "ait03-review-fixture", version: "1.0.0" },
+              null,
+              2,
+            ) + "\n",
           "package/README.md": "# ait03-review-fixture\n",
         }),
       );
@@ -377,7 +388,10 @@ describe("release-artifact-review: the census (AIT-03.AC2)", () => {
       const result = review(build("census-clean", fixture()));
       expect([...result.census.keys()]).toEqual(DECLARED_CHECKS);
       for (const [name, status] of result.census) {
-        expect(["pass", "fail", "precondition"], `${name} reported "${status}"`).toContain(status);
+        expect(
+          ["pass", "fail", "precondition"],
+          `${name} reported "${status}"`,
+        ).toContain(status);
       }
     },
     10 * MINUTES,
@@ -386,7 +400,12 @@ describe("release-artifact-review: the census (AIT-03.AC2)", () => {
   it(
     "AIT-03.AC2 a poisoned tarball still reports the full census, passes included",
     () => {
-      const result = review(build("census-poisoned", fixture({ manifest: { scripts: { install: "true" } } })));
+      const result = review(
+        build(
+          "census-poisoned",
+          fixture({ manifest: { scripts: { install: "true" } } }),
+        ),
+      );
       expect([...result.census.keys()]).toEqual(DECLARED_CHECKS);
       expect(result.census.get("no-install-scripts")).toBe("fail");
       // The checks that PASSED are still named. A census that only lists
@@ -407,7 +426,11 @@ describe("release-artifact-review: the census (AIT-03.AC2)", () => {
       const result = review(
         build("precondition-reasons", {
           "package/package.json":
-            JSON.stringify({ name: "ait03-review-fixture", version: "1.0.0" }, null, 2) + "\n",
+            JSON.stringify(
+              { name: "ait03-review-fixture", version: "1.0.0" },
+              null,
+              2,
+            ) + "\n",
           "package/README.md": "# ait03-review-fixture\n",
         }),
       );
@@ -415,10 +438,13 @@ describe("release-artifact-review: the census (AIT-03.AC2)", () => {
       expect(result.census.get("global-install-smoke")).toBe("precondition");
       expect(result.census.get("credential-scan")).toBe("precondition");
       for (const name of blocked(result)) {
-        expect(PRECONDITION_CAPABLE, `${name} reported a precondition but is not precondition-capable`).toContain(
-          name,
+        expect(
+          PRECONDITION_CAPABLE,
+          `${name} reported a precondition but is not precondition-capable`,
+        ).toContain(name);
+        expect(result.output).toMatch(
+          new RegExp(`BLOCKED CHECK ${name}: precondition: \\S`),
         );
-        expect(result.output).toMatch(new RegExp(`BLOCKED CHECK ${name}: precondition: \\S`));
       }
     },
     10 * MINUTES,
@@ -439,31 +465,16 @@ describe("release-artifact-review: the clean fixture and the delivered tree (AIT
       // and the network-free checks must actually pass.
       expect(failing(result), result.output).toEqual([]);
       for (const name of NETWORK_FREE_CHECKS) {
-        expect(result.census.get(name), `${name}: ${result.output}`).toBe("pass");
-      }
-
-      if (strictNetworkAssertions()) {
-        // The full criterion: every check pass, exit 0. A precondition here
-        // is a test failure, never a skip.
-        expect(blocked(result), result.output).toEqual([]);
-        expect(result.status, result.output).toBe(0);
-        return;
-      }
-      // Lenient (no CI env): a machine without network cannot take the
-      // advisory or closure readings. Tolerate `precondition` on the
-      // network-reading checks ONLY, say so loudly, and keep the exit-code
-      // invariant — the review itself must still refuse to go green.
-      const blockedNames = blocked(result);
-      for (const name of blockedNames) {
-        expect(NETWORK_READING_CHECKS, `${name}: ${result.output}`).toContain(name);
-      }
-      if (blockedNames.length > 0) {
-        console.warn(
-          `clean-fixture case: network checks not exercised here (${blockedNames.join(", ")}) — ` +
-            `under CI these are hard failures`,
+        expect(result.census.get(name), `${name}: ${result.output}`).toBe(
+          "pass",
         );
       }
-      expect(result.status === 0, result.output).toBe(blockedNames.length === 0);
+
+      // The full criterion: every check pass, exit 0. A precondition here
+      // is a test failure, never a skip.
+      expect(blocked(result), result.output).toEqual([]);
+      expect(result.status, result.output).toBe(0);
+      return;
     },
     20 * MINUTES,
   );
@@ -475,7 +486,10 @@ describe("release-artifact-review: the clean fixture and the delivered tree (AIT
       // suites here exercise the built CLI. Say so plainly rather than
       // skipping: a green run that silently measured nothing is the exact
       // failure this whole file is about.
-      expect(existsSync(BUILT_CLI), "run `npm run build` before `npm test` — dist/index.js is missing").toBe(true);
+      expect(
+        existsSync(BUILT_CLI),
+        "run `npm run build` before `npm test` — dist/index.js is missing",
+      ).toBe(true);
 
       const packDir = join(scratch, "packed");
       // npm 11 does not create --pack-destination; r1 died here with ENOENT
@@ -486,7 +500,10 @@ describe("release-artifact-review: the clean fixture and the delivered tree (AIT
         ["pack", "--ignore-scripts", "--pack-destination", packDir, "--silent"],
         { cwd: REPO_ROOT, encoding: "utf8", timeout: 10 * MINUTES },
       );
-      expect(packed.status, `${packed.stdout ?? ""}${packed.stderr ?? ""}`).toBe(0);
+      expect(
+        packed.status,
+        `${packed.stdout ?? ""}${packed.stderr ?? ""}`,
+      ).toBe(0);
       const tarball = readdirSync(packDir).find((f) => f.endsWith(".tgz"));
       expect(tarball, "npm pack produced no tarball").toBeDefined();
 
@@ -495,7 +512,11 @@ describe("release-artifact-review: the clean fixture and the delivered tree (AIT
       // Quoted verbatim into the log so the delivery report can carry the
       // census line and the consumer-closure rows exactly as measured.
       for (const line of result.output.split("\n")) {
-        if (line.startsWith("census: ") || line.includes("consumer-closure fail:")) console.log(line);
+        if (
+          line.startsWith("census: ") ||
+          line.includes("consumer-closure fail:")
+        )
+          console.log(line);
       }
 
       // The exit-code rule holds in every environment: 0 exactly when no
@@ -504,40 +525,24 @@ describe("release-artifact-review: the clean fixture and the delivered tree (AIT
         failing(result).length === 0 && blocked(result).length === 0,
       );
 
-      if (strictNetworkAssertions()) {
-        // A precondition on ANY check in the own-tarball case is a test
-        // failure, never a skip.
-        expect(blocked(result), result.output).toEqual([]);
-        for (const name of NETWORK_FREE_CHECKS) {
-          expect(result.census.get(name), `${name}: ${result.output}`).toBe("pass");
-        }
-        // `consumer-closure` is pass or fail — a FAIL names our own pinned
-        // deprecated/advisory-covered copies and blocks the RELEASE job; it
-        // is not a failure of this suite.
-        expect(["pass", "fail"], result.output).toContain(result.census.get("consumer-closure"));
-        expect(failing(result).filter((name) => name !== "consumer-closure"), result.output).toEqual([]);
-        return;
-      }
-      // Lenient (no CI env): tolerate `precondition` only where the network
-      // was genuinely needed, loudly; everything else must pass, and nothing
-      // but consumer-closure may fail.
-      const blockedNames = blocked(result);
-      for (const name of blockedNames) {
-        expect(NETWORK_READING_CHECKS, `${name}: ${result.output}`).toContain(name);
-      }
-      if (blockedNames.length > 0) {
-        console.warn(
-          `own-tarball case: network checks not exercised here (${blockedNames.join(", ")}) — ` +
-            `under CI these are hard failures`,
+      // A precondition on ANY check in the own-tarball case is a test
+      // failure, never a skip.
+      expect(blocked(result), result.output).toEqual([]);
+      for (const name of NETWORK_FREE_CHECKS) {
+        expect(result.census.get(name), `${name}: ${result.output}`).toBe(
+          "pass",
         );
       }
-      for (const [name, status] of result.census) {
-        if (blockedNames.includes(name)) continue;
-        expect(
-          name === "consumer-closure" ? ["pass", "fail"] : ["pass"],
-          `${name} reported "${status}": ${result.output}`,
-        ).toContain(status);
-      }
+      // `consumer-closure` is pass or fail — a FAIL names our own pinned
+      // deprecated/advisory-covered copies and blocks the RELEASE job; it
+      // is not a failure of this suite.
+      expect(["pass", "fail"], result.output).toContain(
+        result.census.get("consumer-closure"),
+      );
+      expect(
+        failing(result).filter((name) => name !== "consumer-closure"),
+        result.output,
+      ).toEqual([]);
     },
     20 * MINUTES,
   );
