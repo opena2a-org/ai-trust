@@ -1,27 +1,41 @@
 name: CI
 
-# `package-lock.json` is in both filters deliberately. It was missing, and the
+# `package-lock.json` is in the glob list deliberately. It was missing, and the
 # omission was found by a pull request that changed ONLY the lockfile — a
 # 45-version dependency refresh — and therefore ran no tests at all. The
 # lockfile is what decides which code actually executes; a change to it
 # deserves a test run at least as much as a `package.json` edit does, which
 # was already covered. `parity.yml` already listed it, so the two workflows
 # also disagreed about whether the lockfile was worth reacting to.
+#
+# Those four globs used to sit on the triggers, as `on.push.paths` and
+# `on.pull_request.paths`. That is why no test job in this repository could be
+# a required status check, and the reason is worth stating because the fix is
+# not obvious from the symptom:
+#
+#   A workflow whose path filter does not match is not triggered at all. No run
+#   is created, so no check run of ANY name appears — and a job carrying
+#   `if: always()` inside that same workflow reports nothing, because the
+#   workflow it lives in never started. Branch protection does not distinguish
+#   "this context has not reported yet" from "this context will never report";
+#   it waits. A required test context and a workflow-level path filter cannot
+#   both exist. One of them has to move.
+#
+# So the filter moved down a level. This workflow now starts on every pull
+# request to `main` and every push to `main`, whatever the change touched. The
+# four globs decide whether the `build-and-test` cells have any work — a
+# docs-only change skips them — and `gate` reports a conclusion either way.
+#
+# What that buys, and it is the whole point: `gate` is a name that appears on
+# every run. The cells are not, and cannot be. Their check runs are named after
+# the matrix value (`Node 20`, `Node 22`), so requiring them would write the
+# supported Node versions into a protection rule only an admin can edit, and
+# would still block any run where a cell was legitimately skipped.
 on:
   push:
     branches: [main]
-    paths:
-      - 'src/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'tsconfig.json'
   pull_request:
     branches: [main]
-    paths:
-      - 'src/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'tsconfig.json'
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -31,8 +45,94 @@ permissions:
   contents: read
 
 jobs:
+  # Which of this workflow's four path globs the change actually touched.
+  #
+  # This is a job rather than an expression because it has to be. A job-level
+  # `if:` cannot match paths on its own: no expression context carries the
+  # changed-file list for a `pull_request` event, and `hashFiles()` answers
+  # "does this file exist", not "did it change". Something has to run
+  # `git diff`, and the only thing that runs anything is a job.
+  #
+  # It uses no third-party action. `dorny/paths-filter` is the usual answer,
+  # and it would mean pinning a new action to a SHA and keeping that pin
+  # current — a new supply-chain edge in the CI of a supply-chain tool, bought
+  # for the thirty lines below.
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    outputs:
+      # Comma-joined subset of the globs the change touched. Empty means it
+      # touched none of them.
+      matched: ${{ steps.filter.outputs.matched }}
+    steps:
+      # Full history: the diff is taken against a base commit a shallow clone
+      # would not contain.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: filter
+        # Through `env:` rather than interpolated into the script body, so
+        # nothing out of the event payload is ever parsed as shell.
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          # No pathname expansion: the entries below are patterns to match
+          # against, not paths to resolve. Without this, `src/**` would expand
+          # against the checkout the moment it is read unquoted.
+          set -f
+
+          # The globs. `src/ci-gate.test.ts` asserts this list is exactly the
+          # one named in `build-and-test`'s `if:` below: the filter is one
+          # thing written in two languages, and a silent disagreement between
+          # them would skip the cells on a change that needed testing and let
+          # `gate` go green over it.
+          globs='src/** package.json package-lock.json tsconfig.json'
+
+          # Fail open. A first push to a branch, a force push that orphaned the
+          # previous head, or any base we cannot resolve leaves us unable to
+          # say what changed — and "could not tell" has to cost a redundant
+          # test run, never a `gate` reporting success over an untested change.
+          if [ -z "${BASE_SHA:-}" ] || ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            echo "base '${BASE_SHA:-<empty>}' is not resolvable here; treating every glob as touched"
+            matched="$(printf '%s' "$globs" | tr ' ' ',')"
+          else
+            changed="${RUNNER_TEMP}/changed-files.txt"
+            git diff --name-only "$BASE_SHA" HEAD > "$changed"
+            echo "changed files (${BASE_SHA}..HEAD):"
+            cat "$changed"
+
+            matched=''
+            for glob in $globs; do
+              while IFS= read -r file; do
+                # `$glob` is unquoted on purpose: it is the pattern. `case`
+                # patterns match `/` with `*`, so `src/**` covers `src/a/b.ts`.
+                case "$file" in
+                  $glob)
+                    matched="${matched:+$matched,}$glob"
+                    break
+                    ;;
+                esac
+              done < "$changed"
+            done
+          fi
+
+          echo "matched globs: ${matched:-<none>}"
+          echo "matched=$matched" >> "$GITHUB_OUTPUT"
+
   build-and-test:
     name: Node ${{ matrix.node-version }}
+    needs: changes
+    # The four globs, at the job they filter. `changes` decides which of them
+    # the diff touched; this decides whether that is enough to run the cells. A
+    # change touching none of them skips every cell — which `gate` reads as a
+    # pass, because there was nothing to test.
+    if: >-
+      contains(needs.changes.outputs.matched, 'src/**') ||
+      contains(needs.changes.outputs.matched, 'package.json') ||
+      contains(needs.changes.outputs.matched, 'package-lock.json') ||
+      contains(needs.changes.outputs.matched, 'tsconfig.json')
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -51,3 +151,75 @@ jobs:
       - run: npm run build
       - run: npm test
       - run: npm run lint
+
+  # The aggregate, and the one name in this workflow that never moves.
+  #
+  # This is the job branch protection is pointed at. It reports on every run,
+  # carries the cells' verdict, and changes nothing about what is tested — the
+  # cells above are still the only thing that runs a test.
+  gate:
+    name: gate
+    # Both needed jobs, not just the cells. If `changes` fails, the cells are
+    # skipped through no fault of their own, and an aggregate watching only the
+    # cells would read that skip as "nothing to test" and go green over a run
+    # that tested nothing.
+    needs: [changes, build-and-test]
+    # `always()`, not the default. The default is `success()`: a failed or
+    # skipped `needs` job would skip this one, and a skipped required context
+    # never reports, which is the whole failure this job exists to avoid.
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      # No checkout and no action. This job reads two result strings and
+      # decides; repository contents would buy it nothing and widen what a
+      # compromised aggregate could reach.
+      - name: Aggregate the needed jobs' results
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          CELLS_RESULT: ${{ needs['build-and-test'].result }}
+        run: |
+          set -euo pipefail
+          status=0
+
+          for entry in "changes=${CHANGES_RESULT}" "build-and-test=${CELLS_RESULT}"; do
+            job="${entry%%=*}"
+            result="${entry#*=}"
+            case "$result" in
+              success)
+                echo "$job: success"
+                ;;
+              # A skipped job is a pass. The change touched none of the four
+              # globs, so there was nothing for the cells to test — and this is
+              # exactly what lets a docs-only pull request merge past a
+              # required `gate` instead of waiting on a context that would
+              # never arrive.
+              skipped)
+                echo "$job: skipped (this change needed nothing from it)"
+                ;;
+              failure)
+                echo "$job: failure"
+                status=1
+                ;;
+              # `concurrency.cancel-in-progress: true` above means a superseded
+              # run's jobs report `cancelled`, not `failure`. An aggregate that
+              # looked only for `failure` would report success for a run that
+              # tested nothing.
+              cancelled)
+                echo "$job: cancelled — this run tested nothing"
+                status=1
+                ;;
+              # Fail closed. A result this job does not recognise is not a pass
+              # by default: `gate` is never green by omission.
+              *)
+                echo "$job: unrecognised result '$result'"
+                status=1
+                ;;
+            esac
+          done
+
+          if [ "$status" -eq 0 ]; then
+            echo "gate: pass"
+          else
+            echo "gate: fail"
+          fi
+          exit "$status"
