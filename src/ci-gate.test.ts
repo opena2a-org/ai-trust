@@ -54,11 +54,14 @@ const WORKFLOWS_DIR = resolve(HERE, "..", ".github", "workflows");
 const CI_PATH = join(WORKFLOWS_DIR, "ci.yml");
 
 /**
- * The four globs, in the order `ci.yml` lists them. Spelled here so a change
+ * The six globs, in the order `ci.yml` lists them. Spelled here so a change
  * to the workflow that drops or widens one of them has to change this file
- * too, in a diff a reviewer reads rather than a YAML edit they skim.
+ * too, in a diff a reviewer reads rather than a YAML edit they skim. The last
+ * two are the files that decide what the cells assert — `vitest.config.ts`
+ * selects which test files run, and `ci.yml` defines the gate itself — and a
+ * change to either used to run no cell at all.
  */
-const PATH_GLOBS = ["src/**", "package.json", "package-lock.json", "tsconfig.json"] as const;
+const PATH_GLOBS = ["src/**", "package.json", "package-lock.json", "tsconfig.json", "vitest.config.ts", ".github/workflows/ci.yml"] as const;
 
 /** The four values a needed job's `result` can take. */
 const JOB_RESULTS = ["success", "failure", "cancelled", "skipped"] as const;
@@ -154,7 +157,7 @@ describe("ci.yml: the fixed-name aggregate `gate`", () => {
     expect(ci.on?.pull_request?.branches).toEqual(["main"]);
   });
 
-  it("QGF-117.AC2 the four path globs govern the cells, not the workflow", () => {
+  it("QGF-117.AC2 the six path globs govern the cells, not the workflow", () => {
     expect(cells, "ci.yml declares no job keyed `build-and-test`").toBeDefined();
     // The cells are conditioned on a change-detection job they declare in
     // `needs:`, and the globs are named in their own `if:` — so the filter is
@@ -166,7 +169,7 @@ describe("ci.yml: the fixed-name aggregate `gate`", () => {
     }
   });
 
-  it("QGF-117.AC2 the change-detection job matches exactly the same four globs", () => {
+  it("QGF-117.AC2 the change-detection job matches exactly the same six globs", () => {
     // The filter is one thing written in two languages: `case` patterns in the
     // `changes` job and `contains()` calls in the cells' `if:`. A silent
     // disagreement between them would leave the cells skipped on a change that
@@ -455,5 +458,220 @@ describe("ci.yml: the change filter's `case` pattern", () => {
     const raw = readFileSync(CI_PATH, "utf8");
     expect(raw).not.toContain('"$glob")');
     expect(raw).not.toContain("'$glob')");
+  });
+});
+
+/**
+ * The change filter, executed rather than read.
+ *
+ * `PATH_GLOBS` is the third copy of the filter, and the two `QGF-117.AC2` cases
+ * above hold the other two — the `changes` job's `globs=` line and the cells'
+ * `if:` — to it, entry for entry. That is textual agreement. Whether the
+ * `globs=` line actually admits a path is a question only bash can answer: the
+ * `changes` job matches each changed file against the unquoted `$glob` as a
+ * `case` pattern under `set -f`, so `*` crossing `/` and `.` staying literal
+ * are `case` semantics, not something this file could re-implement and still
+ * be testing the job. The cases below therefore take the assignment line from
+ * the parsed workflow — the very text the job runs — and push the probe paths
+ * through it under bash, the way the job does.
+ *
+ * The probes carry their own controls: one path per glob the filter carried
+ * before it was widened (the nested `src/` path is what `src/**` has to
+ * cover), and a docs-only path that has to keep skipping the cells. A reading
+ * in which a control reads otherwise is an instrument failure and settles
+ * nothing, so every case asserts the controls before the paths it is about.
+ */
+const ORIGINAL_GLOBS = ["src/**", "package.json", "package-lock.json", "tsconfig.json"] as const;
+
+/**
+ * The two globs the filter was widened by. `vitest.config.ts` selects which
+ * test files run at all, and `ci.yml` is the definition of the gate; before
+ * they were listed, a change to either ran no cell, and `gate` — which reads a
+ * skipped `build-and-test` as a pass — went green over it.
+ */
+const ADDED_GLOBS = ["vitest.config.ts", ".github/workflows/ci.yml"] as const;
+
+const POSITIVE_CONTROLS = ["src/index.ts", "package-lock.json", "src/scanner/hma.ts", "tsconfig.json"] as const;
+const NEGATIVE_CONTROLS = ["README.md"] as const;
+const PROBE_PATHS = [...POSITIVE_CONTROLS, ...NEGATIVE_CONTROLS, ...ADDED_GLOBS] as const;
+
+type Verdict = "RUN" | "SKIP";
+
+/** The `filter` step of the `changes` job of a parsed workflow. */
+function filterStepOf(workflow: Workflow): Step | undefined {
+  return (workflow.jobs?.["changes"]?.steps ?? []).find((step) => step.id === "filter");
+}
+
+/**
+ * The `globs='...'` assignment line of the filter step's script, trimmed but
+ * otherwise exactly as the script spells it; undefined unless there is exactly
+ * one such line.
+ */
+function globsAssignmentOf(workflow: Workflow): string | undefined {
+  const lines = String(filterStepOf(workflow)?.run ?? "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => /^globs='[^']*'$/.test(line));
+  return lines.length === 1 ? lines[0] : undefined;
+}
+
+/** The globs the `globs=` line declares, in order; empty when there is no such line. */
+function declaredGlobsOf(workflow: Workflow): string[] {
+  const assignment = globsAssignmentOf(workflow);
+  if (!assignment) return [];
+  return assignment.slice("globs='".length, -1).trim().split(/\s+/);
+}
+
+/** The globs the cells' `if:` names, one per `contains()` clause, in order. */
+function conditionGlobsOf(workflow: Workflow): string[] {
+  const condition = String(workflow.jobs?.["build-and-test"]?.if ?? "");
+  const clauses = condition.matchAll(/contains\(needs\.changes\.outputs\.matched, '([^']*)'\)/g);
+  return [...clauses].map((clause) => String(clause[1]));
+}
+
+/**
+ * Pushes each path through the filter the way the `changes` job does: under
+ * bash with `set -f`, the job's own `globs='...'` line, and the unquoted
+ * `$glob` as a `case` pattern. The changed-file list the job reads from
+ * `git diff` is replaced by the arguments; the matching is otherwise the job's.
+ */
+function runFilter(assignment: string, paths: readonly string[]): Map<string, Verdict> {
+  const script = [
+    "set -euo pipefail",
+    "set -f",
+    assignment,
+    'for file in "$@"; do',
+    "  verdict=SKIP",
+    "  for glob in $globs; do",
+    '    case "$file" in',
+    "      $glob) verdict=RUN; break ;;",
+    "    esac",
+    "  done",
+    '  printf "%s -> %s\\n" "$file" "$verdict"',
+    "done",
+  ].join("\n");
+  const child = spawnSync("bash", ["-c", script, "ci-path-filter", ...paths], {
+    env: { PATH: process.env.PATH ?? "" },
+    encoding: "utf8",
+  });
+  if (child.error) throw child.error;
+  if (child.status !== 0) throw new Error(`the filter exited ${child.status}: ${child.stderr}`);
+  const verdicts = new Map<string, Verdict>();
+  for (const line of child.stdout.split("\n").filter((line) => line !== "")) {
+    const read = /^(.*) -> (RUN|SKIP)$/.exec(line);
+    if (!read) throw new Error(`unreadable filter output line: ${JSON.stringify(line)}`);
+    verdicts.set(String(read[1]), read[2] as Verdict);
+  }
+  return verdicts;
+}
+
+/** Asserts the controls, so a broken instrument fails here and not on the path under test. */
+function expectControlsToHold(verdicts: ReadonlyMap<string, Verdict>): void {
+  for (const path of POSITIVE_CONTROLS) {
+    expect(verdicts.get(path), `positive control ${path} must read RUN`).toBe("RUN");
+  }
+  for (const path of NEGATIVE_CONTROLS) {
+    expect(verdicts.get(path), `negative control ${path} must read SKIP`).toBe("SKIP");
+  }
+}
+
+/** Re-parses the workflow with a fault planted in its text, in memory only. */
+function mutateWorkflow(edit: (raw: string) => string): Workflow {
+  const raw = readFileSync(CI_PATH, "utf8");
+  const mutated = edit(raw);
+  if (mutated === raw) throw new Error("the fault changed nothing");
+  return (yaml.load(mutated) ?? {}) as Workflow;
+}
+
+describe("ci.yml: the change filter covers the files that decide what the cells assert", () => {
+  it("AIT-05.AC1 the `changes` job declares the six globs on one exact `globs=` line, and the file has only one", () => {
+    expect(globsAssignmentOf(ci)).toBe(
+      "globs='src/** package.json package-lock.json tsconfig.json vitest.config.ts .github/workflows/ci.yml'",
+    );
+    const raw = readFileSync(CI_PATH, "utf8");
+    expect(raw.match(/globs='/g) ?? []).toHaveLength(1);
+  });
+
+  it("AIT-05.AC2 the cells' `if:` names each of the six globs through its own `contains()` clause, in the same order", () => {
+    expect(conditionGlobsOf(ci)).toEqual([...PATH_GLOBS]);
+    const raw = readFileSync(CI_PATH, "utf8");
+    expect(raw.match(/contains\(needs\.changes\.outputs\.matched, '/g) ?? []).toHaveLength(6);
+  });
+
+  it("AIT-05.AC3 `PATH_GLOBS` is the original four followed by the two added globs, and equals the `globs=` line entry for entry", () => {
+    expect([...PATH_GLOBS]).toEqual([...ORIGINAL_GLOBS, ...ADDED_GLOBS]);
+    expect(declaredGlobsOf(ci)).toEqual([...PATH_GLOBS]);
+  });
+
+  it("AIT-05.AC4 under bash, the filter's own matching reads RUN for every positive control and SKIP for the negative control", () => {
+    const assignment = globsAssignmentOf(ci);
+    expect(assignment, "the `filter` step declares no single `globs=` line").toBeDefined();
+    expectControlsToHold(runFilter(assignment ?? "", PROBE_PATHS));
+  });
+
+  it("AIT-05.AC4 under bash, the filter's own matching reads RUN for vitest.config.ts and .github/workflows/ci.yml", () => {
+    const verdicts = runFilter(globsAssignmentOf(ci) ?? "", PROBE_PATHS);
+    expectControlsToHold(verdicts);
+    for (const path of ADDED_GLOBS) {
+      expect(verdicts.get(path), `${path} must read RUN`).toBe("RUN");
+    }
+  });
+
+  it("AIT-05.AC4 the instrument is live: the four-glob line the filter used to carry reads SKIP for both added paths", () => {
+    const verdicts = runFilter(`globs='${ORIGINAL_GLOBS.join(" ")}'`, PROBE_PATHS);
+    expectControlsToHold(verdicts);
+    for (const path of ADDED_GLOBS) {
+      expect(verdicts.get(path), `${path} must read SKIP under the four-glob line`).toBe("SKIP");
+    }
+  });
+
+  it("AIT-05.AC4 `.github/workflows/ci.yml` is a literal, not `.github/workflows/**`: the other workflows still read SKIP", () => {
+    const siblings = [".github/workflows/release.yml", ".github/workflows/pr-review.yml", "docs/vitest.config.ts"];
+    const verdicts = runFilter(globsAssignmentOf(ci) ?? "", [...PROBE_PATHS, ...siblings]);
+    expectControlsToHold(verdicts);
+    for (const path of siblings) {
+      expect(verdicts.get(path), `${path} must read SKIP`).toBe("SKIP");
+    }
+  });
+});
+
+describe("ci.yml: the three copies of the filter cannot disagree silently", () => {
+  it("AIT-05.AC5 a `PATH_GLOBS` reverted to the original four disagrees with both copies in the workflow, by exactly the two added globs", () => {
+    // What reverting `PATH_GLOBS` on disk would run into: the equality cases
+    // above compare the workflow's two copies against this file's, and both
+    // carry the two entries a four-entry list lacks.
+    const original = new Set<string>(ORIGINAL_GLOBS);
+    expect(declaredGlobsOf(ci)).not.toEqual([...ORIGINAL_GLOBS]);
+    expect(conditionGlobsOf(ci)).not.toEqual([...ORIGINAL_GLOBS]);
+    expect(declaredGlobsOf(ci).filter((glob) => !original.has(glob))).toEqual([...ADDED_GLOBS]);
+    expect(conditionGlobsOf(ci).filter((glob) => !original.has(glob))).toEqual([...ADDED_GLOBS]);
+  });
+
+  it("AIT-05.AC5 deleting the two added `contains()` clauses leaves the `globs=` line at six and the `if:` at four, and the equality case catches it", () => {
+    const mutant = mutateWorkflow((raw) =>
+      raw
+        .split("\n")
+        .filter((line) => !ADDED_GLOBS.some((glob) => line.includes(`contains(needs.changes.outputs.matched, '${glob}')`)))
+        .join("\n"),
+    );
+    expect(declaredGlobsOf(mutant)).toEqual([...PATH_GLOBS]);
+    expect(conditionGlobsOf(mutant)).toEqual([...ORIGINAL_GLOBS]);
+    expect(conditionGlobsOf(mutant)).not.toEqual([...PATH_GLOBS]);
+  });
+
+  it("AIT-05.AC5 narrowing the `globs=` line back to four leaves the `if:` at six, the equality case catches it, and both added paths read SKIP under bash", () => {
+    const assignment = globsAssignmentOf(ci);
+    expect(assignment, "the `filter` step declares no single `globs=` line").toBeDefined();
+    const fourGlobs = `globs='${ORIGINAL_GLOBS.join(" ")}'`;
+    const mutant = mutateWorkflow((raw) => raw.replace(assignment ?? "", fourGlobs));
+    expect(globsAssignmentOf(mutant)).toBe(fourGlobs);
+    expect(declaredGlobsOf(mutant)).toEqual([...ORIGINAL_GLOBS]);
+    expect(declaredGlobsOf(mutant)).not.toEqual([...PATH_GLOBS]);
+    expect(conditionGlobsOf(mutant)).toEqual([...PATH_GLOBS]);
+    const verdicts = runFilter(globsAssignmentOf(mutant) ?? "", PROBE_PATHS);
+    expectControlsToHold(verdicts);
+    for (const path of ADDED_GLOBS) {
+      expect(verdicts.get(path), `${path} must read SKIP under the narrowed line`).toBe("SKIP");
+    }
   });
 });
