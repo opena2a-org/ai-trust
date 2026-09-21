@@ -27,12 +27,23 @@
  *      governing the `build-and-test` cells — is asserted too, in both of the
  *      places it is written.
  *
+ * The aggregate's result mapping is then checked by running it, not by reading
+ * it. The `gate` step's script is taken from the parsed YAML — the very text CI
+ * hands to bash — and executed under `bash -c` for all 25 combinations of the
+ * two needed jobs' results, asserting the process exit status of each. Two
+ * faults are then planted in that text, in memory only (a red cell reported as
+ * green; an unrecognised result failing open), and shown to flip exactly the
+ * rows they should: a positive control that the executing check is live. A
+ * check that merely looked for the four result words in the script would pass
+ * both faults, and did.
+ *
  * Parsed with `js-yaml`, which was already a devDependency (`scripts/
  * release-smoke-corpus.ts` uses it); this change adds no dependency. Note that
  * js-yaml 4 does NOT resolve the bare key `on` to boolean true the way YAML 1.1
  * would, so `workflow.on` is reachable by that name.
  */
 import { describe, it, expect } from "vitest";
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -229,5 +240,220 @@ describe("ci.yml: the fixed-name aggregate `gate`", () => {
       }
     }
     expect(owners).toEqual(["ci.yml:gate"]);
+  });
+});
+
+/**
+ * Every value a needed job's `result` can carry today, plus one it cannot yet:
+ * `some-future-result` stands for whatever GitHub adds next, and the aggregate
+ * has to fail closed on it rather than pass it by default.
+ */
+const GATE_RESULTS = ["success", "skipped", "failure", "cancelled", "some-future-result"] as const;
+type GateResult = (typeof GATE_RESULTS)[number];
+
+/** A process exit status the `gate` step's script may end with. */
+type ExitStatus = 0 | 1;
+
+interface GateRow {
+  changes: GateResult;
+  cells: GateResult;
+  expected: ExitStatus;
+}
+
+/**
+ * The aggregate's result mapping as a table of asserted exit statuses: 0
+ * exactly when both results are in {success, skipped}, 1 otherwise. Spelled out
+ * row by row rather than derived from that rule, so the table is the
+ * specification a reviewer reads, and a change to the mapping has to change it
+ * here, in a diff.
+ */
+const GATE_TRUTH_TABLE: readonly GateRow[] = [
+  { changes: "success", cells: "success", expected: 0 },
+  { changes: "success", cells: "skipped", expected: 0 },
+  { changes: "success", cells: "failure", expected: 1 },
+  { changes: "success", cells: "cancelled", expected: 1 },
+  { changes: "success", cells: "some-future-result", expected: 1 },
+  { changes: "skipped", cells: "success", expected: 0 },
+  { changes: "skipped", cells: "skipped", expected: 0 },
+  { changes: "skipped", cells: "failure", expected: 1 },
+  { changes: "skipped", cells: "cancelled", expected: 1 },
+  { changes: "skipped", cells: "some-future-result", expected: 1 },
+  { changes: "failure", cells: "success", expected: 1 },
+  { changes: "failure", cells: "skipped", expected: 1 },
+  { changes: "failure", cells: "failure", expected: 1 },
+  { changes: "failure", cells: "cancelled", expected: 1 },
+  { changes: "failure", cells: "some-future-result", expected: 1 },
+  { changes: "cancelled", cells: "success", expected: 1 },
+  { changes: "cancelled", cells: "skipped", expected: 1 },
+  { changes: "cancelled", cells: "failure", expected: 1 },
+  { changes: "cancelled", cells: "cancelled", expected: 1 },
+  { changes: "cancelled", cells: "some-future-result", expected: 1 },
+  { changes: "some-future-result", cells: "success", expected: 1 },
+  { changes: "some-future-result", cells: "skipped", expected: 1 },
+  { changes: "some-future-result", cells: "failure", expected: 1 },
+  { changes: "some-future-result", cells: "cancelled", expected: 1 },
+  { changes: "some-future-result", cells: "some-future-result", expected: 1 },
+];
+
+/**
+ * The one `gate` step that runs a script. Its `run:` text is what CI hands to
+ * bash, so it is what the cases below execute: taken from the parsed YAML and
+ * never copied into this file, so it cannot drift from what CI runs.
+ */
+const gateRunSteps = (gate?.steps ?? []).filter((step) => typeof step.run === "string");
+const gateStep: Step | undefined = gateRunSteps[0];
+const gateScript = String(gateStep?.run ?? "");
+
+/**
+ * Runs the `gate` step's script the way its job does: under `bash -c`, with the
+ * two results arriving through the environment and nothing else in it, and
+ * answers with the process exit status.
+ */
+function runGate(script: string, results: { changes: string; cells: string }): number {
+  const child = spawnSync("bash", ["-c", script], {
+    env: { PATH: process.env.PATH ?? "", CHANGES_RESULT: results.changes, CELLS_RESULT: results.cells },
+    encoding: "utf8",
+  });
+  if (child.error) throw child.error;
+  if (child.status === null) throw new Error(`the gate script was killed by ${child.signal}`);
+  return child.status;
+}
+
+/**
+ * Plants a fault in the script, in memory only: on the line two below the line
+ * whose trimmed text is `anchor`, `status=1` becomes `status=0`. It throws when
+ * the anchor is missing or the assignment is not where the script keeps it, so
+ * a restructured script fails the fault cases instead of passing them vacuously.
+ */
+function plantFault(script: string, anchor: string): string {
+  const lines = script.split("\n");
+  const at = lines.findIndex((line) => line.trim() === anchor);
+  if (at < 0) throw new Error(`no line of the gate script reads \`${anchor}\``);
+  const target = lines[at + 2];
+  if (target === undefined || !target.includes("status=1")) {
+    throw new Error(`the line two below \`${anchor}\` does not set status=1: ${JSON.stringify(target)}`);
+  }
+  lines[at + 2] = target.replace("status=1", "status=0");
+  return lines.join("\n");
+}
+
+function rowKey(row: { changes: string; cells: string }): string {
+  return `${row.changes}/${row.cells}`;
+}
+
+describe("ci.yml: the `gate` aggregate's script, executed", () => {
+  it("AIT-04.AC1 `gate` runs exactly one script, fed exactly CHANGES_RESULT and CELLS_RESULT", () => {
+    expect(gateRunSteps, "`gate` must declare exactly one step with a `run:` script").toHaveLength(1);
+    const env = gateStep?.env ?? {};
+    expect(Object.keys(env).sort()).toEqual(["CELLS_RESULT", "CHANGES_RESULT"]);
+    expect(env["CHANGES_RESULT"]).toContain("needs.changes.result");
+    expect(env["CELLS_RESULT"]).toContain("needs['build-and-test'].result");
+  });
+
+  it("AIT-04.AC1 the truth table is the full product of the five results, each pair once", () => {
+    expect(GATE_TRUTH_TABLE).toHaveLength(25);
+    const keys = new Set(GATE_TRUTH_TABLE.map(rowKey));
+    expect(keys.size).toBe(25);
+    for (const changes of GATE_RESULTS) {
+      for (const cells of GATE_RESULTS) {
+        expect(keys.has(rowKey({ changes, cells })), `the table has no row for ${changes}/${cells}`).toBe(true);
+      }
+    }
+  });
+
+  for (const row of GATE_TRUTH_TABLE) {
+    it(`AIT-04.AC1 exits ${row.expected} when changes=${row.changes} and build-and-test=${row.cells}`, () => {
+      expect(gateScript, "`gate` declares no step with a `run:` script").not.toBe("");
+      expect(runGate(gateScript, row)).toBe(row.expected);
+    });
+  }
+
+  /**
+   * The rows each planted fault turns green, measured rather than reasoned
+   * about. The script folds both results into one `status` in order, so the
+   * branch taken for `build-and-test` overwrites whatever `changes` set: a
+   * branch faulted to `status=0` reaches the exit when it runs last, or when it
+   * runs first and a passing branch follows. Seven rows each, every one a row
+   * the table says must exit 1.
+   */
+  const FAULT_A_GREEN: readonly string[] = [
+    "success/failure",
+    "skipped/failure",
+    "failure/success",
+    "failure/skipped",
+    "failure/failure",
+    "cancelled/failure",
+    "some-future-result/failure",
+  ];
+  const FAULT_B_GREEN: readonly string[] = [
+    "success/some-future-result",
+    "skipped/some-future-result",
+    "failure/some-future-result",
+    "cancelled/some-future-result",
+    "some-future-result/success",
+    "some-future-result/skipped",
+    "some-future-result/some-future-result",
+  ];
+
+  /** Re-runs the whole table on a mutant and pins exactly which rows it lets through. */
+  function expectFaultToTurnGreenExactly(mutant: string, green: readonly string[]): void {
+    expect(mutant, "the fault changed nothing").not.toBe(gateScript);
+    const flipped: string[] = [];
+    for (const row of GATE_TRUTH_TABLE) {
+      const key = rowKey(row);
+      const status = runGate(mutant, row);
+      if (green.includes(key)) {
+        expect(row.expected, `${key} is not a row the table says must fail`).toBe(1);
+        expect(status, `the fault should let ${key} through as green`).toBe(0);
+      } else {
+        expect(status, `the fault must not change the verdict for ${key}`).toBe(row.expected);
+      }
+      if (status !== row.expected) flipped.push(key);
+    }
+    expect([...flipped].sort()).toEqual([...green].sort());
+    expect(flipped).toHaveLength(7);
+  }
+
+  it("AIT-04.AC2 fault A, the `failure)` branch set to status=0, turns exactly 7 rows green", () => {
+    expectFaultToTurnGreenExactly(plantFault(gateScript, "failure)"), FAULT_A_GREEN);
+  });
+
+  it("AIT-04.AC2 fault B, the catch-all `*)` set to status=0, turns exactly 7 rows green", () => {
+    expectFaultToTurnGreenExactly(plantFault(gateScript, "*)"), FAULT_B_GREEN);
+  });
+
+  it("AIT-04.AC2 a fault whose anchor line is absent fails the case instead of passing vacuously", () => {
+    expect(() => plantFault(gateScript, "some-future-result)")).toThrow(/no line of the gate script reads/);
+    expect(() => plantFault("failure)\n\n\n", "failure)")).toThrow(/does not set status=1/);
+  });
+});
+
+describe("ci.yml: the change filter's `case` pattern", () => {
+  it("AIT-04.AC3 `$glob)` stays unquoted, with the SC2254 directive and its reason directly above the `case`", () => {
+    const filterStep = (jobs["changes"]?.steps ?? []).find((step) => step.id === "filter");
+    expect(filterStep, "the `changes` job declares no step with id `filter`").toBeDefined();
+    const lines = String(filterStep?.run ?? "")
+      .split("\n")
+      .map((line) => line.trim());
+    const caseAt = lines.indexOf('case "$file" in');
+    expect(caseAt, 'the `filter` step has no `case "$file" in`').toBeGreaterThan(2);
+    // Quoting the pattern is the obvious "fix" for SC2254, and it would make
+    // every glob match literally: no changed file is named `src/**`, so a
+    // source-only change would match nothing, the cells would be skipped and
+    // `gate` would go green over untested code. The directive silences the
+    // warning where it is raised; the two comment lines say why it is wrong.
+    expect(lines[caseAt - 1], "the line above the `case` is not the SC2254 directive").toBe(
+      "# shellcheck disable=SC2254",
+    );
+    expect(lines[caseAt - 2], "the reason's second line is not directly above the directive").toBe(
+      "# patterns match `/` with `*`, so `src/**` covers `src/a/b.ts`.",
+    );
+    expect(lines[caseAt - 3], "the reason's first line is not directly above its second").toBe(
+      "# `$glob` is unquoted on purpose: it is the pattern. `case`",
+    );
+    expect(lines[caseAt + 1], "the pattern line is not the bare, unquoted `$glob)`").toBe("$glob)");
+    const raw = readFileSync(CI_PATH, "utf8");
+    expect(raw).not.toContain('"$glob")');
+    expect(raw).not.toContain("'$glob')");
   });
 });
