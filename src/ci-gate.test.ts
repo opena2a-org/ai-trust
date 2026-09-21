@@ -8,7 +8,7 @@
  * forever for `gate` and every pull request is blocked — the failure mode is a
  * repository nobody can merge into, discovered by the first person who tries.
  *
- * The two things asserted here are one property, not two:
+ * The three things asserted here are one property, not three:
  *
  *   1. A job keyed `gate`, named `gate`, that needs `build-and-test` and runs
  *      `if: always()`. One name, produced on every run, whatever the matrix
@@ -27,6 +27,16 @@
  *      governing the `build-and-test` cells — is asserted too, in both of the
  *      places it is written.
  *
+ *   3. The globs cover the two files that decide what the tests assert and
+ *      what the gate is: `vitest.config.ts` selects which test files run, and
+ *      `ci.yml` defines the gate itself. Neither was in the list at first, so
+ *      a pull request touching either produced a green `gate` with zero cells
+ *      run — uninformative while `gate` was advisory, and a false statement
+ *      about testing once it is required. The list is written in three
+ *      places (the `globs=` line of the `changes` job, the cells' `if:`, and
+ *      `PATH_GLOBS` below), and the tests hold all three to the same six
+ *      entries in the same order, so no one copy can drift silently.
+ *
  * Parsed with `js-yaml`, which was already a devDependency (`scripts/
  * release-smoke-corpus.ts` uses it); this change adds no dependency. Note that
  * js-yaml 4 does NOT resolve the bare key `on` to boolean true the way YAML 1.1
@@ -43,11 +53,22 @@ const WORKFLOWS_DIR = resolve(HERE, "..", ".github", "workflows");
 const CI_PATH = join(WORKFLOWS_DIR, "ci.yml");
 
 /**
- * The four globs, in the order `ci.yml` lists them. Spelled here so a change
+ * The six globs, in the order `ci.yml` lists them. Spelled here so a change
  * to the workflow that drops or widens one of them has to change this file
- * too, in a diff a reviewer reads rather than a YAML edit they skim.
+ * too, in a diff a reviewer reads rather than a YAML edit they skim. The last
+ * two are the files that decide what the tests run (`vitest.config.ts`) and
+ * what the gate is (`ci.yml` itself); see item 3 above.
  */
-const PATH_GLOBS = ["src/**", "package.json", "package-lock.json", "tsconfig.json"] as const;
+const PATH_GLOBS = ["src/**", "package.json", "package-lock.json", "tsconfig.json", "vitest.config.ts", ".github/workflows/ci.yml"] as const;
+
+/**
+ * The `globs=` line of the `changes` job's `filter` step, exactly as `ci.yml`
+ * has to spell it — whitespace inside the quotes and order included. A literal
+ * rather than a join of `PATH_GLOBS`, so the workflow is held to this line
+ * even if the constant above drifts, and the constant is held to it in turn.
+ */
+const GLOBS_LINE =
+  "globs='src/** package.json package-lock.json tsconfig.json vitest.config.ts .github/workflows/ci.yml'";
 
 /** The four values a needed job's `result` can take. */
 const JOB_RESULTS = ["success", "failure", "cancelled", "skipped"] as const;
@@ -90,6 +111,24 @@ function loadWorkflow(path: string): Workflow {
 function needsOf(job: Job | undefined): string[] {
   if (!job?.needs) return [];
   return Array.isArray(job.needs) ? job.needs : [job.needs];
+}
+
+/**
+ * The globs the cells' `if:` names, in the order its `contains()` clauses
+ * appear. One clause per glob, so a dropped entry is a dropped clause here and
+ * not a substring some neighbouring clause still happens to match.
+ */
+function globsNamedByCondition(condition: string): string[] {
+  const clause = /contains\(needs\.changes\.outputs\.matched, '([^']*)'\)/g;
+  return [...condition.matchAll(clause)].map((match) => match[1]);
+}
+
+/** The lines of a workflow's text that declare a `globs=` list, trimmed. */
+function globsLinesOf(raw: string): string[] {
+  return raw
+    .split("\n")
+    .filter((line) => /^\s*globs='/.test(line))
+    .map((line) => line.trim());
 }
 
 const ci = loadWorkflow(CI_PATH);
@@ -143,7 +182,7 @@ describe("ci.yml: the fixed-name aggregate `gate`", () => {
     expect(ci.on?.pull_request?.branches).toEqual(["main"]);
   });
 
-  it("QGF-117.AC2 the four path globs govern the cells, not the workflow", () => {
+  it("QGF-117.AC2 the path globs govern the cells, not the workflow", () => {
     expect(cells, "ci.yml declares no job keyed `build-and-test`").toBeDefined();
     // The cells are conditioned on a change-detection job they declare in
     // `needs:`, and the globs are named in their own `if:` — so the filter is
@@ -155,7 +194,7 @@ describe("ci.yml: the fixed-name aggregate `gate`", () => {
     }
   });
 
-  it("QGF-117.AC2 the change-detection job matches exactly the same four globs", () => {
+  it("QGF-117.AC2 the change-detection job matches exactly the same globs", () => {
     // The filter is one thing written in two languages: `case` patterns in the
     // `changes` job and `contains()` calls in the cells' `if:`. A silent
     // disagreement between them would leave the cells skipped on a change that
@@ -229,5 +268,54 @@ describe("ci.yml: the fixed-name aggregate `gate`", () => {
       }
     }
     expect(owners).toEqual(["ci.yml:gate"]);
+  });
+});
+
+describe("ci.yml: the path filter covers the files that decide what the tests run", () => {
+  // `vitest.config.ts` selects which test files run and `ci.yml` defines the
+  // gate itself. While either sat outside the globs, a change to it skipped
+  // every cell and `gate` reported a pass over a run that tested nothing. The
+  // filter is one thing written in three places — the `globs=` line of the
+  // `changes` job, the cells' `if:`, and `PATH_GLOBS` above — and the cells
+  // below hold each place to the same six entries in the same order.
+  const raw = readFileSync(CI_PATH, "utf8");
+  const filterStep = (jobs["changes"]?.steps ?? []).find((step) => step.id === "filter");
+  const filterScript = String(filterStep?.run ?? "");
+  const condition = String(cells?.if ?? "");
+
+  it("AIT-05.AC1 the `filter` step declares its globs as exactly the six-entry line", () => {
+    // The raw text, so whitespace inside the quotes and the order count, and
+    // so a second `globs=` line anywhere in the file is a failure, not a tie.
+    expect(globsLinesOf(raw)).toEqual([GLOBS_LINE]);
+    // And through the parser, so the line YAML delivers to the step is the
+    // one the file shows.
+    expect(filterScript).toContain(GLOBS_LINE);
+  });
+
+  it("AIT-05.AC2 the cells' `if:` names all six globs, each in its own contains() clause", () => {
+    expect(globsNamedByCondition(condition)).toEqual([...PATH_GLOBS]);
+    for (const glob of ["vitest.config.ts", ".github/workflows/ci.yml"]) {
+      expect(condition).toContain(`contains(needs.changes.outputs.matched, '${glob}')`);
+    }
+  });
+
+  it("AIT-05.AC3 PATH_GLOBS is the six entries of the globs= line, in the same order", () => {
+    const declared = /^globs='([^']*)'$/.exec(GLOBS_LINE);
+    expect(declared).not.toBeNull();
+    expect([...PATH_GLOBS]).toEqual(declared?.[1].split(" "));
+    expect(PATH_GLOBS).toHaveLength(6);
+  });
+
+  it("AIT-05.AC5 the three copies of the filter cannot disagree silently", () => {
+    // The planted-fault cell. Returning `PATH_GLOBS` to its four-entry form,
+    // or deleting the two new clauses from the cells' `if:`, has to fail here
+    // (and in the cells above), never pass by omission.
+    const declared = /globs='([^']*)'/.exec(filterScript);
+    expect(declared, "the `filter` step declares no `globs=` list").not.toBeNull();
+    const fromFilter = declared?.[1].trim().split(/\s+/);
+    const fromCondition = globsNamedByCondition(condition);
+    expect(fromFilter).toEqual([...PATH_GLOBS]);
+    expect(fromCondition).toEqual([...PATH_GLOBS]);
+    expect(fromCondition).toEqual(fromFilter);
   });
 });

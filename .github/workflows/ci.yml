@@ -23,7 +23,7 @@ name: CI
 #
 # So the filter moved down a level. This workflow now starts on every pull
 # request to `main` and every push to `main`, whatever the change touched. The
-# four globs decide whether the `build-and-test` cells have any work — a
+# six globs decide whether the `build-and-test` cells have any work — a
 # docs-only change skips them — and `gate` reports a conclusion either way.
 #
 # What that buys, and it is the whole point: `gate` is a name that appears on
@@ -45,7 +45,7 @@ permissions:
   contents: read
 
 jobs:
-  # Which of this workflow's four path globs the change actually touched.
+  # Which of this workflow's six path globs the change actually touched.
   #
   # This is a job rather than an expression because it has to be. A job-level
   # `if:` cannot match paths on its own: no expression context carries the
@@ -84,11 +84,17 @@ jobs:
           set -f
 
           # The globs. `src/ci-gate.test.ts` asserts this list is exactly the
-          # one named in `build-and-test`'s `if:` below: the filter is one
-          # thing written in two languages, and a silent disagreement between
-          # them would skip the cells on a change that needed testing and let
-          # `gate` go green over it.
-          globs='src/** package.json package-lock.json tsconfig.json'
+          # one named in `build-and-test`'s `if:` below and in its own
+          # `PATH_GLOBS`: the filter is one thing written in three places, and
+          # a silent disagreement between them would skip the cells on a
+          # change that needed testing and let `gate` go green over it.
+          #
+          # The last two entries are the files that decide what the tests run
+          # and what the gate is: `vitest.config.ts` selects the test files,
+          # and this workflow defines `gate` itself. While either sat outside
+          # the list, a change to it skipped every cell and `gate` reported a
+          # pass over a run that tested nothing.
+          globs='src/** package.json package-lock.json tsconfig.json vitest.config.ts .github/workflows/ci.yml'
 
           # Fail open. A first push to a branch, a force push that orphaned the
           # previous head, or any base we cannot resolve leaves us unable to
@@ -124,7 +130,7 @@ jobs:
   build-and-test:
     name: Node ${{ matrix.node-version }}
     needs: changes
-    # The four globs, at the job they filter. `changes` decides which of them
+    # The six globs, at the job they filter. `changes` decides which of them
     # the diff touched; this decides whether that is enough to run the cells. A
     # change touching none of them skips every cell — which `gate` reads as a
     # pass, because there was nothing to test.
@@ -132,7 +138,9 @@ jobs:
       contains(needs.changes.outputs.matched, 'src/**') ||
       contains(needs.changes.outputs.matched, 'package.json') ||
       contains(needs.changes.outputs.matched, 'package-lock.json') ||
-      contains(needs.changes.outputs.matched, 'tsconfig.json')
+      contains(needs.changes.outputs.matched, 'tsconfig.json') ||
+      contains(needs.changes.outputs.matched, 'vitest.config.ts') ||
+      contains(needs.changes.outputs.matched, '.github/workflows/ci.yml')
     runs-on: ubuntu-latest
     strategy:
       matrix:
