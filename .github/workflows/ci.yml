@@ -108,6 +108,7 @@ jobs:
               while IFS= read -r file; do
                 # `$glob` is unquoted on purpose: it is the pattern. `case`
                 # patterns match `/` with `*`, so `src/**` covers `src/a/b.ts`.
+                # shellcheck disable=SC2254
                 case "$file" in
                   $glob)
                     matched="${matched:+$matched,}$glob"
