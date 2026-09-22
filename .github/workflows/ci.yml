@@ -200,11 +200,12 @@ jobs:
               success)
                 echo "$job: success"
                 ;;
-              # A skipped job is a pass. The change touched none of the four
-              # globs, so there was nothing for the cells to test — and this is
-              # exactly what lets a docs-only pull request merge past a
-              # required `gate` instead of waiting on a context that would
-              # never arrive.
+              # A skipped job is a pass. The change touched none of the six
+              # admitted entries — `src/**`, `package.json`, `package-lock.json`,
+              # `tsconfig.json`, `vitest.config.ts`, `.github/workflows/ci.yml` —
+              # so there was nothing for the cells to test, and this is exactly
+              # what lets a docs-only pull request merge past a required `gate`
+              # instead of waiting on a context that would never arrive.
               skipped)
                 echo "$job: skipped (this change needed nothing from it)"
                 ;;
