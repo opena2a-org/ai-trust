@@ -200,8 +200,13 @@ const FORBIDDEN_PACKAGES = [
         'day hackmyagent publishes a version the advisory names as patched: raise the ' +
         'pin to that exact version, publish, and delete this entry together with the ' +
         'ai-trust entry below. Until then users installing ai-trust do resolve a ' +
-        'second scanner copy, and this entry records that we know.',
-      reviewBy: '2026-10-07',
+        'second scanner copy, and this entry records that we know. Re-examined ' +
+        '2026-10-10: still blocked. GHSA-ccp3-g7fv-9cqr is still published on the ' +
+        'hackmyagent repository (critical, >= 0.17.11, no patched version). It is not ' +
+        'in the GitHub Advisory Database, so npm audit and the npm bulk advisory ' +
+        'endpoint do not report it, and a clean npm audit of hackmyagent@0.33.2 does ' +
+        'not lift it.',
+      reviewBy: '2026-10-31',
     },
   },
   {
@@ -220,8 +225,9 @@ const FORBIDDEN_PACKAGES = [
         'ai-trust edge. Nothing in this repo can suppress it before then — the nested ' +
         'copy is a transitive dependency of a dependency, and `overrides` are not ' +
         'published. Re-examined 2026-09-01 with the entry above and blocked by the ' +
-        'same advisory. Delete this entry with the other one.',
-      reviewBy: '2026-10-07',
+        'same advisory. Re-examined 2026-10-10 with the entry above: still blocked by ' +
+        'the same advisory. Delete this entry with the other one.',
+      reviewBy: '2026-10-31',
     },
   },
 ];
