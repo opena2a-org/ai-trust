@@ -693,7 +693,7 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
   );
 
   // ── Observations + Verdict ──────────────────────────────────────────
-  // Shared block from @opena2a/cli-ui per [CA-030] so ai-trust's local-
+  // Shared block from @opena2a/cli-ui so ai-trust's local-
   // scan output stays consistent with hackmyagent secure + opena2a review.
   // Only wired on formatScanResult (real findings). formatCheckResult is
   // registry-lookup metadata with no findings to categorize — left for a

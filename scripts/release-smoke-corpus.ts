@@ -11,7 +11,7 @@
  * directly. The corpus's mcp/skill/soul/repo fixtures are on-disk
  * artifacts, not published packages. So in Phase 2:
  *
- *   - This harness IS wired (per [CHIEF-CSR-019] gate-lift contract).
+ *   - This harness IS wired (per the corpus gate-lift contract).
  *   - It reports each applicable surface as `skipped: ai-trust does not
  *     support local-path scanning for surface=<X>`.
  *   - The skip is the honest signal — surfaces become `ok` when ai-trust
@@ -19,8 +19,8 @@
  *     fixtures (synthetic published packages) that ai-trust can look up
  *     by name.
  *
- * Per [CHIEF-CDS-028] OPENA2A_CORPUS_DETERMINISTIC=1 is set so output is
- * stable across runs. Per [CHIEF-CA-044] this script is consumer-local;
+ * OPENA2A_CORPUS_DETERMINISTIC=1 is set so output is stable across runs,
+ * which keeps golden snapshots comparable. This script is consumer-local;
  * it does NOT share code with HMA's release-smoke-corpus.
  *
  * Exit code 0 = green (no actual failures), 1 = drift, 2 = setup error.
