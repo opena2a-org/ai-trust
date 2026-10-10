@@ -26,14 +26,42 @@
  * Exit code 0 = green (no actual failures), 1 = drift, 2 = setup error.
  */
 import { spawnSync } from 'node:child_process';
-import { readFileSync, existsSync, statSync, readdirSync, mkdirSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { createHash } from 'node:crypto';
+import {
+  readFileSync,
+  existsSync,
+  statSync,
+  readdirSync,
+  mkdirSync,
+  mkdtempSync,
+  copyFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+// Every scan runs with a HOME owned by this harness, under its own temp
+// directory, removed on exit. The scanner's NanoMind classifier picks its
+// model files up from the scanning user's home (`~/.nanomind/models` and
+// `~/.opena2a/nanomind/models`), and which files sit there decides which
+// classifier tier answers and therefore which findings a fixture gets. The
+// goldens are recorded with the scanner's own pinned, downloaded set and no
+// other model files, so the caller's home must be invisible to the scan.
+const HARNESS_TMP = mkdtempSync(join(tmpdir(), 'ai-trust-corpus-'));
+const HARNESS_HOME = join(HARNESS_TMP, 'home');
+process.on('exit', () => {
+  try {
+    rmSync(HARNESS_TMP, { recursive: true, force: true });
+  } catch {
+    /* best effort */
+  }
+});
 
 interface FixtureManifest {
   fixture: string;
@@ -61,6 +89,130 @@ const AI_TRUST_CLI = resolve(__dirname, '..', 'dist', 'index.js');
 const CONSUMER_NAME = 'ai-trust';
 const UPDATE_GOLDEN = process.env.OPENA2A_CORPUS_UPDATE_GOLDEN === '1';
 const GOLDEN_ROOT = resolve(__dirname, '..', 'golden', 'ai-trust');
+
+// The scanner ai-trust runs is the hackmyagent this package pins, so the
+// classifier model set the goldens depend on is the one that scanner pins:
+// three files with sha256 values in its tier-1 classifier source, downloaded
+// into `~/.nanomind/models` when missing. The harness reads the pins from the
+// installed scanner rather than keeping a copy, so a pin bump cannot leave
+// the harness checking a stale set.
+const SCANNER_CLASSIFIER_SOURCE = resolve(
+  __dirname,
+  '..',
+  'node_modules',
+  'hackmyagent',
+  'dist',
+  'nanomind-core',
+  'inference',
+  'tme-classifier.js',
+);
+// The scanner's model directory inside the harness home.
+const HARNESS_MODEL_DIR = join(HARNESS_HOME, '.nanomind', 'models');
+// The caller's copy of the same directory, read only, used as a cache when
+// its files carry the pinned hashes.
+const CALLER_MODEL_DIR = join(homedir(), '.nanomind', 'models');
+
+interface PinnedModelFile {
+  name: string;
+  sha256: string;
+}
+
+function sha256Of(path: string): string {
+  return createHash('sha256').update(readFileSync(path)).digest('hex');
+}
+
+function pinnedModelFiles(): PinnedModelFile[] {
+  if (!existsSync(SCANNER_CLASSIFIER_SOURCE)) {
+    fail(
+      `scanner classifier source not found at ${SCANNER_CLASSIFIER_SOURCE}\n` +
+        `run \`npm ci\` so the pinned hackmyagent is installed.`,
+    );
+  }
+  const source = readFileSync(SCANNER_CLASSIFIER_SOURCE, 'utf8');
+  const pins: PinnedModelFile[] = [];
+  const entry = /\{\s*name:\s*'([^']+)',\s*sha256:\s*'([0-9a-f]{64})'\s*\}/g;
+  for (const m of source.matchAll(entry)) pins.push({ name: m[1], sha256: m[2] });
+  if (pins.length === 0) {
+    fail(
+      `no pinned classifier model files found in ${SCANNER_CLASSIFIER_SOURCE}\n` +
+        `the installed scanner does not pin its model set the way this harness expects.`,
+    );
+  }
+  return pins;
+}
+
+// The environment every child runs with. The caller's API key is removed so
+// the scanner's semantic layer (a remote model call behind --deep) never
+// runs; HOME points at the harness home; the two variables that would point
+// the scanner back at the caller's state directory or at a classifier daemon
+// of the caller's choosing are removed as well. Usage telemetry is switched
+// off with OPENA2A_TELEMETRY, the variable @opena2a/telemetry reads in both
+// ai-trust and the scanner: a harness HOME holds no saved opt-out, so without
+// it every scan would send usage events, and test runs are not users.
+function childEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    OPENA2A_CORPUS_DETERMINISTIC: '1',
+    OPENA2A_TELEMETRY: 'off',
+    HOME: HARNESS_HOME,
+    USERPROFILE: HARNESS_HOME,
+  };
+  delete env.ANTHROPIC_API_KEY;
+  delete env.OPENA2A_HOME;
+  delete env.NANOMIND_URL;
+  return env;
+}
+
+/**
+ * Put the scanner's pinned classifier model set into the harness home and
+ * verify every file's sha256 against the pin before any scan runs. Files are
+ * copied from the caller's `~/.nanomind/models` when their hashes match;
+ * otherwise the scanner's own downloader fetches them into the harness home.
+ * A set that cannot be obtained is a setup error (exit 2), not drift.
+ */
+function prepareClassifierModels(): PinnedModelFile[] {
+  const pins = pinnedModelFiles();
+  mkdirSync(HARNESS_MODEL_DIR, { recursive: true });
+  const toFetch: PinnedModelFile[] = [];
+  for (const pin of pins) {
+    const cached = join(CALLER_MODEL_DIR, pin.name);
+    if (existsSync(cached) && sha256Of(cached) === pin.sha256) {
+      copyFileSync(cached, join(HARNESS_MODEL_DIR, pin.name));
+    } else {
+      toFetch.push(pin);
+    }
+  }
+  if (toFetch.length > 0) {
+    // The scanner's downloader skips files already present, verifies the
+    // sha256 of each file it fetches and removes a file that fails.
+    const script =
+      'require(process.argv[1]).TMEClassifier.downloadModel(process.argv[2], true)' +
+      '.then((ok) => process.exit(ok ? 0 : 1), () => process.exit(1));';
+    spawnSync(
+      process.execPath,
+      ['-e', script, SCANNER_CLASSIFIER_SOURCE, HARNESS_MODEL_DIR],
+      { env: childEnv(), encoding: 'utf8', timeout: 300_000, stdio: 'ignore' },
+    );
+  }
+  for (const pin of pins) {
+    const dest = join(HARNESS_MODEL_DIR, pin.name);
+    if (!existsSync(dest)) {
+      fail(
+        `classifier model file ${pin.name} is missing (pinned sha256 ${pin.sha256} in ` +
+          `${SCANNER_CLASSIFIER_SOURCE}); it was not in ${CALLER_MODEL_DIR} with that hash ` +
+          `and the scanner could not download it. No golden was compared.`,
+      );
+    }
+    const got = sha256Of(dest);
+    if (got !== pin.sha256) {
+      fail(
+        `classifier model file ${pin.name} has sha256 ${got}, pinned ${pin.sha256} in ` +
+          `${SCANNER_CLASSIFIER_SOURCE}. No golden was compared.`,
+      );
+    }
+  }
+  return pins;
+}
 
 // All surfaces are scannable now via `ai-trust check <name> --scan-path <dir>`
 // (added 2026-04-28 alongside this harness). The `npm` surface arrives in
@@ -104,11 +256,14 @@ interface AiTrustResult {
 }
 
 function runAiTrustScanPath(label: string, dir: string): AiTrustResult {
-  const env = { ...process.env, OPENA2A_CORPUS_DETERMINISTIC: '1' };
+  // With ANTHROPIC_API_KEY present the scanner's --deep path calls a remote
+  // model, which changes every score and finding set (and can exceed the
+  // deep-scan timeout). Goldens must not depend on whether the caller's shell
+  // holds a key, so the child never sees it; see childEnv for the rest.
   const r = spawnSync(
     process.execPath,
     [AI_TRUST_CLI, 'check', label, '--scan-path', dir, '--json'],
-    { encoding: 'utf8', env, maxBuffer: 16 * 1024 * 1024 },
+    { encoding: 'utf8', env: childEnv(), maxBuffer: 16 * 1024 * 1024 },
   );
   const stdout = r.stdout ?? '';
   const jsonStart = stdout.indexOf('{');
@@ -169,11 +324,16 @@ function main(): void {
   }
   const corpus = loadCorpusManifest();
   const surfaces = consumerSurfaces(corpus);
+  const pins = prepareClassifierModels();
   process.stdout.write(
     `release-smoke-corpus: ${corpus.corpusName} ${corpus.corpusVersion}\n` +
       `consumer: ${CONSUMER_NAME}, surfaces: ${surfaces.join(',')}\n` +
       `corpus path: ${CORPUS_ROOT}\n` +
-      `scannable surfaces today: ${[...SCANNABLE_SURFACES].join(',') || '(none)'}\n\n`,
+      `scannable surfaces today: ${[...SCANNABLE_SURFACES].join(',') || '(none)'}\n` +
+      `scan home: isolated (no API key, no caller model files)\n` +
+      `classifier model set: ${pins.length} file(s) verified against the scanner's pins\n` +
+      pins.map((p) => `  ${p.sha256}  ${p.name}\n`).join('') +
+      '\n',
   );
 
   let pass = 0;
