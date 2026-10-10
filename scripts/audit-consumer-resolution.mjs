@@ -13,7 +13,7 @@
  * get, and a gate that measures the repo when the risk lives in the published
  * tree is decorative regardless of its colour.
  *
- * Two divergences are live in this package today and both are measurable:
+ * Two divergences have been live in this package and both are measurable:
  *
  * 1. VERSION SKEW. `package.json` in this repo pins `hackmyagent` at one
  *    version; the last published `ai-trust` pins whatever it pinned on its
@@ -21,10 +21,12 @@
  *    different advisories.
  * 2. THE CYCLE. `hackmyagent` depended back on `ai-trust` up to and including
  *    0.26.1, and that older `ai-trust` depends back on an older `hackmyagent`.
- *    A consumer of this package therefore resolves MULTIPLE copies of our own
- *    scanner, including versions carrying a deprecation notice describing
- *    defects in a release the user never asked for. `hackmyagent`'s own gate
- *    forbids the nested copy; nothing on this side ever checked.
+ *    A consumer of an `ai-trust` release pinned inside that range therefore
+ *    resolves MULTIPLE copies of our own scanner, including versions carrying
+ *    a deprecation notice describing defects in a release the user never
+ *    asked for. `hackmyagent`'s own gate forbids the nested copy; nothing on
+ *    this side ever checked. This repo's pin is now past the cycle, so the
+ *    nested-copy check below carries no waiver and fails on any second copy.
  *
  * Evidence this is not hypothetical: on 2026-08-10 the published
  * `opena2a-cli@0.10.13` production tree was found to carry a high advisory
@@ -183,31 +185,6 @@ const FORBIDDEN_PACKAGES = [
       '(much older). The old copy prints a deprecation notice describing defects in a ' +
       'version the user never asked for, and it means `ai-trust` and the scanner it ' +
       'reports on can disagree about their own version.',
-    waiver: {
-      versions: ['0.17.11'],
-      reason:
-        'Not fixable from this repo at the currently published pin. Every hackmyagent ' +
-        'release through 0.26.1 declares `ai-trust: ^0.2.6`, so pinning any of them ' +
-        'reintroduces the cycle; 0.27.0 is the first release that drops the ai-trust ' +
-        'edge, and the remedy is still to raise the pin to >=0.27.0, publish, and then ' +
-        'DELETE this entry (it will fail as stale on the next run, which is the ' +
-        'intended forcing function). Re-examined 2026-09-01: the remedy is blocked, ' +
-        'not forgotten. Every published hackmyagent >= 0.27.0 falls inside ' +
-        'GHSA-ccp3-g7fv-9cqr (critical, affects >= 0.17.11, no patched version ' +
-        'published as of that date), as does the current pin, and raising the pin now ' +
-        'would move this package\'s production dependency onto a version under an open ' +
-        'critical advisory with no patched version, which we will not do. Reopen the ' +
-        'day hackmyagent publishes a version the advisory names as patched: raise the ' +
-        'pin to that exact version, publish, and delete this entry together with the ' +
-        'ai-trust entry below. Until then users installing ai-trust do resolve a ' +
-        'second scanner copy, and this entry records that we know. Re-examined ' +
-        '2026-10-10: still blocked. GHSA-ccp3-g7fv-9cqr is still published on the ' +
-        'hackmyagent repository (critical, >= 0.17.11, no patched version). It is not ' +
-        'in the GitHub Advisory Database, so npm audit and the npm bulk advisory ' +
-        'endpoint do not report it, and a clean npm audit of hackmyagent@0.33.2 does ' +
-        'not lift it.',
-      reviewBy: '2026-10-31',
-    },
   },
   {
     name: 'ai-trust',
@@ -216,19 +193,6 @@ const FORBIDDEN_PACKAGES = [
       'installs with different check sets and different registry clients can return ' +
       'different verdicts for the same query, and only one of them is the one the ' +
       'user installed.',
-    waiver: {
-      versions: ['0.2.25'],
-      reason:
-        'Same root cause and same remedy as the hackmyagent entry above: the old ' +
-        'ai-trust is pulled in BY hackmyagent, not by anything this repo declares. It ' +
-        'disappears when the hackmyagent pin reaches >=0.27.0, which dropped the ' +
-        'ai-trust edge. Nothing in this repo can suppress it before then — the nested ' +
-        'copy is a transitive dependency of a dependency, and `overrides` are not ' +
-        'published. Re-examined 2026-09-01 with the entry above and blocked by the ' +
-        'same advisory. Re-examined 2026-10-10 with the entry above: still blocked by ' +
-        'the same advisory. Delete this entry with the other one.',
-      reviewBy: '2026-10-31',
-    },
   },
 ];
 
