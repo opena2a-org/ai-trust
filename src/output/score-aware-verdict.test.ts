@@ -1,8 +1,7 @@
 /**
- * Tests for ai-trust's score-aware human verdict (option a,
- * [CHIEF-CPO]+[CHIEF-CA] decision). Both human surfaces must derive from the
- * score-aware enum (safe/warning/blocked), so the terminal never contradicts
- * `--json`. Regression: a high finding on a high-scoring benign third-party
+ * Tests for ai-trust's score-aware human verdict (option a). Both human
+ * surfaces must derive from the score-aware enum (safe/warning/blocked), so
+ * the terminal never contradicts `--json`. Regression: a high finding on a high-scoring benign third-party
  * package must NOT say "Not safe to ship".
  */
 import { describe, it, expect } from "vitest";

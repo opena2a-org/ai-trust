@@ -16,7 +16,7 @@
  * high finding is actionable — verdict calibration is intentionally
  * context-specific (own-code vs third-party). See
  * `todo/2026-06-08-release-test-cosmetics-cli-cross-tool.md` item 2
- * ([CHIEF-CPO]+[CHIEF-CA] decision, option a).
+ * (option a).
  */
 import type { VerdictStatus, VerdictFinding } from "@opena2a/cli-ui";
 

@@ -33,9 +33,9 @@ program
   .option("--json", "output raw JSON", false)
   .option("--no-color", "disable colored output");
 
-// Two-bucket telemetry disclosure (briefs/scan-result-telemetry-policy.md §7,
-// [CHIEF-CSR-014] + [CHIEF-CPO-021]). Surfaces both consent rails on --help so
-// users see the boundary without reading the privacy policy.
+// Two-bucket telemetry disclosure (briefs/scan-result-telemetry-policy.md §7).
+// Surfaces both consent rails on --help so users see the boundary without
+// reading the privacy policy.
 program.addHelpText(
   "after",
   `
@@ -92,9 +92,9 @@ registerBatchCommand(program);
       telemetryStartedAt.delete(name);
       void tele.track(name, {
         // Exit 0 = clean, 1 = below-threshold, 2 = not-found. All three
-        // are working outcomes per audit.test.ts. Per [CHIEF-CSR-018] +
-        // [CHIEF-CPO-022], pass [2] so the dashboard treats not-found as
-        // success (crash-rate semantics, not user-outcome semantics).
+        // are working outcomes per audit.test.ts. Pass [2] so the
+        // dashboard treats not-found as success (crash-rate semantics,
+        // not user-outcome semantics).
         // Real crashes are exit >=3 or out-of-range — those stay failure.
         success: tele.successFromExitCode(process.exitCode, [2]),
         durationMs: Date.now() - startedAt,
