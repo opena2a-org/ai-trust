@@ -1,0 +1,5 @@
+score=40
+trustLevel=1
+verdict=warning
+severities={"critical":5,"low":1,"medium":1}
+checkIds=CRED-001,DEP-001,GIT-001,SEM-CRED-001,SEM-CRED-004

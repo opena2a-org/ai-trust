@@ -1,5 +1,5 @@
-score=98
+score=93
 trustLevel=3
 verdict=safe
-severities={"low":1}
-checkIds=GIT-002
+severities={"low":1,"medium":1}
+checkIds=DEP-001,GIT-002
