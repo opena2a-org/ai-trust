@@ -271,6 +271,10 @@ async function handleAuditContribution(
   registryUrl: string,
   ecosystem: "npm" | "pypi" = "npm"
 ): Promise<void> {
+  // An explicit --no-contribute answers for this run: share nothing, and
+  // neither ask nor save a choice.
+  if (opts.contribute === false) return;
+
   const alreadyEnabled = resolveContributeChoice(opts.contribute);
 
   // These are first scans of missing packages — proactively encourage sharing
