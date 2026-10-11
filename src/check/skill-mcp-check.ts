@@ -1,8 +1,6 @@
 /**
  * `ai-trust check skill:<name>` / `check mcp:<name>` orchestrator.
  *
- * Brief: opena2a-org/briefs/check-rich-context-skills-mcp-v1.md (§3, §8).
- *
  * Mirrors hackmyagent/src/check/skill-mcp-check.ts to keep the two
  * CLIs byte-identical on the rich-block render (parity F12 / F13).
  * Adapted to use ai-trust's `@opena2a/registry-client` for the trust

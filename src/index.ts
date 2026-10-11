@@ -47,9 +47,9 @@ program
   .option("--json", "output raw JSON", false)
   .option("--no-color", "disable colored output");
 
-// Two-bucket telemetry disclosure (briefs/scan-result-telemetry-policy.md §7).
-// Surfaces both consent rails on --help so users see the boundary without
-// reading the privacy policy.
+// Two-bucket telemetry disclosure: --help names both consent rails, usage
+// telemetry (default on) and scan contribution (opt-in), so users see the
+// boundary without reading the privacy policy.
 program.addHelpText(
   "after",
   `
@@ -73,10 +73,10 @@ registerConfigCommand(program);
   // pattern shipped in hackmyagent + opena2a-cli (parity).
   // Disclosure surfaces: README, --version line, telemetry subcommand,
   // opena2a.org/telemetry.
-  // Silent-post-consent rule (briefs/scan-result-telemetry-policy.md §5):
-  // ALL ongoing contribution after opt-in is invisible — no per-scan
-  // banner, no "queued for registry" line. ai-trust currently emits
-  // none; preserve that.
+  // Silent-post-consent rule: once the user has opted in, contribution
+  // prints nothing per scan — no banner, no "queued for registry" line;
+  // disclosure lives in the consent prompt, --help and the privacy
+  // policy. ai-trust currently emits none; preserve that.
   const tele = await import("@opena2a/telemetry");
   const cliUi = await import("@opena2a/cli-ui");
   await tele.init({ tool: TELEMETRY_TOOL, version: VERSION });

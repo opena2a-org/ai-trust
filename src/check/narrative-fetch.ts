@@ -1,8 +1,6 @@
 /**
  * Narrative fetch helper — GET /api/v1/trust/narrative.
  *
- * Brief: opena2a-org/briefs/check-rich-context-skills-mcp-v1.md (§8 task 3a).
- *
  * Returns the parsed `PackageNarrative` shape, or `null` on any
  * non-success response (404 narrative_not_available, 4xx, 5xx, network
  * timeout). Always best-effort — the caller falls back to the legacy

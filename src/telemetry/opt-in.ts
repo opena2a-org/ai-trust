@@ -226,8 +226,8 @@ export function incrementScanCount(): number {
  * Both the full contribution flow (queueScanResult) and the scan-adoption
  * ping (sendScanPing) must use this -- sendScanPing sends package name +
  * verdict + score, which is scan-result data under the two-bucket
- * telemetry policy (briefs/scan-result-telemetry-policy.md), not
- * invocation telemetry, so it needs the same consent as a full
+ * telemetry policy (data that names what the user scanned is opt-in),
+ * not invocation telemetry, so it needs the same consent as a full
  * contribution and the same --no-contribute override.
  */
 export function resolveContributeChoice(flag: boolean | undefined): boolean {
