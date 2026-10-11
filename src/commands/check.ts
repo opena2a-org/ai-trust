@@ -581,7 +581,7 @@ async function submitContribution(
       source: "ci",
     });
     const resp = await client.publishScan(
-      buildScanSubmission(name, scanResult, { toolVersion: AI_TRUST_VERSION, type: opts?.type }),
+      buildScanSubmission(name, scanResult, { toolVersion: AI_TRUST_VERSION, type: opts?.type, ecosystem: "npm" }),
       signer,
     );
     if (resp.publishId) {

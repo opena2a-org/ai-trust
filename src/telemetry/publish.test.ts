@@ -86,6 +86,15 @@ describe("buildScanSubmission", () => {
     expect(buildScanSubmission("demo", scanResult({ verdict: "safe" }), { toolVersion: "0.0.0" }).verdict).toBe("pass");
   });
 
+  it("sends the ecosystem the package was downloaded from", () => {
+    expect(
+      buildScanSubmission("demo", scanResult(), { toolVersion: "0.0.0", ecosystem: "pypi" }).ecosystem,
+    ).toBe("pypi");
+    expect(
+      buildScanSubmission("demo", scanResult(), { toolVersion: "0.0.0", ecosystem: "npm" }).ecosystem,
+    ).toBe("npm");
+  });
+
   it("omits version from the wire when the manifest carried none", () => {
     const wire = JSON.parse(
       JSON.stringify(buildScanSubmission("demo", scanResult(), { toolVersion: "0.0.0" })),

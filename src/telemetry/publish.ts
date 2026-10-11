@@ -33,14 +33,20 @@ function toPublishedVerdict(verdict: ScanResult["verdict"]): string {
   return "pass";
 }
 
+/**
+ * `ecosystem` is the registry the scanned package was downloaded from. The
+ * registry records a submission without one as npm, so a PyPI scan that
+ * left it out was stored as an npm package's scan.
+ */
 export function buildScanSubmission(
   name: string,
   scanResult: ScanResult,
-  opts: { toolVersion: string; type?: string },
+  opts: { toolVersion: string; type?: string; ecosystem: "npm" | "pypi" },
 ): ScanSubmission {
   return {
     name,
     version: scanResult.packageVersion,
+    ecosystem: opts.ecosystem,
     type: opts.type,
     score: scanResult.scan.score,
     maxScore: scanResult.scan.maxScore,
