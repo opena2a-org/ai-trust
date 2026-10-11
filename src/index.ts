@@ -41,7 +41,7 @@ program.addHelpText(
   `
 Telemetry:
   Anonymous usage telemetry is on. Disable: OPENA2A_TELEMETRY=off
-  Local scans may contribute to the OpenA2A Registry. Disable: --no-contribute or ai-trust telemetry off
+  Local scans may contribute to the OpenA2A Registry. Disable: --no-contribute (this scan) or opena2a config contribute off (saved)
 `,
 );
 

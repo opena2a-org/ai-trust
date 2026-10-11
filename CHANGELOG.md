@@ -85,6 +85,7 @@
 
 ### Fixed
 
+- **`--no-contribute` now stops every scan result, including the one the bundled scanner sent.** ai-trust runs `hackmyagent secure` for local scans but passed it no contribute flag, so with contribution enabled in `~/.opena2a/config.json` the scanner queued and sent its own `scan_result` event even under `check --no-contribute`, `audit --no-contribute` or `check --scan-path`. ai-trust now passes `--no-contribute` to every scanner run and is the only party that decides about contribution. The `--help` line also named `ai-trust telemetry off` as an opt-out, which only toggles usage telemetry; it now names `--no-contribute` (this scan) and `opena2a config contribute off` (saved choice), and the contribution guide no longer cites a nonexistent `ai-trust config` command.
 - **`telemetry <unknown-action>` now exits non-zero.** It printed "Unknown action …" but exited 0; scripts and CI can now detect the usage error (exit 1). Valid actions and the default still exit 0.
 - **Malformed dependency-file JSON now gives an actionable error.** `audit` on a broken `package.json` surfaced only the raw parser string ("Expected property name … at position 2"). It now names the file and suggests the fix (trailing commas / unquoted keys / unclosed brace) plus a one-line validate command.
 

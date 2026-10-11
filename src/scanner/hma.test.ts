@@ -153,3 +153,66 @@ ${JSON.stringify({
     expect(result.findings).toHaveLength(0);
   });
 });
+
+describe("runHmaScan contribution", () => {
+  const scanJson = JSON.stringify({
+    score: 100,
+    maxScore: 100,
+    findings: [],
+    projectType: "library",
+  });
+
+  function secureCalls(): string[][] {
+    return vi
+      .mocked(execFile as any)
+      .mock.calls.map((c: unknown[]) => c[1] as string[])
+      .filter((args: string[]) => args.includes("secure"));
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // The HMA subprocess must never decide about contribution on its own:
+  // without --no-contribute it falls back to ~/.opena2a/config.json and
+  // queues a scan_result even when the user passed `--no-contribute`.
+  it.each([
+    ["default options", {}],
+    ["static-only scan", { deep: false }],
+    ["AnaLM scan", { analm: true }],
+  ])("passes --no-contribute to hackmyagent secure (%s)", async (_label, options) => {
+    vi.mocked(execFile as any).mockResolvedValue({ stdout: scanJson, stderr: "" });
+
+    await runHmaScan("/tmp/test-pkg", options);
+
+    const calls = secureCalls();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain("--no-contribute");
+    expect(calls[0]).not.toContain("--contribute");
+    expect(calls[0][calls[0].length - 1]).toBe("/tmp/test-pkg");
+  });
+
+  it("keeps --no-contribute when retrying without --analm on an older HMA", async () => {
+    vi.mocked(execFile as any).mockImplementation(
+      async (_cmd: string, args: string[]) => {
+        if (args.includes("--analm")) {
+          // Node's execFile error message carries the subprocess stderr.
+          const stderr = "error: unknown option '--analm'";
+          throw Object.assign(
+            new Error(`Command failed: hackmyagent ${args.join(" ")}\n${stderr}`),
+            { stdout: "", stderr },
+          );
+        }
+        return { stdout: scanJson, stderr: "" };
+      },
+    );
+
+    const result = await runHmaScan("/tmp/test-pkg", { analm: true });
+
+    expect(result.score).toBe(100);
+    const calls = secureCalls();
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).not.toContain("--analm");
+    expect(calls[1]).toContain("--no-contribute");
+  });
+});
