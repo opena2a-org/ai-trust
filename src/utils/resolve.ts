@@ -1,7 +1,7 @@
 /**
  * MCP package name shorthand resolution.
  *
- * Converts short forms like "server-filesystem" or "mcp-server-fetch"
+ * Converts short forms like "server-filesystem" or "mcp/server-fetch"
  * into the full scoped name "@modelcontextprotocol/server-*".
  */
 
