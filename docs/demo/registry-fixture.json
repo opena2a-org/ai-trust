@@ -1,5 +1,5 @@
 {
-  "_source": "Registry answers captured from https://api.oa2a.org on 2026-10-11 for the packages the docs samples use. Fields ai-trust does not read (securityProfile, scoreBreakdown, platformSignals) are dropped. Served by src/docs-samples.test.ts.",
+  "_source": "Registry answers captured from https://api.oa2a.org on 2026-10-11 for the packages the docs samples use. Fields ai-trust does not read (scoreBreakdown, platformSignals, and the securityProfile fields other than criticalCount, highCount and knownCves) are dropped. Served by src/docs-samples.test.ts.",
   "query": {
     "@modelcontextprotocol/server-filesystem": {
       "packageId": "7b70f85f-d988-4fbf-8d5e-993ce58ed10c",
@@ -14,7 +14,8 @@
       "communityScans": 3,
       "dependencies": { "totalDeps": 0, "vulnerableDeps": 0, "minTrustLevel": 2, "minTrustScore": 1, "maxDepth": 0 },
       "factors": { "publisherVerification": 0.4, "slsaProvenance": 0.5, "securityScan": 0.9, "platformValidation": 0.8666666666666668, "behavioralVerification": 0.5, "signatureIntegrity": 0.5, "dependencyHealth": 0.5 },
-      "scoringVersion": "v3"
+      "scoringVersion": "v3",
+      "securityProfile": { "criticalCount": 0, "highCount": 1, "knownCves": [] }
     }
   },
   "batch": [

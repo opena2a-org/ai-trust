@@ -18,12 +18,14 @@ Expected output (scores and scan ages come from the registry and change over tim
 Resolved: server-filesystem -> @modelcontextprotocol/server-filesystem
 
   @modelcontextprotocol/server-filesystem  mcp server · scanned 223 days ago (stale)
-  No known issues
+  Passed, but the registry recorded 1 high finding
 
   Trust     ━━━━━━━━━━━━━━━━━━━━ 79/100
   Level     Scanned  Blocked > Warning > Listed > Scanned > Verified
   Scans     3 community scans
   Last scan 223 days ago (stale)
+  Findings  0 critical · 1 high · scan status warnings
+  CVEs      none recorded
 
   ── Next Steps ──────────────────────────────────────────────
   → Fresh scan  ai-trust check @modelcontextprotocol/server-filesystem
@@ -74,11 +76,18 @@ Expected output on stdout (the `Resolved:` note goes to stderr, so stdout stays 
   "packageType": "mcp_server",
   "verdict": "passed",
   "trustLevel": 3,
-  "trustScore": 0.7866666666666666
+  "trustScore": 0.7866666666666666,
+  "scanStatus": "warnings",
+  "lastScannedAt": "2026-03-02T00:46:00.496394Z",
+  "securityProfile": {
+    "criticalCount": 0,
+    "highCount": 1,
+    "knownCves": []
+  }
 }
 ```
 
-`trustLevel` uses the 0-4 scale above. `trustScore` is the registry score from 0 to 1 (the text output shows it out of 100). Without `--no-scan`, `--json` prints the local scan result instead (`"source": "scan"`, with `score`, `maxScore` and any failed `findings`).
+`trustLevel` uses the 0-4 scale above. `trustScore` is the registry score from 0 to 1 (the text output shows it out of 100). `securityProfile` holds the critical and high finding counts and known CVE identifiers from the registry's last scan; it, `scanStatus` and `lastScannedAt` are omitted when the registry did not return them. Without `--no-scan`, `--json` prints the local scan result instead (`"source": "scan"`, with `score`, `maxScore` and any failed `findings`).
 
 This output can be parsed by `jq`, piped into other tools, or used in CI gates:
 

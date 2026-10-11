@@ -12,6 +12,10 @@
 
 import type { TrustAnswer } from "@opena2a/registry-client";
 import type { ScanResult } from "../scanner/index.js";
+import {
+  readSecurityProfile,
+  type RegistrySecurityProfile,
+} from "./security-profile.js";
 
 /** A single security finding surfaced in the JSON output. */
 export interface CheckJsonFinding {
@@ -37,12 +41,26 @@ export interface CheckJsonResult {
   found: boolean;
   /** Registry/HMA package classification, when known. */
   packageType?: string;
-  /** Trust verdict (e.g. passed, warning, blocked, safe). */
+  /**
+   * Trust verdict. The registry path returns the registry's vocabulary
+   * (passed, listed, warning, blocked); the scan path returns safe,
+   * warning or blocked.
+   */
   verdict?: string;
   /** Derived trust level (0–4), when available. */
   trustLevel?: number;
   /** Normalized trust score in 0.0–1.0, when available. */
   trustScore?: number;
+  /** Registry scan status, e.g. passed or warnings (registry path only). */
+  scanStatus?: string;
+  /** ISO timestamp of the registry's last scan (registry path only). */
+  lastScannedAt?: string;
+  /**
+   * Critical and high finding counts and known CVE identifiers the registry
+   * records for the package (registry path only; omitted when the registry
+   * returned no profile).
+   */
+  securityProfile?: RegistrySecurityProfile;
   /** Raw HMA points scored (scan path only). */
   score?: number;
   /** Raw HMA maximum points (scan path only). */
@@ -83,6 +101,10 @@ export function buildCheckJsonFromAnswer(answer: TrustAnswer): CheckJsonResult {
   if (answer.verdict !== undefined) out.verdict = answer.verdict;
   if (answer.trustLevel !== undefined) out.trustLevel = answer.trustLevel;
   if (answer.trustScore !== undefined) out.trustScore = answer.trustScore;
+  if (answer.scanStatus) out.scanStatus = answer.scanStatus;
+  if (answer.lastScannedAt) out.lastScannedAt = answer.lastScannedAt;
+  const profile = readSecurityProfile(answer);
+  if (profile) out.securityProfile = profile;
   // The registry lookup does not return raw HMA score/maxScore or per-finding
   // detail, so those fields are intentionally omitted on this path.
   return out;
