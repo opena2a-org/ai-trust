@@ -98,6 +98,11 @@ function scanStatusColor(status?: string): (text: string) => string {
  * Split batch results into AI-native (Tier 1), unrelated (Tier 3), and
  * unknown groups using @opena2a/ai-classifier. ai-trust only shows trust
  * data for native packages; unrelated packages get an HMA CTA footer.
+ *
+ * A package scanned locally by `audit --scan-missing` (scanStatus "local")
+ * is always in scope: it carries no packageType, so the classifier alone
+ * would file it as unknown (or, for a library-like name, unrelated) and
+ * hide the verdict the user just asked for.
  */
 function partitionByTier(results: TrustAnswer[]): {
   native: TrustAnswer[];
@@ -108,6 +113,10 @@ function partitionByTier(results: TrustAnswer[]): {
   const unrelated: TrustAnswer[] = [];
   const unknown: TrustAnswer[] = [];
   for (const r of results) {
+    if (r.found && normalizeScanStatus(r.scanStatus) === "local") {
+      native.push(r);
+      continue;
+    }
     const tier = classify({ name: r.name, packageType: r.packageType }).tier;
     if (tier === "native") native.push(r);
     else if (tier === "unrelated") unrelated.push(r);
