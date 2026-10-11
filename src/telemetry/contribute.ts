@@ -161,12 +161,11 @@ export function queueScanResult(
  * This is separate from the full contribution flow (no findings, no file
  * paths, no contributor identity -- just package name, verdict and
  * score), but it carries the SAME consent requirement. Package name +
- * verdict is scan-result data under the two-bucket telemetry policy
- * (briefs/scan-result-telemetry-policy.md) -- it names what the user
- * scanned, so it is Bucket 2 (opt-in), not Bucket 1 (invocation
- * telemetry, no package names, default-on). Callers MUST gate this on
- * `resolveContributeChoice()`, the same predicate used for
- * queueScanResult -- do not call it unconditionally.
+ * verdict is scan-result data under the two-bucket telemetry policy:
+ * it names what the user scanned, so it is Bucket 2 (opt-in), not
+ * Bucket 1 (invocation telemetry, no package names, default-on).
+ * Callers MUST gate this on `resolveContributeChoice()`, the same
+ * predicate used for queueScanResult -- do not call it unconditionally.
  */
 export function sendScanPing(
   packageName: string,
