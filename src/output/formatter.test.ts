@@ -484,6 +484,58 @@ describe("formatBatchResults", () => {
       // @types/node should appear in the Out of scope section, not Unclassified
       expect(output).not.toContain("unclassified");
     });
+
+    it("shows a package scanned by --scan-missing in the trust table with its verdict", () => {
+      // audit --scan-missing marks each locally scanned package found with
+      // scanStatus "local" but no packageType, so the classifier alone
+      // cannot place it. The user asked for the scan; show its result.
+      const response = makeBatchResponse([
+        makeTrustAnswer({
+          name: "novel-random-pkg",
+          packageType: undefined,
+          scanStatus: "local",
+          trustLevel: 3,
+          trustScore: 0.85,
+          verdict: "safe",
+        }),
+      ]);
+      const output = formatBatchResults(response, 3);
+
+      expect(output).toContain("1 AI package audited");
+      expect(output).not.toContain("unclassified");
+      expect(output).not.toContain("Unclassified");
+      const row = output.split("\n").find((l) => l.includes("novel-random-pkg"));
+      expect(row).toBeDefined();
+      expect(row).toContain("SAFE");
+      expect(row).toContain("Scanned");
+      expect(row).toContain("85");
+      expect(row).toContain("local");
+      expect(output).toContain("The AI package meets minimum trust level 3");
+    });
+
+    it("keeps a locally scanned package named like a library in the trust table", () => {
+      // Every package the registry has not seen is scanned, including names
+      // the library allowlist matches, so a squat's result must stay visible.
+      const response = makeBatchResponse([
+        makeTrustAnswer({ name: "my-mcp", packageType: "mcp_server" }),
+        makeTrustAnswer({
+          name: "@types/squat-pkg",
+          packageType: undefined,
+          scanStatus: "local",
+          trustLevel: 1,
+          trustScore: 0.2,
+          verdict: "warning",
+        }),
+      ]);
+      const output = formatBatchResults(response, 3);
+
+      expect(output).toContain("2 AI packages audited");
+      expect(output).not.toContain("out of scope");
+      expect(output).toContain("1 package(s) below minimum trust level 3");
+      const row = output.split("\n").find((l) => l.includes("@types/squat-pkg") && l.includes("local"));
+      expect(row).toBeDefined();
+      expect(row).toContain("WARNING");
+    });
   });
 
   it("handles case-insensitive scanStatus for error display", () => {
