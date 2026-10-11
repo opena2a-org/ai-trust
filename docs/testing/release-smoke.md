@@ -17,10 +17,21 @@ cd ai-trust
 git status                # clean, or only the branch you intend to ship
 npm ci                    # lockfile valid
 npm run build             # zero output, zero errors
-npm test                  # all green (baseline: 169 tests)
+npm test                  # all green
+npx vitest list | wc -l   # test count; must not be lower than on the last release tag
 ```
 
-Fail the release if any step is red.
+Fail the release if any step is red, or if the test count dropped since the last
+release tag without a changelog line saying which tests were removed and why.
+The baseline is measured, not written down here (a number in this file goes stale
+with the next test added): check the last tag out into a scratch worktree and count
+there.
+
+```bash
+git worktree add /tmp/ai-trust-baseline v0.x.y    # the last release tag
+(cd /tmp/ai-trust-baseline && npm ci && npx vitest list | wc -l)
+git worktree remove /tmp/ai-trust-baseline
+```
 
 ---
 
@@ -172,11 +183,13 @@ $AI check nonexistent-xyz-999 --no-scan; echo "exit: $?"
 # Expected: exit: 2
 
 # R5 — Python packages parsed as pypi ecosystem
-$AI audit /tmp/test-req.txt --json 2>&1 | \
-  python3 -c "import sys,json; d=json.load(sys.stdin); \
-  pkgs=[p for p in d.get('packages',[]) if p.get('ecosystem')=='npm' and 'requirements' in str(d)]; \
-  print('BAD: pypi packages show npm' if pkgs else 'OK')"
-# Expected: OK
+# (< /dev/null keeps the "Scan locally?" prompt from waiting on a terminal)
+$AI audit /tmp/test-req.txt --json < /dev/null 2>/dev/null | \
+  python3 -c "import sys,json; r=json.load(sys.stdin).get('results',[]); \
+  print('OK' if r and all(p.get('ecosystem')=='pypi' for p in r) \
+  else 'BAD: ' + str([(p.get('name'), p.get('ecosystem')) for p in r]))"
+# Expected: OK  (an empty or missing results array, or any entry that is not
+# pypi, prints BAD; so does an error response, which carries no results)
 ```
 
 Fail the release if any regression check does not produce the expected output.
