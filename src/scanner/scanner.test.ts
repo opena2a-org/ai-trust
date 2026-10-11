@@ -334,6 +334,19 @@ describe("readPackageVersion", () => {
     const dir = setupDownloadRaw(null);
     await expect(readPackageVersion(dir, "pypi")).resolves.toBeUndefined();
   });
+
+  it("reads a 200 KB Version header with a lone CR in it without stalling", async () => {
+    // The header comes from the downloaded package. A pattern whose parts
+    // overlap backtracks quadratically on this line (seconds at 200 KB).
+    const dir = setupDownloadRaw(null);
+    writeFileSync(
+      join(dir, "PKG-INFO"),
+      `Metadata-Version: 2.1\nName: demo\nVersion:${" ".repeat(200_000)}a\rb\n`,
+    );
+    const started = performance.now();
+    await expect(readPackageVersion(dir, "pypi")).resolves.toBeUndefined();
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
 });
 
 describe("assertPackageMatchesName (package identity guard)", () => {

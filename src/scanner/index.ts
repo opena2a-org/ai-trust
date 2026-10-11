@@ -209,12 +209,16 @@ function usableVersion(raw: unknown): string | undefined {
   return VERSION_PATTERN.test(v) ? v : undefined;
 }
 
-/** `Version:` from the header block of a Python core-metadata file. */
+/**
+ * `Version:` from the header block of a Python core-metadata file. A prefix
+ * test rather than a regex: the file comes from the downloaded package, and
+ * a pattern like /^Version:\s*(.*)$/ backtracks quadratically on a long line
+ * that holds a lone CR. `usableVersion` trims the value.
+ */
 function metadataVersion(text: string): string | undefined {
   for (const line of text.split(/\r?\n/)) {
     if (line.trim() === "") break;
-    const m = /^Version:\s*(.*)$/.exec(line);
-    if (m) return usableVersion(m[1]);
+    if (line.startsWith("Version:")) return usableVersion(line.slice("Version:".length));
   }
   return undefined;
 }
