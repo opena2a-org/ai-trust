@@ -25,7 +25,7 @@ describe("isHmaAvailable", () => {
     vi.clearAllMocks();
   });
 
-  it("returns true when npx hackmyagent --version succeeds", async () => {
+  it("returns true when the pinned hackmyagent --version succeeds", async () => {
     vi.mocked(execFile as any).mockResolvedValue({
       stdout: "0.10.2",
       stderr: "",
@@ -35,7 +35,7 @@ describe("isHmaAvailable", () => {
     expect(result).toBe(true);
   });
 
-  it("returns false when npx hackmyagent fails", async () => {
+  it("returns false when the pinned hackmyagent fails", async () => {
     vi.mocked(execFile as any).mockRejectedValue(
       new Error("not found")
     );

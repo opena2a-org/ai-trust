@@ -104,7 +104,7 @@ export function registerCheckCommand(program: Command): void {
       if (opts.scanPath) {
         if (!(await isHmaAvailable())) {
           console.error(
-            chalk.red("error: HMA is not available. Install hackmyagent or ensure node_modules/.bin/hackmyagent resolves."),
+            chalk.red("error: HMA is not available. ai-trust runs the hackmyagent version it pins as a dependency, and that copy could not be run. Reinstall ai-trust: npm install -g ai-trust"),
           );
           process.exit(2);
         }
@@ -619,9 +619,9 @@ async function checkHmaReady(): Promise<boolean> {
   const available = await isHmaAvailable();
   if (!available) {
     console.error(
-      "HMA (HackMyAgent) is required for scanning. Install it with:"
+      "HMA (HackMyAgent) is required for scanning. ai-trust runs the hackmyagent version it pins as a dependency, and that copy could not be run. Reinstall ai-trust:"
     );
-    console.error("  npm install -g hackmyagent");
+    console.error("  npm install -g ai-trust");
     process.exitCode = 1;
     return false;
   }
