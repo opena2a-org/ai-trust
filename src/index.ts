@@ -20,6 +20,19 @@ const VERSION: string = pkg.version;
 const TELEMETRY_TOOL = "ai-trust";
 const NON_TRACKED_TELEMETRY_COMMANDS = new Set<string>(["telemetry", "help"]);
 const telemetryStartedAt = new Map<string, number>();
+// The telemetry sender aborts a request after 2 s, but an aborted connect to
+// an address that drops packets (a firewall that drops egress) keeps its
+// socket, and so this process, alive until the socket's own connect timeout,
+// about 10 s. The exit is capped this long after the command finishes.
+const TELEMETRY_EXIT_CAP_MS = 2000;
+
+// Resolves once everything already written to the stream has been handed to
+// the OS, so a forced exit cannot cut off output still queued for a pipe.
+function drained(stream: NodeJS.WriteStream): Promise<void> {
+  return new Promise((resolve) => {
+    stream.write("", () => resolve());
+  });
+}
 
 const program = new Command();
 
@@ -140,6 +153,13 @@ registerConfigCommand(program);
     }
     throw err;
   } finally {
+    const exitDeadline = Date.now() + TELEMETRY_EXIT_CAP_MS;
     await tele.flush();
+    await Promise.all([drained(process.stdout), drained(process.stderr)]);
+    // Unref'd: a process with nothing left to do exits without waiting for it.
+    setTimeout(
+      () => process.exit(process.exitCode ?? 0),
+      Math.max(0, exitDeadline - Date.now()),
+    ).unref();
   }
 })();
