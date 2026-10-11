@@ -122,6 +122,62 @@ describe("runHmaScan", () => {
     expect(result.findings).toHaveLength(1);
   });
 
+  describe("--deep / --no-deep", () => {
+    const hmaJson = JSON.stringify({ score: 75, maxScore: 100, findings: [] });
+
+    /** Arguments of every `secure` invocation, in call order. */
+    function secureCallArgs(): string[][] {
+      return vi
+        .mocked(execFile as any)
+        .mock.calls.map((call: unknown[]) => call[1] as string[])
+        .filter((args: string[]) => args.includes("secure"));
+    }
+
+    it("passes --deep and not --static-only by default", async () => {
+      vi.mocked(execFile as any).mockResolvedValue({ stdout: hmaJson, stderr: "" });
+
+      await runHmaScan("/tmp/test-pkg");
+
+      const [args] = secureCallArgs();
+      expect(args).toContain("--deep");
+      expect(args).not.toContain("--static-only");
+    });
+
+    it("passes --static-only and not --deep when deep is false", async () => {
+      vi.mocked(execFile as any).mockResolvedValue({ stdout: hmaJson, stderr: "" });
+
+      await runHmaScan("/tmp/test-pkg", { deep: false });
+
+      const [args] = secureCallArgs();
+      expect(args).toContain("--static-only");
+      expect(args).not.toContain("--deep");
+      expect(args[args.length - 1]).toBe("/tmp/test-pkg");
+    });
+
+    it("retries without --static-only when an older HMA rejects it", async () => {
+      vi.mocked(execFile as any).mockImplementation(
+        async (_cmd: string, args: string[]) => {
+          if (args.includes("secure") && args.includes("--static-only")) {
+            const error = new Error(
+              "Command failed: hackmyagent secure\nerror: unknown option '--static-only'\n"
+            );
+            (error as any).stdout = "";
+            throw error;
+          }
+          return { stdout: hmaJson, stderr: "" };
+        }
+      );
+
+      const result = await runHmaScan("/tmp/test-pkg", { deep: false });
+
+      expect(result.score).toBe(75);
+      const calls = secureCallArgs();
+      expect(calls).toHaveLength(2);
+      expect(calls[1]).not.toContain("--static-only");
+      expect(calls[1]).not.toContain("--deep");
+    });
+  });
+
   it("throws when HMA produces no JSON", async () => {
     vi.mocked(execFile as any).mockResolvedValue({
       stdout: "Some non-JSON output\nAnother line\n",

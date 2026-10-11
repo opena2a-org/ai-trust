@@ -125,7 +125,10 @@ export async function isHmaAvailable(): Promise<boolean> {
  * @throws If HMA is not available or scan fails to produce valid output
  */
 export interface HmaScanOptions {
-  /** Enable NanoMind semantic analysis via HMA --deep flag. Defaults to true. */
+  /**
+   * Enable NanoMind semantic analysis via HMA --deep flag. Defaults to true.
+   * When false, HMA runs with --static-only (static checks only).
+   */
   deep?: boolean;
   /** Enable AnaLM analysis via HMA --analm flag. Defaults to false. */
   analm?: boolean;
@@ -145,24 +148,35 @@ export async function runHmaScan(
   const args = [...hma.prefixArgs, "secure", "--format", "json", "--no-contribute"];
   if (deep) {
     args.push("--deep");
+  } else {
+    // Without this, HMA still runs its default AST semantic analysis.
+    args.push("--static-only");
   }
   if (analm) {
     args.push("--analm");
   }
   args.push(targetDir);
 
-  try {
-    return await runHmaWithArgs(hma.cmd, args, deep);
-  } catch (err: unknown) {
-    // If --analm caused "unknown option", retry without it (older HMA version)
-    if (analm && isUnknownOptionError(err, "--analm")) {
-      const fallbackArgs = args.filter((a) => a !== "--analm");
-      return runHmaWithArgs(hma.cmd, fallbackArgs, deep);
+  let attemptArgs = args;
+  for (;;) {
+    try {
+      return await runHmaWithArgs(hma.cmd, attemptArgs, deep);
+    } catch (err: unknown) {
+      // If an optional flag caused "unknown option", retry without it (older HMA version)
+      const rejected = OPTIONAL_HMA_FLAGS.find(
+        (flag) => attemptArgs.includes(flag) && isUnknownOptionError(err, flag)
+      );
+      if (!rejected) {
+        const message = err instanceof Error ? err.message : String(err);
+        throw new Error(`HMA scan failed: ${message}`);
+      }
+      attemptArgs = attemptArgs.filter((a) => a !== rejected);
     }
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`HMA scan failed: ${message}`);
   }
 }
+
+/** Flags that older HMA versions may not recognise; the scan retries without them. */
+const OPTIONAL_HMA_FLAGS = ["--static-only", "--analm"];
 
 function isUnknownOptionError(err: unknown, flag: string): boolean {
   if (!err || typeof err !== "object") return false;
