@@ -72,7 +72,7 @@ $AI check @modelcontextprotocol/server-filesystem --no-scan
 $AI check server-filesystem --no-scan     # shorthand resolves to @modelcontextprotocol/server-filesystem
 
 # --- Single check: out-of-scope (Tier 3) ---
-$AI check express --no-scan              # expects "Out of scope" + HMA CTA, exit 2
+$AI check express --no-scan              # expects "Out of scope" + HMA CTA, exit 0
 
 # --- Not found ---
 $AI check @anthropic-ai/claude-code --no-scan   # not in registry, exit 2
@@ -98,7 +98,8 @@ $AI batch                                  # error: no args, exit 1
 For each command verify:
 1. Output is produced — not silent, no hang
 2. No `require is not defined`, `ERR_REQUIRE_ESM`, or unhandled rejection
-3. Exit codes: 0 for success, 1 for errors/high-risk, 2 for not-found/out-of-scope
+3. Exit codes: 0 for safe or out-of-scope, 1 for operational errors, 2 for
+   warning, blocked, below `--min-trust` or not-found (see the README's exit-code table)
 4. No stack traces in normal paths (stderr is acceptable for debug log lines)
 5. No BLOCKED verdict for a general-purpose library like `express` (it must be
    "Out of scope" Tier 3, not "BLOCKED")

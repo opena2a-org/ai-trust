@@ -63,7 +63,7 @@ Use exit codes to gate installs in CI pipelines:
 
 ```bash
 npx ai-trust check @modelcontextprotocol/server-filesystem --no-scan
-# Exit code 0 = safe, exit code 2 = warning or blocked
+# Exit code 0 = safe or out of scope, 1 = operational error, 2 = warning, blocked or not found
 ```
 
 See [Exit Codes](../../README.md#exit-codes) for the full list.
