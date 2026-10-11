@@ -16,6 +16,11 @@ const CHANGELOG = readFileSync(resolve(ROOT, "CHANGELOG.md"), "utf8");
 const MANIFEST_VERSION = (
   JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")) as { version: string }
 ).version;
+const SCANNER_PIN = (
+  JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")) as {
+    dependencies: Record<string, string>;
+  }
+).dependencies.hackmyagent;
 
 const RELEASE_HEADING = /^## (\d+)\.(\d+)\.(\d+) \(\d{4}-\d{2}-\d{2}\)$/;
 
@@ -58,5 +63,41 @@ describe("CHANGELOG.md", () => {
         `${releaseHeadings[i - 1]} must come before ${releaseHeadings[i]} and differ from it`,
       ).toBeGreaterThan(0);
     }
+  });
+
+  // The scanner pin decides which scanner an install resolves, so every move
+  // of it is a user-visible change. The `0.23.11` -> `0.24.0` move went out
+  // with no entry, which left a gap in the pin history. Walking back from the
+  // current pin through the recorded moves must reach every recorded move.
+  it("records every move of the hackmyagent pin, back from the current one", () => {
+    // "Bumped the pinned `hackmyagent` scanner `A` → `B`" (Unreleased entries)
+    const BUMPED = /pinned `hackmyagent` scanner `\^?(\d+\.\d+\.\d+)` → `(\d+\.\d+\.\d+)`/g;
+    // "The `hackmyagent` scanner is pinned exactly at `B`, up from `^A`" (0.7.6)
+    const PINNED_AT =
+      /`hackmyagent` scanner is pinned exactly at `(\d+\.\d+\.\d+)`, up from `\^?(\d+\.\d+\.\d+)`/g;
+    const moves = [
+      ...[...CHANGELOG.matchAll(BUMPED)].map((m) => ({ from: m[1], to: m[2] })),
+      ...[...CHANGELOG.matchAll(PINNED_AT)].map((m) => ({ from: m[2], to: m[1] })),
+    ];
+    expect(moves.length).toBeGreaterThan(0);
+
+    const visited = new Set<number>();
+    let current = SCANNER_PIN.replace(/^[\^~]/, "");
+    for (;;) {
+      const index = moves.findIndex((move, i) => move.to === current && !visited.has(i));
+      if (index === -1) break;
+      visited.add(index);
+      current = moves[index].from;
+    }
+
+    expect(
+      visited.size > 0,
+      `no entry records the move to the current pin hackmyagent ${SCANNER_PIN}`,
+    ).toBe(true);
+    const unreached = moves.filter((_, i) => !visited.has(i));
+    expect(
+      unreached,
+      `no entry records the move to hackmyagent ${current}, so the pin history stops there`,
+    ).toEqual([]);
   });
 });
