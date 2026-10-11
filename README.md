@@ -208,10 +208,12 @@ ai-trust check express --registry-url http://localhost:8080      # custom regist
 |---|---|
 | 0 | Safe: all queried packages are safe and meet the trust threshold |
 | 0 | Out of scope: the package is a general-purpose library, not an AI package, and the registry has not flagged it as warning or blocked |
+| 0 | Local scan: `check --scan-path` finished scanning the directory, whatever the verdict. On this path a warning or blocked verdict does not yet exit 2 |
 | 1 | Operational error: network failure, file not found, server error, or invalid arguments |
-| 2 | Warning or blocked: one or more packages have a warning or blocked verdict |
+| 2 | Warning or blocked: one or more packages have a warning or blocked verdict (except with `check --scan-path`) |
 | 2 | Below threshold: one or more packages fall below `--min-trust` (`audit`, `batch`) |
 | 2 | Not found: a package is not in the registry and was not scanned locally, or does not exist on npm or PyPI |
+| 2 | Local scan could not run: `check --scan-path` found no scanner, or the directory does not exist or could not be scanned |
 
 ## Community contribution
 
