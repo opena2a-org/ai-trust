@@ -6,7 +6,7 @@ Time: 3 min.
 
 ### 1. Enable contribution
 
-The first time you scan a package that has no community trust data, ai-trust asks whether to share the result and saves your answer in `~/.opena2a/config.json`. The setting is shared across all OpenA2A tools (opena2a-cli, hackmyagent, ai-trust).
+`ai-trust check` never asks whether to share: it shares a scan only when contribution is enabled or you pass `--contribute`. `ai-trust audit` on a terminal asks after it scans packages that the registry does not have, unless contribution is already enabled or you pass `--contribute` or `--no-contribute`, and saves your answer in `~/.opena2a/config.json`. The setting is shared across all OpenA2A tools (opena2a-cli, hackmyagent, ai-trust).
 
 To save the preference up front, use opena2a-cli:
 
@@ -17,7 +17,7 @@ opena2a config set contribute true
 To contribute a single scan without saving a preference (non-interactive shells and CI), pass `--contribute`:
 
 ```bash
-ai-trust check some-package --scan-if-missing --contribute
+ai-trust check some-package --contribute
 ```
 
 ### 2. Run scans as usual
