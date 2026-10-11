@@ -201,7 +201,10 @@ Fail the release if any regression check does not produce the expected output.
 **Do NOT point at the production endpoint while smoking.**
 
 ```bash
-export OPENA2A_TELEMETRY_URL=http://127.0.0.1:1/never
+# 192.0.2.1 (TEST-NET-1) is not routed: the connect hangs, as it does behind a
+# firewall that drops egress. A refused port such as 127.0.0.1:1 fails at once
+# and cannot show a stall.
+export OPENA2A_TELEMETRY_URL=http://192.0.2.1/never
 unset OPENA2A_TELEMETRY
 ```
 
@@ -213,7 +216,7 @@ unset OPENA2A_TELEMETRY
 | 5.4 | `node dist/index.js telemetry on` | Re-enables persistently |
 | 5.5 | `OPENA2A_TELEMETRY=off node dist/index.js telemetry status` | `state: off` (env wins) |
 | 5.6 | `OPENA2A_TELEMETRY_DEBUG=print node dist/index.js check express --no-scan 2>&1 \| grep opena2a:telemetry` | JSON payload: `tool: "ai-trust"`, `event: "command"`, `name: "check"`, `success: true`, `duration_ms: <int>`. No PII. |
-| 5.7 | `node dist/index.js check express --no-scan` (unreachable URL) | Completes. Telemetry timeout ≤ 2 s. |
+| 5.7 | `time node dist/index.js check express --no-scan`, then the same with `OPENA2A_TELEMETRY=off` (unreachable URL) | Both complete. Telemetry timeout ≤ 2 s: the first run takes at most about 2 s longer than the second, not about 10 s. |
 
 Fail the release if:
 - Version disclosure line is absent
