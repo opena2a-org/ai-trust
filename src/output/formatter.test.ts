@@ -448,6 +448,23 @@ describe("formatBatchResults", () => {
       expect(output).not.toContain("PACKAGE  ");
     });
 
+    it("lists the library names under Out of scope when only libraries are present", () => {
+      const names = ["react", "vue", "express", "lodash", "chalk"];
+      const response = makeBatchResponse(
+        names.map((name) => makeTrustAnswer({ name, packageType: "library" }))
+      );
+      const output = formatBatchResults(response, 3);
+
+      expect(output).toContain("No AI packages found in 5 dependencies");
+      expect(output).toContain("Out of scope (libraries)");
+      for (const name of names) {
+        expect(output).toContain(name);
+      }
+      expect(output.indexOf("Out of scope (libraries)")).toBeLessThan(
+        output.indexOf("Next Steps")
+      );
+    });
+
     it("library verdicts do not affect the AI package trust threshold check", () => {
       // A blocked library should NOT make the audit fail because it's out of
       // ai-trust's scope — we don't adjudicate general libraries.

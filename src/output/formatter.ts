@@ -125,6 +125,17 @@ function partitionByTier(results: TrustAnswer[]): {
   return { native, unrelated, unknown };
 }
 
+/**
+ * Compact comma-separated preview of out-of-scope library names, shared by
+ * the mixed batch footer and the all-library summary.
+ */
+function outOfScopeNamesLine(unrelated: TrustAnswer[]): string {
+  const names = unrelated.map((r) => r.name);
+  const preview = names.slice(0, 6).join(chalk.dim(", "));
+  const more = names.length > 6 ? chalk.dim(` + ${names.length - 6} more`) : "";
+  return `  ${chalk.dim(preview)}${more}`;
+}
+
 // ── Formatters ────────────────────────────────────────────────────────
 
 // Color tone painters \u2014 CLIs own chalk per the cli-ui contract.
@@ -337,6 +348,8 @@ export function formatBatchResults(
         `  For general security scanning of libraries, use HackMyAgent.`
       )
     );
+    lines.push(divider("Out of scope (libraries)"));
+    lines.push(outOfScopeNamesLine(unrelated));
     lines.push(divider("Next Steps"));
     lines.push(`  ${chalk.cyan("General security scan:")}  npx hackmyagent secure .`);
     if (unknown.length > 0) {
@@ -552,10 +565,7 @@ export function formatBatchResults(
         `  ai-trust is for AI packages. For general security, use HackMyAgent.`
       )
     );
-    const names = unrelated.map((r) => r.name);
-    const preview = names.slice(0, 6).join(chalk.dim(", "));
-    const more = names.length > 6 ? chalk.dim(` + ${names.length - 6} more`) : "";
-    lines.push(`  ${chalk.dim(preview)}${more}`);
+    lines.push(outOfScopeNamesLine(unrelated));
   }
 
   // Unknown: packages we couldn't classify. Surface clearly.
