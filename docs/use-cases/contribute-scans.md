@@ -40,19 +40,28 @@ The OpenA2A Registry uses community-contributed scan data to calculate trust sco
 
 ### 4. What data is shared (and what is not)
 
-**Shared (pseudonymous telemetry):**
+**Shared by ai-trust (pseudonymous telemetry):**
 
-- Package name and version scanned
-- Score, verdict and project type (for example `library` or `mcp_server`)
-- Finding counts by severity (e.g., 0 critical, 1 high, 3 medium)
-- Per security check: check ID, pass/fail, severity, category and attack class
-- Tool name and version, and the timestamp of the scan
-- A contributor token: a pseudonymous per-device identifier, the SHA-256 hash of your hostname, username and a random salt stored only on your machine (`~/.opena2a/contributor-salt`). It links contributions from the same device to each other; it does not contain your hostname or username.
+- Package name, version and ecosystem (`npm` or `pypi`) of the package scanned, and the package type when you pass `--type`
+- Score and maximum score, verdict and project type (for example `library` or `mcp_server`)
+- Check counts: total, passed, and failed by severity (e.g., 0 critical, 1 high, 3 medium), and a duration field that ai-trust always sends as 0
+- Per security check: check ID, pass/fail, severity, category and attack class (the `name` field repeats the check ID and the `message` field is empty)
+- Tool name and version, the kind of event, and the timestamps of the scan and of the submission
+- A contributor token: a pseudonymous per-device identifier, the SHA-256 hash of your hostname, username and a random salt stored only on your machine (`~/.opena2a/contributor-salt`). It links contributions from the same device to each other; it does not contain your hostname or username. The scan ping sends the fixed word `anonymous` in its place.
+
+**Shared by the bundled scanner (hackmyagent), when contribution is saved as on:**
+
+On a default scan (not with `--no-deep`), the scanner sends classification telemetry for the files its NanoMind classifier reads:
+
+- The scanner's name and version
+- Per classified file: the content type (for example `source_code` or `skill`), a SHA-256 hash of the file's content, the classification and its confidence, the verdict, the model version and a timestamp
+
+It carries no package name, no file path and no contributor token. The hash is not the content, but it is the same for anyone who has an identical file. This telemetry follows only the saved choice: `--contribute` on a single scan does not send it, `--no-contribute` does not stop it, and it is also sent when you scan a local directory with `ai-trust check <name> --scan-path <dir>`.
 
 **Never shared:**
 
 - File paths from your system
-- Source code or file contents
+- Source code or file contents (the scanner's classification telemetry carries a hash of each classified file, not the file)
 - Finding names, messages, descriptions or remediation details
 - Your identity, IP address, hostname or username
 
