@@ -1,21 +1,23 @@
 # I want to contribute trust data to the community
 
-Time: 1 minute setup, then automatic.
+Time: 3 min.
 
 ## Steps
 
 ### 1. Enable contribution
 
-```bash
-ai-trust config contribute on
-```
+The first time you scan a package that has no community trust data, ai-trust asks whether to share the result and saves your answer in `~/.opena2a/config.json`. The setting is shared across all OpenA2A tools (opena2a-cli, hackmyagent, ai-trust).
 
-This saves your preference in `~/.opena2a/config.json`. The setting is shared across all OpenA2A tools (opena2a-cli, hackmyagent, ai-trust).
-
-Alternatively, configure via opena2a-cli:
+To save the preference up front, use opena2a-cli:
 
 ```bash
 opena2a config set contribute true
+```
+
+To contribute a single scan without saving a preference (non-interactive shells and CI), pass `--contribute`:
+
+```bash
+ai-trust check some-package --scan-if-missing --contribute
 ```
 
 ### 2. Run scans as usual

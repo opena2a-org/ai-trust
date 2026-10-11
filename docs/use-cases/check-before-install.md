@@ -1,41 +1,51 @@
 # I want to check if a package is safe before installing
 
-Time: 30 seconds.
+Time: 2 min.
 
 ## Steps
 
 ### 1. Run the check command
 
 ```bash
-npx ai-trust check @modelcontextprotocol/server-filesystem
+npx ai-trust check @modelcontextprotocol/server-filesystem --no-scan
 ```
 
-Expected output:
+Expected output (scores and scan ages come from the registry and change over time):
 
 ```
-@modelcontextprotocol/server-filesystem
-  Trust Level: 4 (Verified)
-  Verdict:     safe
-  Scanned:     2026-03-01
-  Findings:    0 critical, 0 high, 2 medium
+  @modelcontextprotocol/server-filesystem  mcp server · scanned 223 days ago (stale)
+  No known issues
+
+  Trust     ━━━━━━━━━━━━━━━━━━━━ 79/100
+  Level     Scanned  Blocked > Warning > Listed > Scanned > Verified
+  Scans     3 community scans
+  Last scan 223 days ago (stale)
+
+  ── Next Steps ──────────────────────────────────────────────
+  → Fresh scan  ai-trust check @modelcontextprotocol/server-filesystem
+  • Full project audit  ai-trust audit package.json
 ```
+
+`--no-scan` reads the registry's answer only. Drop it to download the package and scan it locally with HackMyAgent instead.
 
 ### 2. Read the trust score and factors
 
 The output tells you:
 
-- **Trust Level** -- how thoroughly the package has been evaluated (0-4, higher is better). See [Trust Levels](../../README.md#trust-levels) for the full scale.
-- **Verdict** -- `safe`, `warning`, or `blocked`. This is the actionable recommendation.
-- **Scanned** -- when the last security scan ran. Stale dates may indicate the package needs a re-scan.
-- **Findings** -- count of security findings by severity. Critical or high findings warrant investigation before installing.
+- **Header** -- the package name, its type, and how long ago the registry last scanned it. `(stale)` marks a scan older than 90 days; a fresh local scan gives a current answer.
+- **Verdict line** -- `No known issues`, `Warning — review before installing`, `Blocked by registry`, or `Listed — limited signal` (in the registry, not yet scanned). This is the actionable recommendation.
+- **Trust** -- the registry trust score out of 100. Packages that have not been scanned show `not scanned` instead of a score.
+- **Level** -- how thoroughly the package has been evaluated, on the scale `Blocked > Warning > Listed > Scanned > Verified`. See [Trust Levels](../../README.md#trust-levels) for the full scale.
+- **Scans** and **Last scan** -- how many community scans the registry holds and when the last one ran.
 
 ### 3. Decide whether to install
 
-| Verdict | Action |
+| Verdict line | Action |
 |---------|--------|
-| `safe` | Install with confidence. |
-| `warning` | Review the findings. Run `ai-trust check <package> --json` to see details, then decide. |
-| `blocked` | Do not install. The package has known security issues. Look for an alternative. |
+| `No known issues` | Install. |
+| `Listed — limited signal` | No scan data yet. Run `ai-trust check <package>` (without `--no-scan`) to scan it locally before installing. |
+| `Warning — review before installing` | Run `ai-trust check <package>` for a local scan with the findings listed, then decide. |
+| `Blocked by registry` | Do not install. The package has known security issues. Look for an alternative. |
 
 ## If the package is not in the registry
 
@@ -52,7 +62,7 @@ This downloads the package, runs a local security scan, and returns a trust verd
 Use exit codes to gate installs in CI pipelines:
 
 ```bash
-npx ai-trust check @modelcontextprotocol/server-filesystem
+npx ai-trust check @modelcontextprotocol/server-filesystem --no-scan
 # Exit code 0 = safe, exit code 2 = warning or blocked
 ```
 

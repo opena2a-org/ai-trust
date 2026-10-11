@@ -1,36 +1,46 @@
 # I want to verify an MCP server's trust score
 
-Time: 30 seconds.
+Time: 3 min.
 
 ## Steps
 
 ### 1. Run the check command with shorthand
 
-MCP servers support shorthand resolution, so you do not need to type the full package name:
+Servers published under `@modelcontextprotocol` support shorthand, so you do not need to type the scope:
 
 ```bash
-npx ai-trust check stripe
+npx ai-trust check server-filesystem --no-scan
 ```
 
-This resolves to the full MCP server package name automatically. Other shorthand examples:
+Expected output (scores and scan ages come from the registry and change over time):
+
+```
+Resolved: server-filesystem -> @modelcontextprotocol/server-filesystem
+
+  @modelcontextprotocol/server-filesystem  mcp server · scanned 223 days ago (stale)
+  No known issues
+
+  Trust     ━━━━━━━━━━━━━━━━━━━━ 79/100
+  Level     Scanned  Blocked > Warning > Listed > Scanned > Verified
+  Scans     3 community scans
+  Last scan 223 days ago (stale)
+
+  ── Next Steps ──────────────────────────────────────────────
+  → Fresh scan  ai-trust check @modelcontextprotocol/server-filesystem
+  • Full project audit  ai-trust audit package.json
+```
+
+`--no-scan` reads the registry's answer only. Drop it to download the package and scan it locally with HackMyAgent instead.
+
+Shorthand rules:
 
 ```bash
-ai-trust check server-filesystem    # resolves to @modelcontextprotocol/server-filesystem
-ai-trust check mcp-server-fetch     # resolves to @modelcontextprotocol/server-fetch
-ai-trust check server-github        # resolves to @modelcontextprotocol/server-github
+ai-trust check server-github            # resolves to @modelcontextprotocol/server-github
+ai-trust check mcp/server-memory        # resolves to @modelcontextprotocol/server-memory
+ai-trust check mcp-server-kubernetes    # third-party package, looked up by its own name
 ```
 
-Shorthand rules: `server-*` and `mcp-server-*` prefixes resolve to `@modelcontextprotocol/server-*`.
-
-Expected output:
-
-```
-@modelcontextprotocol/server-stripe
-  Trust Level: 3 (Scanned)
-  Verdict:     safe
-  Scanned:     2026-02-15
-  Findings:    0 critical, 0 high, 1 medium
-```
+`server-*` and `mcp/server-*` resolve to `@modelcontextprotocol/server-*`. Every other name, including third-party `mcp-server-*` packages, is looked up as written.
 
 ### 2. Understand trust levels
 
@@ -51,32 +61,30 @@ A trust level of 3 or higher is generally safe to use. Levels 0-1 require invest
 For scripting or CI integration, use the `--json` flag:
 
 ```bash
-npx ai-trust check stripe --json
+npx ai-trust check server-filesystem --no-scan --json
 ```
 
-Expected output:
+Expected output on stdout (the `Resolved:` note goes to stderr, so stdout stays parseable):
 
 ```json
 {
-  "name": "@modelcontextprotocol/server-stripe",
+  "name": "@modelcontextprotocol/server-filesystem",
+  "source": "registry",
+  "found": true,
+  "packageType": "mcp_server",
+  "verdict": "passed",
   "trustLevel": 3,
-  "trustLabel": "Scanned",
-  "verdict": "safe",
-  "scannedAt": "2026-02-15T00:00:00.000Z",
-  "findings": {
-    "critical": 0,
-    "high": 0,
-    "medium": 1,
-    "low": 3
-  }
+  "trustScore": 0.7866666666666666
 }
 ```
+
+`trustLevel` uses the 0-4 scale above. `trustScore` is the registry score from 0 to 1 (the text output shows it out of 100). Without `--no-scan`, `--json` prints the local scan result instead (`"source": "scan"`, with `score`, `maxScore` and any failed `findings`).
 
 This output can be parsed by `jq`, piped into other tools, or used in CI gates:
 
 ```bash
 # Fail CI if the trust level is below 3
-TRUST=$(npx ai-trust check stripe --json | jq '.trustLevel')
+TRUST=$(npx ai-trust check server-filesystem --no-scan --json | jq '.trustLevel')
 if [ "$TRUST" -lt 3 ]; then
   echo "Trust level too low: $TRUST"
   exit 1
