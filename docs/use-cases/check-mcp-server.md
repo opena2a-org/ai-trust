@@ -44,7 +44,7 @@ Trust levels indicate how thoroughly a package has been evaluated:
 | 3 | Scanned | The package has been scanned by HackMyAgent with no blocking findings. |
 | 4 | Verified | The package publisher has verified its identity and the scan results. |
 
-A trust level of 3 or higher is generally safe to use. Levels 0-1 require investigation. Level 2 means no scan data is available yet -- consider running a local scan with `--scan-if-missing`.
+A trust level of 3 or higher is generally safe to use. Levels 0-1 require investigation. Level 2 means the registry has no scan data yet -- `ai-trust check <package>` without `--no-scan` scans it locally.
 
 ### 3. Get programmatic output
 

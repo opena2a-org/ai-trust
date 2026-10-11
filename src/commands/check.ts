@@ -1,8 +1,9 @@
 /**
- * ai-trust check - Single package trust lookup with scan-on-demand.
+ * ai-trust check - Single package trust check.
  *
- * When a package isn't in the registry, offers to scan it locally with HMA
- * and optionally contribute results to the community registry.
+ * By default, downloads the package and scans it locally with HMA, whether
+ * or not the registry has it, and optionally contributes the results to the
+ * community registry. --no-scan returns the registry's answer only.
  */
 
 import chalk from "chalk";
@@ -58,14 +59,14 @@ interface CheckOptions {
 export function registerCheckCommand(program: Command): void {
   const checkCmd = program
     .command("check <name>")
-    .description("Look up trust information for a single package")
+    .description("Download and scan a single package, then report its trust verdict")
     .option(
       "-t, --type <type>",
       "package type filter (mcp_server, a2a_agent, ai_tool, etc.)"
     )
     .option(
       "--scan-if-missing",
-      "auto-scan packages not in registry (non-interactive)"
+      "deprecated (every package is scanned by default)"
     )
     .option(
       "--contribute",
@@ -320,7 +321,7 @@ export function registerCheckCommand(program: Command): void {
 Examples:
   ${cite} @modelcontextprotocol/server-filesystem
   ${cite} some-mcp-server --no-scan
-  ${cite} unknown-pkg --scan-if-missing
+  ${cite} unknown-pkg --contribute
   ${cite} some-pkg --json
 `;
   });
@@ -617,7 +618,8 @@ function handleNoScanNotFound(
       ecosystem,
       error: `Package "${name}" not found in the OpenA2A Registry.`,
       nextSteps: [
-        `${checkCitation()} ${name} --scan-if-missing`,
+        // Without --no-scan, check downloads and scans the package.
+        `${checkCitation()} ${name}`,
         `npx hackmyagent secure <project-dir>`,
       ],
     })));
