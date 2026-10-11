@@ -140,9 +140,11 @@ Parse dependency files and audit AI packages. Supports `.json` (package.json for
 ```bash
 ai-trust audit package.json
 ai-trust audit requirements.txt
-ai-trust audit package.json --min-trust 3                      # stricter threshold (default 2)
+ai-trust audit package.json --min-trust 3                      # require a scan (default 2)
 ai-trust audit package.json --scan-missing --contribute        # scan unknown AI packages
 ```
+
+`--min-trust` defaults to 2 (Listed), so a package that is listed but not yet scanned meets the threshold and exits 0. Pass `--min-trust 3` to fail the gate on any package without a HackMyAgent scan.
 
 Example output for the sample project in [`docs/demo/package.json`](docs/demo/package.json) (five MCP packages, five libraries):
 
@@ -179,7 +181,7 @@ ai-trust batch my-server-a my-server-b --type mcp_server
 ai-trust batch react vue express lodash chalk
 ```
 
-Flags: `--type`, `--min-trust`.
+Flags: `--type`, `--min-trust` (trust level 0-4, default 2).
 
 ## Output options
 
