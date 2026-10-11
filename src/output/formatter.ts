@@ -589,9 +589,15 @@ export function formatBatchResults(
     for (const pkg of belowThreshold) {
       const tlc = trustLevelColor(pkg.trustLevel);
       const pkgScore = Math.round(pkg.trustScore * 100);
-      const scoreSection = isScanErrorStatus(pkg.scanStatus)
-        ? chalk.red.bold("Error") + chalk.dim(" \u2014 rescan for accurate score")
-        : scoreMeter(pkgScore);
+      // Same condition that renders "--" in the table: no scan, no number.
+      let scoreSection: string;
+      if (isScanErrorStatus(pkg.scanStatus)) {
+        scoreSection = chalk.red.bold("Error") + chalk.dim(" \u2014 rescan for accurate score");
+      } else if (formatScore(pkg.trustScore, pkg.scanStatus) === "Not scanned") {
+        scoreSection = chalk.dim("not scanned");
+      } else {
+        scoreSection = scoreMeter(pkgScore);
+      }
       lines.push(
         `  ${chalk.yellow("\u2502")} ${pkg.name}  ${scoreSection}  ${tlc(trustLevelLabel(pkg.trustLevel))} ${chalk.dim(`(${pkg.trustLevel}/4)`)}`
       );

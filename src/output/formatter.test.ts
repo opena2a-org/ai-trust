@@ -421,6 +421,46 @@ describe("formatBatchResults", () => {
     expect(output).toContain("risky-pkg");
   });
 
+  it("shows 'not scanned' instead of 0/100 for an unscanned package below the threshold", () => {
+    const response = makeBatchResponse([
+      makeTrustAnswer({
+        name: "unscanned-pkg",
+        trustLevel: 2,
+        trustScore: 0,
+        verdict: "listed",
+        scanStatus: "",
+      }),
+    ]);
+    const output = formatBatchResults(response, 3);
+
+    const summaryLine = output
+      .split("\n")
+      .find((l) => l.includes("│") && l.includes("unscanned-pkg"));
+    expect(summaryLine).toBeDefined();
+    expect(summaryLine).toContain("not scanned");
+    expect(summaryLine).toContain("Listed (2/4)");
+    expect(output).not.toContain("0/100");
+  });
+
+  it("keeps the score meter for a scanned package below the threshold", () => {
+    const response = makeBatchResponse([
+      makeTrustAnswer({
+        name: "scanned-pkg",
+        trustLevel: 1,
+        trustScore: 0.42,
+        verdict: "warning",
+        scanStatus: "warnings",
+      }),
+    ]);
+    const output = formatBatchResults(response, 3);
+
+    const summaryLine = output
+      .split("\n")
+      .find((l) => l.includes("│") && l.includes("scanned-pkg"));
+    expect(summaryLine).toContain("42/100");
+    expect(summaryLine).not.toContain("not scanned");
+  });
+
   it("reports not-found packages with NO DATA and scan guidance", () => {
     const response = makeBatchResponse([
       makeTrustAnswer({ name: "missing-pkg", found: false }),
