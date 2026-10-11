@@ -7,7 +7,7 @@ export type { DownloadResult } from "./downloader.js";
 export { isHmaAvailable, runHmaScan } from "./hma.js";
 export type { HmaScanResult, HmaFinding, SemanticFinding, AnalystFinding, HmaScanOptions } from "./hma.js";
 
-import { readFile, stat } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { downloadPackage } from "./downloader.js";
 import { runHmaScan } from "./hma.js";
@@ -15,6 +15,11 @@ import type { HmaScanResult, SemanticFinding, AnalystFinding, HmaScanOptions } f
 
 export interface ScanResult {
   packageName: string;
+  /**
+   * Version of the downloaded package, read from its own manifest. Absent for
+   * local-path scans and when the manifest carries no usable version.
+   */
+  packageVersion?: string;
   scan: HmaScanResult;
   /** Trust score derived from HMA score (0.0-1.0) */
   trustScore: number;
@@ -80,6 +85,7 @@ export async function scanPackage(
     if (ecosystem === "npm") {
       await assertPackageMatchesName(download.dir, name);
     }
+    const packageVersion = await readPackageVersion(download.dir, ecosystem);
     const scan = await runHmaScan(download.dir, options);
 
     // Filter out local-dev-only findings that are meaningless for downloaded packages.
@@ -128,6 +134,10 @@ export async function scanPackage(
       trustLevel,
       verdict,
     };
+
+    if (packageVersion !== undefined) {
+      result.packageVersion = packageVersion;
+    }
 
     if (scan.semanticFindings && scan.semanticFindings.length > 0) {
       result.semanticFindings = scan.semanticFindings;
@@ -184,6 +194,68 @@ export async function scanLocalPath(
     result.analystFindings = scan.analystFindings;
   }
   return result;
+}
+
+/**
+ * Shape a published version must have: npm semver and PEP 440 versions both
+ * fit. Anything else (whitespace, quotes, a long string) is not a version and
+ * is dropped rather than sent to the registry.
+ */
+const VERSION_PATTERN = /^[0-9A-Za-z][0-9A-Za-z.+!_-]{0,63}$/;
+
+function usableVersion(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const v = raw.trim();
+  return VERSION_PATTERN.test(v) ? v : undefined;
+}
+
+/** `Version:` from the header block of a Python core-metadata file. */
+function metadataVersion(text: string): string | undefined {
+  for (const line of text.split(/\r?\n/)) {
+    if (line.trim() === "") break;
+    const m = /^Version:\s*(.*)$/.exec(line);
+    if (m) return usableVersion(m[1]);
+  }
+  return undefined;
+}
+
+/**
+ * Read the version of the package that was actually downloaded, from its own
+ * manifest: `version` in package.json for npm, and the `Version:` header of
+ * PKG-INFO (sdist) or `*.dist-info/METADATA` (wheel) for PyPI. Returns
+ * undefined when no usable version is found; the scan is then published
+ * without one.
+ */
+export async function readPackageVersion(
+  dir: string,
+  ecosystem: "npm" | "pypi",
+): Promise<string | undefined> {
+  if (ecosystem === "npm") {
+    try {
+      const parsed = JSON.parse(await readFile(join(dir, "package.json"), "utf8")) as { version?: unknown };
+      return usableVersion(parsed.version);
+    } catch {
+      return undefined;
+    }
+  }
+
+  const candidates = [join(dir, "PKG-INFO")];
+  try {
+    for (const entry of await readdir(dir)) {
+      if (entry.endsWith(".dist-info")) candidates.push(join(dir, entry, "METADATA"));
+    }
+  } catch {
+    return undefined;
+  }
+  for (const file of candidates) {
+    try {
+      const version = metadataVersion(await readFile(file, "utf8"));
+      if (version !== undefined) return version;
+    } catch {
+      // Not present in this layout; try the next candidate.
+    }
+  }
+  return undefined;
 }
 
 /**

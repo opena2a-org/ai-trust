@@ -24,6 +24,7 @@ import {
   saveContributeChoice,
   sendScanPing,
 } from "../telemetry/index.js";
+import { buildScanSubmission } from "../telemetry/publish.js";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
@@ -329,7 +330,7 @@ async function handleAuditContribution(
 
   try {
     for (const { name, scanResult } of scannedResults) {
-      queueScanResult(name, scanResult.scan.findings, 0, ecosystem);
+      queueScanResult(name, scanResult.scan.findings, 0, ecosystem, scanResult.packageVersion);
     }
     const ok = await flushQueue(registryUrl);
     if (ok) {
@@ -343,7 +344,7 @@ async function handleAuditContribution(
     // Non-fatal
   }
 
-  // Publish full findings via unified endpoint for evidence correlation + consensus.
+  // Publish per-check results via unified endpoint for evidence correlation + consensus.
   // ai-trust is NOT first_party_scanner; when run in our own CI (AI_TRUST_CI_SIGNING_KEY
   // set, Secretless env-only) the bulk audit self-tags source=ci. End-user runs (no key)
   // publish as community — the safe default.
@@ -357,25 +358,10 @@ async function handleAuditContribution(
   });
   for (const { name, scanResult } of scannedResults) {
     try {
-      await client.publishScan({
-        name,
-        score: scanResult.scan.score,
-        maxScore: scanResult.scan.maxScore,
-        tool: "ai-trust",
-        toolVersion: AI_TRUST_VERSION,
-        verdict: scanResult.verdict === "blocked" ? "fail" : scanResult.verdict === "warning" ? "warn" : "pass",
-        findings: scanResult.scan.findings.map(f => ({
-          checkId: f.checkId,
-          name: f.name,
-          severity: f.severity,
-          passed: f.passed,
-          message: f.message ?? "",
-          category: f.category,
-          attackClass: f.attackClass,
-        })),
-        projectType: scanResult.scan.projectType,
-        scanTimestamp: new Date().toISOString(),
-      }, signer);
+      await client.publishScan(
+        buildScanSubmission(name, scanResult, { toolVersion: AI_TRUST_VERSION }),
+        signer,
+      );
     } catch {
       // Non-fatal: contribution should never crash the audit
     }

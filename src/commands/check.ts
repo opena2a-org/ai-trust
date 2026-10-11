@@ -31,6 +31,7 @@ import {
   saveContributeChoice,
   sendScanPing,
 } from "../telemetry/index.js";
+import { buildScanSubmission } from "../telemetry/publish.js";
 import { checkSkillOrMcp, parseRichTarget } from "../check/skill-mcp-check.js";
 import { checkCitation } from "../utils/cli-prefix.js";
 import { buildCheckJson } from "../output/check-json.js";
@@ -556,7 +557,7 @@ async function submitContribution(
   opts?: { type?: string }
 ): Promise<void> {
   try {
-    queueScanResult(name, scanResult.scan.findings);
+    queueScanResult(name, scanResult.scan.findings, 0, "npm", scanResult.packageVersion);
     const ok = await flushQueue(registryUrl);
     if (ok) {
       console.error(
@@ -567,7 +568,7 @@ async function submitContribution(
     // Non-fatal: contribution should never crash the scan
   }
 
-  // Publish full findings via unified endpoint for evidence correlation + consensus
+  // Publish per-check results via unified endpoint for evidence correlation + consensus
   try {
     const client = createRegistryClient({
       baseUrl: registryUrl,
@@ -579,26 +580,10 @@ async function submitContribution(
       keyEnv: "AI_TRUST_CI_SIGNING_KEY",
       source: "ci",
     });
-    const resp = await client.publishScan({
-      name,
-      type: opts?.type,
-      score: scanResult.scan.score,
-      maxScore: scanResult.scan.maxScore,
-      tool: "ai-trust",
-      toolVersion: AI_TRUST_VERSION,
-      verdict: scanResult.verdict === "blocked" ? "fail" : scanResult.verdict === "warning" ? "warn" : "pass",
-      findings: scanResult.scan.findings.map(f => ({
-        checkId: f.checkId,
-        name: f.name,
-        severity: f.severity,
-        passed: f.passed,
-        message: f.message ?? "",
-        category: f.category,
-        attackClass: f.attackClass,
-      })),
-      projectType: scanResult.scan.projectType,
-      scanTimestamp: new Date().toISOString(),
-    }, signer);
+    const resp = await client.publishScan(
+      buildScanSubmission(name, scanResult, { toolVersion: AI_TRUST_VERSION, type: opts?.type }),
+      signer,
+    );
     if (resp.publishId) {
       console.error(chalk.dim(`  Published to registry (${resp.publishId.slice(0, 8)})`));
     }

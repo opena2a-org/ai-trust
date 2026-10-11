@@ -40,19 +40,21 @@ The OpenA2A Registry uses community-contributed scan data to calculate trust sco
 
 ### 4. What data is shared (and what is not)
 
-**Shared (anonymized telemetry):**
+**Shared (pseudonymous telemetry):**
 
 - Package name and version scanned
+- Score, verdict and project type (for example `library` or `mcp_server`)
 - Finding counts by severity (e.g., 0 critical, 1 high, 3 medium)
-- Check pass/fail status per security rule
-- Timestamp of the scan
+- Per security check: check ID, pass/fail, severity, category and attack class
+- Tool name and version, and the timestamp of the scan
+- A contributor token: a pseudonymous per-device identifier, the SHA-256 hash of your hostname, username and a random salt stored only on your machine (`~/.opena2a/contributor-salt`). It links contributions from the same device to each other; it does not contain your hostname or username.
 
 **Never shared:**
 
 - File paths from your system
 - Source code or file contents
-- Finding descriptions or remediation details
-- Your identity, IP address, or machine information
+- Finding names, messages, descriptions or remediation details
+- Your identity, IP address, hostname or username
 
 ## Opt out at any time
 
@@ -68,4 +70,4 @@ Or:
 opena2a config set contribute false
 ```
 
-Your local scan results continue to work. Only the anonymous telemetry submission stops.
+Your local scan results continue to work. Only the telemetry submission stops.
