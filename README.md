@@ -236,11 +236,11 @@ More scans contributed means packages move from "Listed" to "Scanned" faster, re
 
 ## Using with opena2a-cli
 
-[`opena2a-cli`](https://github.com/opena2a-org/opena2a) is the unified CLI for the OpenA2A security toolchain. ai-trust powers `opena2a trust`.
+[`opena2a-cli`](https://github.com/opena2a-org/opena2a) is the unified CLI for the OpenA2A security toolchain. ai-trust powers `opena2a registry`.
 
 ```bash
 npm install -g opena2a-cli
-opena2a trust @modelcontextprotocol/server-filesystem
+opena2a registry @modelcontextprotocol/server-filesystem
 opena2a review                              # full security dashboard
 ```
 
