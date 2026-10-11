@@ -141,3 +141,29 @@ describe("message names the lead finding (action-oriented)", () => {
     expect(local.message).toContain("Fix before using in production");
   });
 });
+
+describe("local remediation names a command the user can run", () => {
+  // ai-trust has no `secure` command; the remediation lives in hackmyagent.
+  // A bare `secure --fix` is a dead end for anyone who copies it.
+  const bareSecureFix = /(?<!npx hackmyagent )secure --fix/;
+
+  it("warning (local) points at `npx hackmyagent secure --fix`", () => {
+    const v = buildScoreAwareVerdict("warning", counts({ high: 1 }), [finding()], {
+      kind: "repo",
+      remote: false,
+    });
+    expect(v.message).toContain("npx hackmyagent secure --fix");
+    expect(v.message).not.toMatch(bareSecureFix);
+  });
+
+  it("safe with minor findings (local) points at `npx hackmyagent secure --fix`", () => {
+    const v = buildScoreAwareVerdict(
+      "safe",
+      counts({ low: 1 }),
+      [finding({ severity: "low", name: "Dependency Lock File", file: "package-lock.json" })],
+      { kind: "library", remote: false },
+    );
+    expect(v.message).toContain("npx hackmyagent secure --fix");
+    expect(v.message).not.toMatch(bareSecureFix);
+  });
+});
