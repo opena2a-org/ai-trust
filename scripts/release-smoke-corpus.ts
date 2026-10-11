@@ -23,9 +23,9 @@
  * which keeps golden snapshots comparable. This script is consumer-local;
  * it does NOT share code with HMA's release-smoke-corpus.
  *
- * Exit code 0 = green (no actual failures), 1 = drift, 2 = setup error.
+ * Exit code 0 = green (no actual failures), 1 = drift, 2 = setup error,
+ * 130/143 = interrupted by SIGINT/SIGTERM (temp directory removed).
  */
-import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   readFileSync,
@@ -35,33 +35,34 @@ import {
   mkdirSync,
   mkdtempSync,
   copyFileSync,
-  rmSync,
   writeFileSync,
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
+import {
+  downloadClassifierModels,
+  harnessChildEnv,
+  modelDownloadDetail,
+  removeOnExitOrSignal,
+  runNode,
+} from './lib/corpus-harness.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // Every scan runs with a HOME owned by this harness, under its own temp
-// directory, removed on exit. The scanner's NanoMind classifier picks its
-// model files up from the scanning user's home (`~/.nanomind/models` and
-// `~/.opena2a/nanomind/models`), and which files sit there decides which
-// classifier tier answers and therefore which findings a fixture gets. The
-// goldens are recorded with the scanner's own pinned, downloaded set and no
-// other model files, so the caller's home must be invisible to the scan.
+// directory, removed on exit and on SIGINT or SIGTERM. The scanner's NanoMind
+// classifier picks its model files up from the scanning user's home
+// (`~/.nanomind/models` and `~/.opena2a/nanomind/models`), and which files sit
+// there decides which classifier tier answers and therefore which findings a
+// fixture gets. The goldens are recorded with the scanner's own pinned,
+// downloaded set and no other model files, so the caller's home must be
+// invisible to the scan.
 const HARNESS_TMP = mkdtempSync(join(tmpdir(), 'ai-trust-corpus-'));
 const HARNESS_HOME = join(HARNESS_TMP, 'home');
-process.on('exit', () => {
-  try {
-    rmSync(HARNESS_TMP, { recursive: true, force: true });
-  } catch {
-    /* best effort */
-  }
-});
+removeOnExitOrSignal(HARNESS_TMP);
 
 interface FixtureManifest {
   fixture: string;
@@ -141,36 +142,27 @@ function pinnedModelFiles(): PinnedModelFile[] {
   return pins;
 }
 
-// The environment every child runs with. The caller's API key is removed so
-// the scanner's semantic layer (a remote model call behind --deep) never
-// runs; HOME points at the harness home; the two variables that would point
-// the scanner back at the caller's state directory or at a classifier daemon
-// of the caller's choosing are removed as well. Usage telemetry is switched
-// off with OPENA2A_TELEMETRY, the variable @opena2a/telemetry reads in both
-// ai-trust and the scanner: a harness HOME holds no saved opt-out, so without
-// it every scan would send usage events, and test runs are not users.
+// The environment every child runs with is an allow-list (see
+// harnessChildEnv): PATH, the temp, proxy and CA variables, and the harness's
+// own. The caller's API key never reaches a scan, so the scanner's semantic
+// layer (a remote model call behind --deep) never runs; HOME points at the
+// harness home; usage telemetry is switched off with OPENA2A_TELEMETRY, the
+// variable @opena2a/telemetry reads in both ai-trust and the scanner.
 function childEnv(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    OPENA2A_CORPUS_DETERMINISTIC: '1',
-    OPENA2A_TELEMETRY: 'off',
-    HOME: HARNESS_HOME,
-    USERPROFILE: HARNESS_HOME,
-  };
-  delete env.ANTHROPIC_API_KEY;
-  delete env.OPENA2A_HOME;
-  delete env.NANOMIND_URL;
-  return env;
+  return harnessChildEnv(process.env, HARNESS_HOME);
 }
+
+const MODEL_DOWNLOAD_TIMEOUT_MS = 300_000;
 
 /**
  * Put the scanner's pinned classifier model set into the harness home and
  * verify every file's sha256 against the pin before any scan runs. Files are
  * copied from the caller's `~/.nanomind/models` when their hashes match;
  * otherwise the scanner's own downloader fetches them into the harness home.
- * A set that cannot be obtained is a setup error (exit 2), not drift.
+ * A set that cannot be obtained is a setup error (exit 2), not drift; the
+ * message carries what the downloader reported.
  */
-function prepareClassifierModels(): PinnedModelFile[] {
+async function prepareClassifierModels(): Promise<PinnedModelFile[]> {
   const pins = pinnedModelFiles();
   mkdirSync(HARNESS_MODEL_DIR, { recursive: true });
   const toFetch: PinnedModelFile[] = [];
@@ -182,25 +174,26 @@ function prepareClassifierModels(): PinnedModelFile[] {
       toFetch.push(pin);
     }
   }
-  if (toFetch.length > 0) {
-    // The scanner's downloader skips files already present, verifies the
-    // sha256 of each file it fetches and removes a file that fails.
-    const script =
-      'require(process.argv[1]).TMEClassifier.downloadModel(process.argv[2], true)' +
-      '.then((ok) => process.exit(ok ? 0 : 1), () => process.exit(1));';
-    spawnSync(
-      process.execPath,
-      ['-e', script, SCANNER_CLASSIFIER_SOURCE, HARNESS_MODEL_DIR],
-      { env: childEnv(), encoding: 'utf8', timeout: 300_000, stdio: 'ignore' },
-    );
-  }
+  const download =
+    toFetch.length > 0
+      ? await downloadClassifierModels(
+          SCANNER_CLASSIFIER_SOURCE,
+          HARNESS_MODEL_DIR,
+          childEnv(),
+          MODEL_DOWNLOAD_TIMEOUT_MS,
+        )
+      : undefined;
   for (const pin of pins) {
     const dest = join(HARNESS_MODEL_DIR, pin.name);
     if (!existsSync(dest)) {
+      const detail = download
+        ? `the scanner's downloader could not fetch it:\n` +
+          modelDownloadDetail(download, MODEL_DOWNLOAD_TIMEOUT_MS)
+        : `no download was attempted.`;
       fail(
         `classifier model file ${pin.name} is missing (pinned sha256 ${pin.sha256} in ` +
           `${SCANNER_CLASSIFIER_SOURCE}); it was not in ${CALLER_MODEL_DIR} with that hash ` +
-          `and the scanner could not download it. No golden was compared.`,
+          `and ${detail}\nNo golden was compared.`,
       );
     }
     const got = sha256Of(dest);
@@ -255,17 +248,16 @@ interface AiTrustResult {
   severities: Record<string, number>;
 }
 
-function runAiTrustScanPath(label: string, dir: string): AiTrustResult {
+async function runAiTrustScanPath(label: string, dir: string): Promise<AiTrustResult> {
   // With ANTHROPIC_API_KEY present the scanner's --deep path calls a remote
-  // model, which changes every score and finding set (and can exceed the
+  // model, which can change the score and finding set (and can exceed the
   // deep-scan timeout). Goldens must not depend on whether the caller's shell
   // holds a key, so the child never sees it; see childEnv for the rest.
-  const r = spawnSync(
-    process.execPath,
+  const r = await runNode(
     [AI_TRUST_CLI, 'check', label, '--scan-path', dir, '--json'],
-    { encoding: 'utf8', env: childEnv(), maxBuffer: 16 * 1024 * 1024 },
+    childEnv(),
   );
-  const stdout = r.stdout ?? '';
+  const stdout = r.stdout;
   const jsonStart = stdout.indexOf('{');
   if (jsonStart < 0) {
     return { score: -1, trustLevel: -1, verdict: 'error', findings: [], severities: {} };
@@ -318,13 +310,13 @@ function renderGolden(r: AiTrustResult): string {
   ].join('\n');
 }
 
-function main(): void {
+async function main(): Promise<void> {
   if (!existsSync(AI_TRUST_CLI)) {
     fail(`dist/index.js not built. run \`npm run build\` first.`);
   }
   const corpus = loadCorpusManifest();
   const surfaces = consumerSurfaces(corpus);
-  const pins = prepareClassifierModels();
+  const pins = await prepareClassifierModels();
   process.stdout.write(
     `release-smoke-corpus: ${corpus.corpusName} ${corpus.corpusVersion}\n` +
       `consumer: ${CONSUMER_NAME}, surfaces: ${surfaces.join(',')}\n` +
@@ -365,7 +357,7 @@ function main(): void {
           skip++;
           continue;
         }
-        const result = runAiTrustScanPath(fixtureRel, fixtureDir);
+        const result = await runAiTrustScanPath(fixtureRel, fixtureDir);
         const reasons: string[] = [];
         if (result.score === -1) {
           reasons.push(`ai-trust returned no parsable result (verdict=${result.verdict})`);
@@ -413,4 +405,6 @@ function main(): void {
   process.exit(fail_ === 0 ? 0 : 1);
 }
 
-main();
+main().catch((err: unknown) => {
+  fail(err instanceof Error ? (err.stack ?? err.message) : String(err));
+});
