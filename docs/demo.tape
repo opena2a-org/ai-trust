@@ -1,15 +1,34 @@
 # ai-trust — trust verification for AI packages
-# Run: vhs docs/demo.tape
+#
+# Record from the repository root after a build:
+#   npm run build && vhs docs/demo.tape
+#
+# Every frame is live output: the tape runs the build in dist/ against the
+# public registry. It does not replay saved output. The audit step uses the
+# sample project in docs/demo/package.json.
 
 Output docs/ai-trust-demo.gif
 
-Set Width 950
-Set Height 550
+Set Shell "bash"
+Set Width 1000
+Set Height 600
 Set FontSize 14
 Set FontFamily "JetBrains Mono"
 Set Theme "Catppuccin Mocha"
-Set TypingSpeed 50ms
+Set TypingSpeed 40ms
 Set Padding 15
+
+Hide
+Type `unset CI; alias ai-trust="node $PWD/dist/index.js"; cd docs/demo; PS1='$ '; clear`
+Enter
+Sleep 1s
+Show
+
+Sleep 500ms
+Type "ai-trust check @modelcontextprotocol/server-filesystem --no-scan"
+Sleep 500ms
+Enter
+Sleep 6s
 
 Hide
 Type "clear"
@@ -17,15 +36,8 @@ Enter
 Sleep 500ms
 Show
 
-Sleep 1s
+Sleep 500ms
 Type "ai-trust audit package.json"
-Sleep 2s
+Sleep 500ms
 Enter
-
-Hide
-Type "cat /tmp/ai-trust-demo-output.txt"
-Enter
-Sleep 2s
-Show
-
-Sleep 8s
+Sleep 9s

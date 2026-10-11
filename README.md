@@ -17,23 +17,26 @@ For general-purpose libraries (express, typescript, chalk, etc.) use [HackMyAgen
 ## Quick start
 
 ```bash
-npx ai-trust check @modelcontextprotocol/server-filesystem
+npx ai-trust check @modelcontextprotocol/server-filesystem --no-scan
 ```
 
 ```
-  @modelcontextprotocol/server-filesystem  mcp_server · scanned 2 days ago
+  @modelcontextprotocol/server-filesystem  mcp server · scanned 223 days ago (stale)
   No known issues
 
-  Trust     ━━━━━━━━━━━━━━━━━━━━ 87/100
-  Level     Scanned (3/4)
-  Blocked > Warning > Listed > Scanned > Verified
+  Trust     ━━━━━━━━━━━━━━━━━━━━ 79/100
+  Level     Scanned  Blocked > Warning > Listed > Scanned > Verified
+  Scans     3 community scans
+  Last scan 223 days ago (stale)
 
   ── Next Steps ──────────────────────────────────────────────
-  Fresh scan:         ai-trust check @modelcontextprotocol/server-filesystem
-  Full project audit: ai-trust audit package.json
+  → Fresh scan  ai-trust check @modelcontextprotocol/server-filesystem
+  • Full project audit  ai-trust audit package.json
 ```
 
-![ai-trust demo](docs/ai-trust-demo.gif)
+`--no-scan` prints the registry's answer. Without it, ai-trust downloads the package and scans it locally with [HackMyAgent](https://github.com/opena2a-org/hackmyagent) instead, which takes longer and prints a scan report.
+
+![ai-trust demo: check an MCP server, then audit a package.json](docs/ai-trust-demo.gif)
 
 ## Install
 
@@ -137,24 +140,30 @@ Parse dependency files and audit AI packages. Supports `.json` (package.json for
 ```bash
 ai-trust audit package.json
 ai-trust audit requirements.txt
-ai-trust audit package.json --min-trust 2                      # custom threshold (default 3)
+ai-trust audit package.json --min-trust 3                      # stricter threshold (default 2)
 ai-trust audit package.json --scan-missing --contribute        # scan unknown AI packages
 ```
 
-Example output (mixed AI + libraries):
+Example output for the sample project in [`docs/demo/package.json`](docs/demo/package.json) (five MCP packages, five libraries):
 
 ```
-  5 AI packages audited · 9 libraries out of scope
+  5 AI packages audited · 5 libraries out of scope
 
-  PACKAGE                    TYPE          VERDICT   TRUST       SCORE         SCAN
-  ──────────────────────────────────────────────────────────────────────────────────────
-  @modelcontextprotocol/sdk  mcp_server    SAFE      Scanned     ━━━━━━━━ 87  passed
-  @opena2a/aim-core          a2a_agent     SAFE      Scanned     ━━━━━━━━ 81  passed
-  ...
+  PACKAGE                             TYPE          VERDICT   TRUST       SCORE           SCAN
+  ──────────────────────────────────────────────────────────────────────────────────────────────────
+  @modelcontextprotocol/sdk           mcp_server    SAFE      Scanned     ━━━━━━━━ 71  warnings
+  @modelcontextprotocol/server-fi...  mcp_server    SAFE      Scanned     ━━━━━━━━ 79  warnings
+  @modelcontextprotocol/server-me...  mcp_server    SAFE      Scanned     ━━━━━━━━ 79  warnings
+  @modelcontextprotocol/server-gi...  mcp_server    LISTED    Listed      ━━━━━━━━ --  -
+  mcp-server-kubernetes               mcp_server    LISTED    Listed      ━━━━━━━━ --  -
+
+  All 5 AI packages meet minimum trust level 2.
 
   ── Out of scope (libraries) ────────────────────────────────
   ai-trust is for AI packages. For general security, use HackMyAgent.
-  @noble/ed25519, @noble/post-quantum, commander, js-yaml, onnxruntime-node + 4 more
+  chalk, commander, express, typescript, vitest
+
+  Blocked > Warning > Listed > Scanned > Verified
 
   ── Next Steps ──────────────────────────────────────────────
   Library security:  npx hackmyagent secure .

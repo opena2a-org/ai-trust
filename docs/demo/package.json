@@ -1,0 +1,19 @@
+{
+  "name": "ai-trust-demo",
+  "private": true,
+  "description": "Sample project for the README audit example, the demo recording and the docs sample test",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@modelcontextprotocol/server-filesystem": "^2025.1.0",
+    "@modelcontextprotocol/server-memory": "^2025.1.0",
+    "@modelcontextprotocol/server-github": "^2025.1.0",
+    "mcp-server-kubernetes": "^2.0.0",
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "express": "^4.21.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "vitest": "^2.0.0"
+  }
+}

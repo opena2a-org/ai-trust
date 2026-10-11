@@ -1,0 +1,32 @@
+{
+  "_source": "Registry answers captured from https://api.oa2a.org on 2026-10-11 for the packages the docs samples use. Fields ai-trust does not read (securityProfile, scoreBreakdown, platformSignals) are dropped. Served by src/docs-samples.test.ts.",
+  "query": {
+    "@modelcontextprotocol/server-filesystem": {
+      "packageId": "7b70f85f-d988-4fbf-8d5e-993ce58ed10c",
+      "name": "@modelcontextprotocol/server-filesystem",
+      "packageType": "mcp_server",
+      "trustLevel": 3,
+      "trustScore": 0.7866666666666666,
+      "verdict": "passed",
+      "confidence": 0.39999999999999997,
+      "scanStatus": "warnings",
+      "lastScannedAt": "2026-03-02T00:46:00.496394Z",
+      "communityScans": 3,
+      "dependencies": { "totalDeps": 0, "vulnerableDeps": 0, "minTrustLevel": 2, "minTrustScore": 1, "maxDepth": 0 },
+      "factors": { "publisherVerification": 0.4, "slsaProvenance": 0.5, "securityScan": 0.9, "platformValidation": 0.8666666666666668, "behavioralVerification": 0.5, "signatureIntegrity": 0.5, "dependencyHealth": 0.5 },
+      "scoringVersion": "v3"
+    }
+  },
+  "batch": [
+    { "packageId": "2d619697-fd82-44ba-bf31-68d0d06ad697", "name": "@modelcontextprotocol/sdk", "packageType": "mcp_server", "trustLevel": 3, "trustScore": 0.7053333333333333, "verdict": "passed", "confidence": 0.39999999999999997, "scanStatus": "warnings", "communityScans": 0 },
+    { "packageId": "7b70f85f-d988-4fbf-8d5e-993ce58ed10c", "name": "@modelcontextprotocol/server-filesystem", "packageType": "mcp_server", "trustLevel": 3, "trustScore": 0.7866666666666666, "verdict": "passed", "confidence": 0.39999999999999997, "scanStatus": "warnings", "lastScannedAt": "2026-03-02T00:46:00.496394Z", "communityScans": 3 },
+    { "packageId": "e07203a1-1e59-495e-8514-e8909f0de792", "name": "@modelcontextprotocol/server-memory", "packageType": "mcp_server", "trustLevel": 3, "trustScore": 0.7866666666666666, "verdict": "passed", "confidence": 0.39999999999999997, "scanStatus": "warnings", "lastScannedAt": "2026-03-02T10:34:31.735669Z", "communityScans": 0 },
+    { "packageId": "b24cbd66-dc24-4c16-b007-fa4580d8e5a3", "name": "@modelcontextprotocol/server-github", "packageType": "mcp_server", "trustLevel": 2, "trustScore": 0, "verdict": "listed", "confidence": 0, "scanStatus": "", "communityScans": 0 },
+    { "packageId": "dc7585b5-1756-41e8-8e39-debe4305aea8", "name": "mcp-server-kubernetes", "packageType": "mcp_server", "trustLevel": 2, "trustScore": 0, "verdict": "listed", "confidence": 0, "scanStatus": "", "communityScans": 0 },
+    { "packageId": "4be613d0-cc3a-4118-aae9-a6848e72484a", "name": "chalk", "packageType": "library", "trustLevel": 2, "trustScore": 0.4033333333333334, "verdict": "listed", "confidence": 0.21428571428571427, "scanStatus": "pending", "communityScans": 0 },
+    { "packageId": "13b36973-17de-414d-bc68-1cd53f5629a0", "name": "commander", "packageType": "library", "trustLevel": 2, "trustScore": 0.4033333333333334, "verdict": "listed", "confidence": 0.21428571428571427, "scanStatus": "pending", "communityScans": 0 },
+    { "packageId": "27be2192-1fca-4e2d-8058-ab9b6e5f09cb", "name": "express", "packageType": "library", "trustLevel": 2, "trustScore": 0.67, "verdict": "listed", "confidence": 0.21428571428571427, "scanStatus": "pending", "communityScans": 2 },
+    { "packageId": "d5538c9a-2cb8-4efc-89e7-2ff1bdc875ce", "name": "typescript", "packageType": "library", "trustLevel": 2, "trustScore": 0.67, "verdict": "listed", "confidence": 0.21428571428571427, "scanStatus": "pending", "communityScans": 0 },
+    { "packageId": "a4471a27-e031-457b-8ee2-df371740127d", "name": "vitest", "packageType": "library", "trustLevel": 2, "trustScore": 0.5888888888888889, "verdict": "listed", "confidence": 0.2571428571428572, "scanStatus": "pending", "communityScans": 0 }
+  ]
+}
