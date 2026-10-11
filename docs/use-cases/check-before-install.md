@@ -39,10 +39,10 @@ The output tells you:
 
 ## If the package is not in the registry
 
-ai-trust can scan it locally using [HackMyAgent](https://github.com/opena2a-org/hackmyagent):
+The same command works. By default, `ai-trust check` downloads the package and scans it locally using [HackMyAgent](https://github.com/opena2a-org/hackmyagent), whether or not the registry has it:
 
 ```bash
-npx ai-trust check unknown-package --scan-if-missing
+npx ai-trust check unknown-package
 ```
 
 This downloads the package, runs a local security scan, and returns a trust verdict. Add `--contribute` to share the results with the community registry.

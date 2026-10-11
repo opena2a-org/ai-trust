@@ -373,6 +373,39 @@ describe("check command", () => {
         expect.objectContaining({ pkg: "unknown-pkg", ecosystem: "npm" })
       );
     });
+
+    it("points a --json registry miss at the default scan, not the no-op --scan-if-missing (#98)", async () => {
+      vi.mocked(RegistryClient).mockImplementation(
+        function () {
+          return {
+            checkTrust: vi
+              .fn()
+              .mockRejectedValue(new PackageNotFoundError("unknown-pkg")),
+            batchQuery: vi.fn(),
+            publishScan: vi.fn(),
+          } as any;
+        }
+      );
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node",
+        "test",
+        "check",
+        "unknown-pkg",
+        "--no-scan",
+        "--json",
+      ]);
+
+      expect(process.exitCode).toBe(2);
+      const out = JSON.parse(consoleSpy.mock.calls[0][0] as string);
+      // Dropping --no-scan is what scans the package; --scan-if-missing
+      // changes nothing because every package is scanned by default.
+      expect(out.nextSteps[0]).toBe("ai-trust check unknown-pkg");
+      for (const step of out.nextSteps) {
+        expect(step).not.toContain("--scan-if-missing");
+      }
+    });
   });
 
   describe("default (local scan)", () => {
@@ -888,6 +921,31 @@ describe("check command", () => {
       expect(help).toContain("Usage: ai-trust check [options] <name>");
       expect(help).toContain("ai-trust check @modelcontextprotocol/server-filesystem");
       expect(help).not.toContain("opena2a registry");
+    });
+  });
+
+  describe("help text matches the local-scan default (#98)", () => {
+    function checkHelp(): string {
+      const program = createProgram();
+      const cmd = program.commands.find((c) => c.name() === "check")!;
+      let out = "";
+      cmd.configureOutput({ writeOut: (s) => (out += s) });
+      cmd.outputHelp();
+      return out;
+    }
+
+    it("describes check as a scan, with --no-scan as the registry lookup", () => {
+      const help = checkHelp();
+      expect(help).not.toContain("Look up trust information");
+      expect(help).toMatch(/scan/i);
+      expect(help).toMatch(/--no-scan\s+registry lookup only/);
+    });
+
+    it("marks --scan-if-missing as a no-op and never recommends it", () => {
+      const help = checkHelp();
+      expect(help).not.toContain("auto-scan packages not in registry");
+      expect(help).toMatch(/--scan-if-missing\s+deprecated/);
+      expect(help).not.toMatch(/ai-trust check \S+ --scan-if-missing/);
     });
   });
 });

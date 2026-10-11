@@ -284,7 +284,8 @@ export function formatNotFound(input: NotFoundBlockInput): string {
     ...renderNextStepsLines([
       {
         label: "Scan locally",
-        command: `${checkCitation()} ${input.pkg} --scan-if-missing`,
+        // check scans by default; --scan-if-missing is a no-op.
+        command: `${checkCitation()} ${input.pkg}`,
         primary: true,
       },
       {

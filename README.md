@@ -89,18 +89,18 @@ Running `ai-trust check express` on a general-purpose library returns an "out of
 
 ### `check`
 
-Look up the trust verdict for a single AI package.
+Download a single AI package, scan it locally, and print its trust verdict. `--no-scan` prints the registry's verdict instead, without downloading.
 
 ```bash
 ai-trust check @modelcontextprotocol/server-filesystem
 ai-trust check my-custom-agent --type a2a_agent
 ai-trust check @modelcontextprotocol/server-postgres --json
-ai-trust check mcp-server-xyz --scan-if-missing --contribute  # download + scan + share
+ai-trust check mcp-server-xyz --contribute                    # download + scan + share
 ai-trust check server-filesystem --no-scan                    # registry lookup only
 ai-trust check /path/to/local --scan-path /path/to/local      # scan a local directory
 ```
 
-Flags: `--type`, `--scan-if-missing`, `--contribute`, `--no-scan`, `--no-deep`, `--scan-path`, `--json`.
+Flags: `--type`, `--contribute`, `--no-scan`, `--no-deep`, `--scan-path`, `--json`.
 
 ### MCP server shorthand
 
@@ -117,14 +117,16 @@ ai-trust check @cloudflare/mcp-server-cloudflare
 
 `server-*` resolves to `@modelcontextprotocol/server-*`. Third-party `mcp-server-*` packages are looked up by their actual name.
 
-### Scan on demand
+### Local scan and registry lookup
 
-When a package is not in the registry, ai-trust can download and scan it locally using [HackMyAgent](https://github.com/opena2a-org/hackmyagent). In interactive mode, you are prompted. In CI:
+`check` downloads the package and scans it locally using [HackMyAgent](https://github.com/opena2a-org/hackmyagent), whether or not the registry has it, so the verdict comes from the current scanner rather than an older registry score. Packages the registry classifies as general-purpose libraries are not scanned; they get the out-of-scope notice. There is no prompt, so the same command works in a terminal and in CI:
 
 ```bash
-ai-trust check mcp-server-xyz --scan-if-missing --contribute   # auto-scan + share
-ai-trust check server-filesystem --no-scan                     # skip scanning entirely
+ai-trust check mcp-server-xyz --contribute                     # download + scan + share
+ai-trust check server-filesystem --no-scan                     # registry lookup only, no download
 ```
+
+With `--no-scan`, a package the registry does not have exits 2 and points at the plain `check` command to scan it. `--scan-if-missing` is accepted for compatibility and changes nothing, since every package is scanned.
 
 Local scans run HMA with NanoMind semantic analysis enabled by default. Pass `--no-deep` for static-only.
 
@@ -201,10 +203,10 @@ ai-trust check express --registry-url http://localhost:8080      # custom regist
 
 Every scan you run can improve trust data for the entire community. Scan results are shared as anonymised telemetry: check pass/fail and severity only. No file paths, source code, or descriptions.
 
-On first scan, ai-trust asks whether you want to contribute. Your choice is saved in `~/.opena2a/config.json` and shared across all OpenA2A tools (`opena2a-cli`, `hackmyagent`).
+No scan results are shared until you opt in, and ai-trust does not stop to ask. After a few scans without a choice, it prints a tip on how to opt in. A global choice is saved in `~/.opena2a/config.json` and shared across all OpenA2A tools (`opena2a-cli`, `hackmyagent`).
 
 ```bash
-ai-trust check chalk --contribute              # contribute for this scan (non-interactive / CI)
+ai-trust check mcp-server-xyz --contribute     # contribute for this scan (non-interactive / CI)
 opena2a config set contribute true             # opt in globally
 opena2a config set contribute false            # opt out globally
 ```

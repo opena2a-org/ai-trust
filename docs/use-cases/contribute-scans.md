@@ -23,7 +23,7 @@ opena2a config set contribute true
 With contribution enabled, every scan you run automatically shares results with the OpenA2A Registry:
 
 ```bash
-ai-trust check some-package --scan-if-missing
+ai-trust check some-package
 ```
 
 No extra flags or steps needed. Scan results are submitted in the background after each scan completes.

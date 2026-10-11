@@ -46,7 +46,9 @@ describe("formatCheckResult", () => {
     // cli-ui renderNotFoundBlock 0.3.0 header — shared across all three CLIs.
     expect(output).toContain("Package not found: unknown-pkg");
     expect(output).toContain("Next Steps");
-    expect(output).toContain("--scan-if-missing");
+    // The default check scans the package; --scan-if-missing is a no-op (#98).
+    expect(output).toContain("ai-trust check unknown-pkg");
+    expect(output).not.toContain("--scan-if-missing");
   });
 
   it("displays trust details for a found package", () => {
@@ -762,6 +764,13 @@ describe("formatNotFound", () => {
     const output = formatNotFound({ pkg: "@anthropic/code-review", ecosystem: "npm" });
     expect(output).toContain("Package not found: @anthropic/code-review (npm)");
     expect(output).toContain("Next Steps");
+  });
+
+  it("suggests the default scan command, not the no-op --scan-if-missing (#98)", () => {
+    const output = formatNotFound({ pkg: "mcp-server-xyz", ecosystem: "npm" });
+    expect(output).toContain("Scan locally");
+    expect(output).toContain("ai-trust check mcp-server-xyz");
+    expect(output).not.toContain("--scan-if-missing");
   });
 
   it("includes did-you-mean suggestions when provided", () => {
