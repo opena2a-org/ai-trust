@@ -45,9 +45,20 @@ const LOCAL_ONLY_CATEGORIES = new Set([
 ]);
 
 /**
+ * Absent-artifact advisories, dropped from a downloaded package's failing
+ * findings. DEP-001's fix path (package-lock.json) is a file npm never
+ * publishes; SANDBOX-001's (Dockerfile) describes the consumer's deployment
+ * rather than the package. Check ids, not categories: "dependencies" and
+ * "sandboxing" also hold real detections. Upstream report:
+ * opena2a-org/hackmyagent#965.
+ */
+const PACKAGE_ABSENT_ARTIFACT_CHECKS = new Set(["DEP-001", "SANDBOX-001"]);
+
+/**
  * Download a package, scan it with HMA, and return results.
  * Cleans up the temp directory after scanning.
- * Filters local-only findings (git, permissions, etc.) to match HMA check output.
+ * Filters local-only findings (git, permissions, etc.) to match HMA check output,
+ * and the absent-artifact advisories above.
  */
 export async function scanPackage(
   name: string,
@@ -76,6 +87,11 @@ export async function scanPackage(
     const originalCount = scan.findings.filter((f) => !f.passed).length;
     scan.findings = scan.findings.filter(
       (f) => f.passed || !LOCAL_ONLY_CATEGORIES.has(f.category)
+    );
+    // Failing records only, so a package that ships a Dockerfile keeps its
+    // SANDBOX-001 pass.
+    scan.findings = scan.findings.filter(
+      (f) => f.passed || !PACKAGE_ABSENT_ARTIFACT_CHECKS.has(f.checkId)
     );
     const filteredCount = scan.findings.filter((f) => !f.passed).length;
 

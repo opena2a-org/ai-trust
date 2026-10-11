@@ -161,6 +161,83 @@ describe("scanPackage", () => {
     expect(result.trustLevel).toBe(3);
   });
 
+  it("drops the absent-artifact advisories DEP-001 and SANDBOX-001 and recomputes the score", async () => {
+    setupDownload("@modelcontextprotocol/server-memory");
+    vi.mocked(runHmaScan).mockResolvedValue({
+      score: 85,
+      maxScore: 100,
+      findings: [
+        {
+          checkId: "DEP-001",
+          name: "Dependency Lock File",
+          description: "",
+          category: "dependencies",
+          severity: "medium",
+          passed: false,
+          message: "No lock file found - dependency versions may vary between installs",
+          file: "package-lock.json",
+        },
+        {
+          checkId: "SANDBOX-001",
+          name: "Container Isolation",
+          description: "",
+          category: "sandboxing",
+          severity: "medium",
+          passed: false,
+          message: "Consider running in Docker containers for isolation",
+          file: "Dockerfile",
+        },
+        {
+          // Same category as DEP-001: the exclusion is by check id, so a
+          // real detection in "dependencies" stays.
+          checkId: "DEP-900",
+          name: "Real medium detection",
+          description: "",
+          category: "dependencies",
+          severity: "medium",
+          passed: false,
+          message: "A real finding",
+          file: "package.json",
+        },
+      ],
+      projectType: "mcp",
+      timestamp: "2026-10-11T00:00:00Z",
+    });
+
+    const result = await scanPackage("@modelcontextprotocol/server-memory");
+    expect(result.scan.findings.map((f) => f.checkId)).toEqual(["DEP-900"]);
+    // One medium: round(100 * exp(-8 / 150)) = 95.
+    expect(result.scan.score).toBe(95);
+    expect(result.trustScore).toBeCloseTo(0.95);
+    expect(result.trustLevel).toBe(3);
+    expect(result.verdict).toBe("safe");
+  });
+
+  it("keeps a passing SANDBOX-001 record", async () => {
+    setupDownload("ships-a-dockerfile");
+    vi.mocked(runHmaScan).mockResolvedValue({
+      score: 100,
+      maxScore: 100,
+      findings: [
+        {
+          checkId: "SANDBOX-001",
+          name: "Container Isolation",
+          description: "",
+          category: "sandboxing",
+          severity: "medium",
+          passed: true,
+          message: "Container configuration detected",
+        },
+      ],
+      projectType: "mcp",
+      timestamp: "2026-10-11T00:00:00Z",
+    });
+
+    const result = await scanPackage("ships-a-dockerfile");
+    expect(result.scan.findings.map((f) => f.checkId)).toEqual(["SANDBOX-001"]);
+    expect(result.scan.score).toBe(100);
+  });
+
   it("cleans up even when scan fails", async () => {
     setupDownload("crash-pkg");
     vi.mocked(runHmaScan).mockRejectedValue(new Error("scan crashed"));
@@ -346,5 +423,45 @@ describe("scanLocalPath", () => {
     expect(result.packageName).toBe(dir);
     expect(result.trustScore).toBeCloseTo(0.8);
     expect(result.verdict).toBe("safe");
+  });
+
+  it("keeps DEP-001 and SANDBOX-001 on a local tree", async () => {
+    const dir = join(tmpRoot, "local-tree");
+    mkdirSync(dir, { recursive: true });
+    vi.mocked(runHmaScan).mockResolvedValue({
+      score: 90,
+      maxScore: 100,
+      findings: [
+        {
+          checkId: "DEP-001",
+          name: "Dependency Lock File",
+          description: "",
+          category: "dependencies",
+          severity: "medium",
+          passed: false,
+          message: "No lock file found - dependency versions may vary between installs",
+          file: "package-lock.json",
+        },
+        {
+          checkId: "SANDBOX-001",
+          name: "Container Isolation",
+          description: "",
+          category: "sandboxing",
+          severity: "medium",
+          passed: false,
+          message: "Consider running in Docker containers for isolation",
+          file: "Dockerfile",
+        },
+      ],
+      projectType: "mcp",
+      timestamp: "2026-10-11T00:00:00Z",
+    });
+
+    const result = await scanLocalPath(dir);
+    expect(result.scan.findings.map((f) => f.checkId)).toEqual([
+      "DEP-001",
+      "SANDBOX-001",
+    ]);
+    expect(result.scan.score).toBe(90);
   });
 });
