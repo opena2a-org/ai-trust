@@ -63,7 +63,7 @@ vi.mock("../telemetry/index.js", () => {
 });
 
 import { RegistryClient } from "@opena2a/registry-client";
-import { parseDependencyFile } from "../utils/parser.js";
+import { parseDependencyFile, detectEcosystem } from "../utils/parser.js";
 import { isHmaAvailable, scanPackage } from "../scanner/index.js";
 import { sendScanPing, isContributeEnabled, queueScanResult } from "../telemetry/index.js";
 
@@ -338,5 +338,51 @@ describe("audit command", () => {
       },
     ]);
     expect(queueScanResult).toHaveBeenCalledWith("leaky-pkg", expect.any(Array), 0, "npm", "4.5.6");
+  });
+
+  it("publishes a requirements.txt scan with ecosystem pypi, so the registry does not record it as npm", async () => {
+    vi.mocked(parseDependencyFile).mockResolvedValue([{ name: "py-pkg" }]);
+    vi.mocked(detectEcosystem).mockReturnValueOnce("pypi");
+    const mockPublishScan = vi.fn().mockResolvedValue({ accepted: true });
+    vi.mocked(RegistryClient).mockImplementation(
+      function () {
+        return {
+          batchQuery: vi.fn().mockResolvedValue({
+            results: [{ name: "py-pkg", found: false }],
+            meta: { total: 1, found: 0, notFound: 1 },
+          }),
+          publishScan: mockPublishScan,
+        } as any;
+      }
+    );
+    vi.mocked(isHmaAvailable).mockResolvedValue(true);
+    vi.mocked(scanPackage).mockResolvedValue({
+      packageName: "py-pkg",
+      packageVersion: "0.9.1",
+      scan: {
+        score: 90,
+        maxScore: 100,
+        findings: [],
+        projectType: "library",
+        timestamp: "2026-04-12T00:00:00Z",
+      },
+      trustScore: 0.9,
+      trustLevel: 3,
+      verdict: "safe",
+    });
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "audit", "requirements.txt", "--scan-missing", "--contribute",
+    ]);
+
+    expect(scanPackage).toHaveBeenCalledWith("py-pkg", expect.objectContaining({ ecosystem: "pypi" }));
+    expect(mockPublishScan).toHaveBeenCalledOnce();
+    expect(mockPublishScan.mock.calls[0][0]).toMatchObject({
+      name: "py-pkg",
+      version: "0.9.1",
+      ecosystem: "pypi",
+    });
+    expect(queueScanResult).toHaveBeenCalledWith("py-pkg", expect.any(Array), 0, "pypi", "0.9.1");
   });
 });

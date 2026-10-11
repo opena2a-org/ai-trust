@@ -359,7 +359,7 @@ async function handleAuditContribution(
   for (const { name, scanResult } of scannedResults) {
     try {
       await client.publishScan(
-        buildScanSubmission(name, scanResult, { toolVersion: AI_TRUST_VERSION }),
+        buildScanSubmission(name, scanResult, { toolVersion: AI_TRUST_VERSION, ecosystem }),
         signer,
       );
     } catch {
