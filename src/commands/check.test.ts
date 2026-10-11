@@ -36,6 +36,7 @@ vi.mock("../output/formatter.js", () => ({
 vi.mock("../scanner/index.js", () => ({
   isHmaAvailable: vi.fn().mockResolvedValue(false),
   scanPackage: vi.fn(),
+  scanLocalPath: vi.fn(),
 }));
 
 // Mock prompt
@@ -73,7 +74,7 @@ import {
   formatJson,
   formatNotFound,
 } from "../output/formatter.js";
-import { isHmaAvailable, scanPackage } from "../scanner/index.js";
+import { isHmaAvailable, scanPackage, scanLocalPath } from "../scanner/index.js";
 import { confirm } from "../utils/prompt.js";
 import {
   queueScanResult,
@@ -1122,6 +1123,50 @@ describe("documented exit codes match check outcomes", () => {
 
   it("README documents below-threshold as exit 2 (behavior pinned in batch.test.ts)", () => {
     expect(readmeExitCodes().get("Below threshold")).toBe(2);
+  });
+
+  it('README row "Local scan" gives the code check --scan-path sets for a blocked verdict', async () => {
+    vi.mocked(isHmaAvailable).mockResolvedValue(true);
+    vi.mocked(scanLocalPath).mockResolvedValue({
+      packageName: "fixture",
+      scan: {
+        score: 0,
+        maxScore: 100,
+        findings: [],
+        projectType: "repo",
+        timestamp: "2026-03-14T00:00:00Z",
+      },
+      trustScore: 0,
+      trustLevel: 0,
+      verdict: "blocked",
+    });
+
+    await createProgram().parseAsync(["node", "test", "check", "fixture", "--scan-path", "/tmp/fixture"]);
+
+    const documented = readmeExitCodes().get("Local scan");
+    expect(documented, 'README exit-code table has no "Local scan" row').toBeDefined();
+    expect(process.exitCode ?? 0).toBe(documented);
+  });
+
+  it('README row "Local scan could not run" gives the code check --scan-path exits with', async () => {
+    vi.mocked(isHmaAvailable).mockResolvedValue(true);
+    vi.mocked(scanLocalPath).mockRejectedValue(new Error("ENOENT: no such file or directory"));
+    let exitCode: number | undefined;
+    const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      exitCode = code;
+      throw new Error("process.exit");
+    }) as never);
+    try {
+      await createProgram()
+        .parseAsync(["node", "test", "check", "fixture", "--scan-path", "/nonexistent"])
+        .catch(() => {});
+    } finally {
+      exit.mockRestore();
+    }
+
+    const documented = readmeExitCodes().get("Local scan could not run");
+    expect(documented, 'README exit-code table has no "Local scan could not run" row').toBeDefined();
+    expect(exitCode).toBe(documented);
   });
 
   it("release checklist and changelog do not contradict the README table", () => {
