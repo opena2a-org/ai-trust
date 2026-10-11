@@ -185,7 +185,9 @@ export function registerCheckCommand(program: Command): void {
       const { name: stripped, ecosystem } = parsePackageTarget(rawName);
       rawName = stripped;
 
-      const name = resolveAndLog(rawName);
+      // MCP shorthand (`server-*` -> `@modelcontextprotocol/server-*`) names
+      // npm packages; a pip: target is used as given.
+      const name = ecosystem === "npm" ? resolveAndLog(rawName) : rawName;
       const client = createRegistryClient({
         baseUrl: globalOpts.registryUrl,
         userAgent: `ai-trust/${AI_TRUST_VERSION}`,
@@ -407,7 +409,7 @@ async function handleScanFlow(
 
   let scanResult: ScanResult;
   try {
-    scanResult = await scanPackage(name, { deep: opts.deep ?? true, analm: opts.analm });
+    scanResult = await scanPackage(name, { deep: opts.deep ?? true, analm: opts.analm, ecosystem });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     // Translate recognized downloader errors into a not-found block so users
@@ -449,8 +451,8 @@ async function handleScanFlow(
     return;
   }
 
-  // Output scan results. This path scanned a downloaded package (npm-pack /
-  // pip-download), not the user's own tree → remote verdict (no `secure --fix`).
+  // Output scan results. This path scanned a downloaded package (npm pack /
+  // PyPI archive), not the user's own tree → remote verdict (no `secure --fix`).
   if (globalOpts.json) {
     console.log(formatJson(buildCheckJson({ kind: "scan", scan: scanResult })));
   } else {
@@ -470,18 +472,20 @@ async function handleScanFlow(
       name,
       scanResult.verdict,
       Math.round(scanResult.trustScore * 100),
-      globalOpts.registryUrl
+      globalOpts.registryUrl,
+      ecosystem
     );
   }
 
   // Community contribution flow
-  await handleContribute(name, scanResult, globalOpts, opts);
+  await handleContribute(name, ecosystem, scanResult, globalOpts, opts);
 }
 
 let _shownCiContributeTip = false;
 
 async function handleContribute(
   name: string,
+  ecosystem: "npm" | "pypi",
   scanResult: ScanResult,
   globalOpts: { registryUrl: string; json: boolean },
   opts: CheckOptions
@@ -517,7 +521,7 @@ async function handleContribute(
         console.error(
           chalk.gray("  (Future scans will auto-share. Change: opena2a config contribute off)")
         );
-        await submitContribution(name, scanResult, globalOpts.registryUrl, { type: opts.type });
+        await submitContribution(name, ecosystem, scanResult, globalOpts.registryUrl, { type: opts.type });
         return;
       }
     } else {
@@ -530,9 +534,10 @@ async function handleContribute(
             "  This is the first scan of this package. Share it with the community:"
           )
         );
+        const target = ecosystem === "pypi" ? `pip:${name}` : name;
         console.error(
           chalk.cyan(
-            `    ${checkCitation()} ${name} --scan-if-missing --contribute`
+            `    ${checkCitation()} ${target} --scan-if-missing --contribute`
           )
         );
       }
@@ -547,11 +552,12 @@ async function handleContribute(
 
   if (!alreadyEnabled) return;
 
-  await submitContribution(name, scanResult, globalOpts.registryUrl, { type: opts.type });
+  await submitContribution(name, ecosystem, scanResult, globalOpts.registryUrl, { type: opts.type });
 }
 
 async function submitContribution(
   name: string,
+  ecosystem: "npm" | "pypi",
   scanResult: ScanResult,
   registryUrl: string,
   opts?: { type?: string }
@@ -559,7 +565,7 @@ async function submitContribution(
   // Contribution is silent once consent is given: no per-scan line. Disclosure
   // lives in the consent prompt, `--help`, and `config contribute status`.
   try {
-    queueScanResult(name, scanResult.scan.findings, 0, "npm", scanResult.packageVersion);
+    queueScanResult(name, scanResult.scan.findings, 0, ecosystem, scanResult.packageVersion);
     await flushQueue(registryUrl);
   } catch {
     // Non-fatal: contribution should never crash the scan
@@ -578,7 +584,7 @@ async function submitContribution(
       source: "ci",
     });
     await client.publishScan(
-      buildScanSubmission(name, scanResult, { toolVersion: AI_TRUST_VERSION, type: opts?.type, ecosystem: "npm" }),
+      buildScanSubmission(name, scanResult, { toolVersion: AI_TRUST_VERSION, type: opts?.type, ecosystem }),
       signer,
     );
   } catch {

@@ -432,8 +432,50 @@ describe("check command", () => {
       const program = createProgram();
       await program.parseAsync(["node", "test", "check", "my-pkg"]);
 
-      expect(scanPackage).toHaveBeenCalledWith("my-pkg", { deep: true });
+      expect(scanPackage).toHaveBeenCalledWith("my-pkg", { deep: true, ecosystem: "npm" });
       expect(formatScanResult).toHaveBeenCalled();
+    });
+
+    it("scans and contributes a pip: target as the PyPI package, not the npm package of the same name", async () => {
+      const mockPublishScan = vi.fn().mockResolvedValue({ accepted: true });
+      vi.mocked(RegistryClient).mockImplementation(
+        function () {
+          return {
+            checkTrust: vi.fn().mockRejectedValue(new PackageNotFoundError("server-py")),
+            publishScan: mockPublishScan,
+          } as any;
+        }
+      );
+      vi.mocked(isHmaAvailable).mockResolvedValue(true);
+      vi.mocked(scanPackage).mockResolvedValue({
+        packageName: "server-py",
+        packageVersion: "0.9.1",
+        scan: {
+          score: 90,
+          maxScore: 100,
+          findings: [],
+          projectType: "library",
+          timestamp: "2026-04-12T00:00:00Z",
+        },
+        trustScore: 0.9,
+        trustLevel: 3,
+        verdict: "safe",
+      });
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "check", "pip:server-py", "--contribute"]);
+
+      // Used as given: the npm-only MCP shorthand does not rewrite it.
+      expect(scanPackage).toHaveBeenCalledWith("server-py", { deep: true, ecosystem: "pypi" });
+      expect(sendScanPing).toHaveBeenCalledWith(
+        "server-py", "safe", 90, "https://api.test.com", "pypi"
+      );
+      expect(queueScanResult).toHaveBeenCalledWith("server-py", expect.any(Array), 0, "pypi", "0.9.1");
+      expect(mockPublishScan).toHaveBeenCalledOnce();
+      expect(mockPublishScan.mock.calls[0][0]).toMatchObject({
+        name: "server-py",
+        ecosystem: "pypi",
+      });
     });
 
     it("shows HMA install message when HMA is not available", async () => {
@@ -557,7 +599,7 @@ describe("check command", () => {
       ]);
 
       expect(sendScanPing).toHaveBeenCalledWith(
-        "ping-pkg", "safe", 90, "https://api.test.com"
+        "ping-pkg", "safe", 90, "https://api.test.com", "npm"
       );
     });
 
@@ -634,7 +676,7 @@ describe("check command", () => {
         "--scan-if-missing",
       ]);
 
-      expect(scanPackage).toHaveBeenCalledWith("scan-me", { deep: true });
+      expect(scanPackage).toHaveBeenCalledWith("scan-me", { deep: true, ecosystem: "npm" });
       expect(formatScanResult).toHaveBeenCalled();
     });
 

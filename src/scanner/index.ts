@@ -7,7 +7,7 @@ export type { DownloadResult } from "./downloader.js";
 export { isHmaAvailable, runHmaScan } from "./hma.js";
 export type { HmaScanResult, HmaFinding, SemanticFinding, AnalystFinding, HmaScanOptions } from "./hma.js";
 
-import { readFile, readdir, stat } from "node:fs/promises";
+import { lstat, readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { downloadPackage } from "./downloader.js";
 import { runHmaScan } from "./hma.js";
@@ -224,11 +224,22 @@ function metadataVersion(text: string): string | undefined {
 }
 
 /**
+ * Read a manifest from the extracted package only when it is a regular file;
+ * returns undefined otherwise. The archive decides what the extraction
+ * directory holds, so a manifest that is a symlink could point at any file
+ * on the machine, and it is not read.
+ */
+async function readManifest(file: string): Promise<string | undefined> {
+  const st = await lstat(file);
+  return st.isFile() ? readFile(file, "utf8") : undefined;
+}
+
+/**
  * Read the version of the package that was actually downloaded, from its own
  * manifest: `version` in package.json for npm, and the `Version:` header of
  * PKG-INFO (sdist) or `*.dist-info/METADATA` (wheel) for PyPI. Returns
  * undefined when no usable version is found; the scan is then published
- * without one.
+ * without one. Symlinked manifests and dist-info directories are skipped.
  */
 export async function readPackageVersion(
   dir: string,
@@ -236,7 +247,9 @@ export async function readPackageVersion(
 ): Promise<string | undefined> {
   if (ecosystem === "npm") {
     try {
-      const parsed = JSON.parse(await readFile(join(dir, "package.json"), "utf8")) as { version?: unknown };
+      const text = await readManifest(join(dir, "package.json"));
+      if (text === undefined) return undefined;
+      const parsed = JSON.parse(text) as { version?: unknown };
       return usableVersion(parsed.version);
     } catch {
       return undefined;
@@ -245,15 +258,18 @@ export async function readPackageVersion(
 
   const candidates = [join(dir, "PKG-INFO")];
   try {
-    for (const entry of await readdir(dir)) {
-      if (entry.endsWith(".dist-info")) candidates.push(join(dir, entry, "METADATA"));
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      if (entry.isDirectory() && entry.name.endsWith(".dist-info")) {
+        candidates.push(join(dir, entry.name, "METADATA"));
+      }
     }
   } catch {
     return undefined;
   }
   for (const file of candidates) {
     try {
-      const version = metadataVersion(await readFile(file, "utf8"));
+      const text = await readManifest(file);
+      const version = text === undefined ? undefined : metadataVersion(text);
       if (version !== undefined) return version;
     } catch {
       // Not present in this layout; try the next candidate.
@@ -276,13 +292,18 @@ export async function assertPackageMatchesName(
   dir: string,
   requestedName: string,
 ): Promise<void> {
-  let pkgRaw: string;
+  let pkgRaw: string | undefined;
   try {
-    pkgRaw = await readFile(join(dir, "package.json"), "utf8");
+    pkgRaw = await readManifest(join(dir, "package.json"));
   } catch (e) {
     const code = (e as NodeJS.ErrnoException).code ?? "unknown";
     throw new Error(
       `download verification failed: ${dir}/package.json could not be read (${code}); refusing to scan/publish a package whose identity cannot be confirmed.`,
+    );
+  }
+  if (pkgRaw === undefined) {
+    throw new Error(
+      `download verification failed: ${dir}/package.json is not a regular file; refusing to scan/publish a package whose identity cannot be confirmed.`,
     );
   }
   let parsed: { name?: unknown };

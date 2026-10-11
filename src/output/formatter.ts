@@ -714,7 +714,7 @@ export function formatBatchResults(
 export interface FormatScanResultOptions {
   /**
    * True when the scanned artifact is a downloaded third-party package
-   * (the default `check <pkg>` npm-pack / pip-download path) rather than the
+   * (the default `check <pkg>` npm pack / PyPI archive path) rather than the
    * user's own working tree (`--scan-path`). Threaded into the cli-ui
    * SurfaceSummary so the verdict guidance is review / choose-a-vetted-version
    * instead of `secure --fix` on code the user does not own. Defaults to
