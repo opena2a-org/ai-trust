@@ -4,6 +4,9 @@
  */
 
 import { execFile } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -61,54 +64,67 @@ export interface HmaFinding {
 }
 
 /**
- * Resolve the HMA binary. Resolution order:
- * 1. Bundled: node_modules/.bin/hackmyagent (always correct version)
- * 2. Global: hackmyagent in PATH
- * 3. npx fallback (may use stale cache)
+ * Resolve the pinned HMA scanner: the `hackmyagent` package Node resolves
+ * for ai-trust itself, whether npm hoisted it to the consumer's top-level
+ * node_modules or nested it under ai-trust. Its `bin` entry is run with the
+ * current Node binary. Nothing on PATH and no npx fallback is consulted, so
+ * the version pinned in package.json is the version that runs; when it is
+ * not installed, resolution fails instead of running some other copy.
  *
- * Returns { cmd, prefixArgs } where:
- *   cmd="/path/to/hackmyagent", prefixArgs=[]  (bundled or global)
- *   cmd="npx", prefixArgs=["hackmyagent"]      (npx fallback)
+ * Returns { cmd, prefixArgs } where cmd=process.execPath and
+ * prefixArgs=["/path/to/hackmyagent/<bin>"].
  */
 let _resolvedHma: { cmd: string; prefixArgs: string[] } | null = null;
 
-async function resolveHma(): Promise<{ cmd: string; prefixArgs: string[] }> {
+function resolveHma(): { cmd: string; prefixArgs: string[] } {
   if (_resolvedHma) return _resolvedHma;
 
-  // 1. Try bundled binary (hackmyagent is a direct dependency)
+  let entry: string;
   try {
-    const { fileURLToPath } = await import("node:url");
-    const { dirname, join } = await import("node:path");
-    const thisDir = dirname(fileURLToPath(import.meta.url));
-    // Walk up from dist/scanner/ to package root, then into node_modules/.bin
-    const bundled = join(thisDir, "..", "..", "node_modules", ".bin", "hackmyagent");
-    await execFileAsync(bundled, ["--version"], { timeout: 10_000 });
-    _resolvedHma = { cmd: bundled, prefixArgs: [] };
-    return _resolvedHma;
-  } catch {
-    // Bundled not found (dev mode, or dependency not installed)
+    entry = createRequire(import.meta.url).resolve("hackmyagent");
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `The pinned hackmyagent dependency could not be resolved: ${message.split("\n")[0]}`,
+    );
   }
 
-  // 2. Try global binary
-  try {
-    await execFileAsync("hackmyagent", ["--version"], { timeout: 10_000 });
-    _resolvedHma = { cmd: "hackmyagent", prefixArgs: [] };
-    return _resolvedHma;
-  } catch {
-    // Not found globally
+  // The package's exports do not include package.json, so walk up from the
+  // resolved entry point to the package root.
+  let pkgDir = dirname(entry);
+  let pkg: { name?: string; bin?: string | Record<string, string> } | null = null;
+  while (true) {
+    const candidate = join(pkgDir, "package.json");
+    if (existsSync(candidate)) {
+      const parsed = JSON.parse(readFileSync(candidate, "utf8"));
+      if (parsed.name === "hackmyagent") {
+        pkg = parsed;
+        break;
+      }
+    }
+    const parent = dirname(pkgDir);
+    if (parent === pkgDir) break;
+    pkgDir = parent;
   }
 
-  // 3. Fall back to npx
-  _resolvedHma = { cmd: "npx", prefixArgs: ["hackmyagent"] };
+  if (!pkg) {
+    throw new Error(`No hackmyagent package.json was found above ${entry}`);
+  }
+  const bin = typeof pkg.bin === "string" ? pkg.bin : pkg.bin?.hackmyagent;
+  if (!bin) {
+    throw new Error(`The hackmyagent package at ${pkgDir} declares no hackmyagent bin`);
+  }
+
+  _resolvedHma = { cmd: process.execPath, prefixArgs: [join(pkgDir, bin)] };
   return _resolvedHma;
 }
 
 /**
- * Check if HMA (hackmyagent) is available on the system.
+ * Check if the pinned HMA (hackmyagent) scanner is installed and runs.
  */
 export async function isHmaAvailable(): Promise<boolean> {
   try {
-    const hma = await resolveHma();
+    const hma = resolveHma();
     await execFileAsync(hma.cmd, [...hma.prefixArgs, "--version"], {
       timeout: 15_000,
     });
@@ -140,7 +156,7 @@ export async function runHmaScan(
 ): Promise<HmaScanResult> {
   const deep = options.deep ?? true;
   const analm = options.analm ?? false;
-  const hma = await resolveHma();
+  const hma = resolveHma();
   // Always pass --no-contribute: ai-trust decides about contribution itself
   // (check/audit honour --contribute / --no-contribute and the saved choice).
   // Without the flag the HMA subprocess reads ~/.opena2a/config.json and

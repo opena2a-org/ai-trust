@@ -132,9 +132,9 @@ export function registerAuditCommand(program: Command): void {
           if (shouldScan) {
             if (!(await isHmaAvailable())) {
               console.error(
-                "HMA (HackMyAgent) is required for scanning. Install it with:"
+                "HMA (HackMyAgent) is required for scanning. ai-trust runs the hackmyagent version it pins as a dependency, and that copy could not be run. Reinstall ai-trust:"
               );
-              console.error("  npm install -g hackmyagent");
+              console.error("  npm install -g ai-trust");
             } else {
               await scanMissingPackages(
                 notFound,
@@ -195,9 +195,9 @@ async function scanMissingPackages(
   const available = await isHmaAvailable();
   if (!available) {
     console.error(
-      "HMA (HackMyAgent) is required for scanning. Install it with:"
+      "HMA (HackMyAgent) is required for scanning. ai-trust runs the hackmyagent version it pins as a dependency, and that copy could not be run. Reinstall ai-trust:"
     );
-    console.error("  npm install -g hackmyagent");
+    console.error("  npm install -g ai-trust");
     return;
   }
 
