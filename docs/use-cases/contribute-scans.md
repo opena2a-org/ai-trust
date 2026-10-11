@@ -11,7 +11,13 @@ Time: 3 min.
 To save the preference up front, use opena2a-cli:
 
 ```bash
-opena2a config set contribute true
+opena2a config contribute on
+```
+
+Check the saved choice at any time:
+
+```bash
+ai-trust config contribute status
 ```
 
 To contribute a single scan without saving a preference (non-interactive shells and CI), pass `--contribute`:
@@ -76,7 +82,7 @@ To skip a single scan, pass `--no-contribute` to `ai-trust check` or `ai-trust a
 Or:
 
 ```bash
-opena2a config set contribute false
+opena2a config contribute off
 ```
 
 Your local scan results continue to work. Only the telemetry submission stops.

@@ -12,6 +12,7 @@ import { Command } from "commander";
 import { registerCheckCommand } from "./commands/check.js";
 import { registerAuditCommand } from "./commands/audit.js";
 import { registerBatchCommand } from "./commands/batch.js";
+import { registerConfigCommand } from "./commands/config.js";
 
 const require = createRequire(import.meta.url);
 const pkg = require("../package.json");
@@ -51,6 +52,7 @@ Telemetry:
 registerCheckCommand(program);
 registerAuditCommand(program);
 registerBatchCommand(program);
+registerConfigCommand(program);
 
 (async () => {
   // Tier-1 anonymous usage telemetry — default ON; opt-out via

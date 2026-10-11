@@ -224,10 +224,13 @@ When contribution is saved as on, the bundled scanner (hackmyagent) also sends c
 No scan results are shared until you opt in. `check` never asks: after a few scans without a choice, it prints a tip on how to opt in. `audit` on a terminal asks whether to share after it scans packages the registry does not have, unless contribution is already on or you pass `--contribute` or `--no-contribute`. A global choice is saved in `~/.opena2a/config.json` and shared across all OpenA2A tools (`opena2a-cli`, `hackmyagent`).
 
 ```bash
-ai-trust check mcp-server-xyz --contribute     # contribute for this scan (non-interactive / CI)
-opena2a config set contribute true             # opt in globally
-opena2a config set contribute false            # opt out globally
+ai-trust check @modelcontextprotocol/server-filesystem --contribute   # contribute for this scan (non-interactive / CI)
+ai-trust config contribute on                  # opt in globally
+ai-trust config contribute off                 # opt out globally
+ai-trust config contribute status              # show the saved choice
 ```
+
+With opena2a-cli installed, `opena2a config contribute on` and `opena2a config contribute off` change the same setting.
 
 More scans contributed means packages move from "Listed" to "Scanned" faster, reducing risk for everyone.
 
