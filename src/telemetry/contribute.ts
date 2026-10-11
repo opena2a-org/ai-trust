@@ -6,9 +6,10 @@
  * Queue file: ~/.opena2a/contribute-queue.json
  * Endpoint:   POST api.oa2a.org/api/v1/contribute
  *
- * PRIVACY: Only summary statistics are sent (totalChecks, passed,
- * severity counts, score, verdict). No file paths, no source code,
- * no raw finding descriptions, no PII.
+ * PRIVACY: Only summary statistics are sent (package name and version,
+ * totalChecks, passed, severity counts, score, verdict) with the
+ * pseudonymous contributor token. No file paths, no source code, no raw
+ * finding descriptions, no PII.
  */
 
 import {
@@ -69,7 +70,9 @@ export type ContributionBatch = SharedContributionBatch;
 /**
  * Generate a stable per-device contributor token.
  * Delegates to @opena2a/contribute. SHA256(hostname + username + random salt
- * stored at ~/.opena2a/contributor-salt).
+ * stored at ~/.opena2a/contributor-salt). The token is a pseudonymous
+ * per-device identifier: it links contributions from the same device to each
+ * other, while the hostname and username themselves are never sent.
  */
 export { getContributorToken as generateContributorToken };
 
@@ -116,7 +119,8 @@ export function queueScanResult(
   packageName: string,
   findings: HmaFinding[],
   durationMs = 0,
-  ecosystem: "npm" | "pypi" | "github" = "npm"
+  ecosystem: "npm" | "pypi" | "github" = "npm",
+  packageVersion?: string
 ): void {
   const total = findings.length;
   const passed = findings.filter((f) => f.passed).length;
@@ -135,6 +139,7 @@ export function queueScanResult(
     tool: "ai-trust",
     toolVersion: VERSION,
     packageName,
+    packageVersion,
     ecosystem,
     totalChecks: total,
     passed,

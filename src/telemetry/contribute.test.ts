@@ -181,6 +181,14 @@ describe("queueScanResult", () => {
     expect(serialized).not.toContain("chmod 600");
   });
 
+  it("passes the package version through when one is known", () => {
+    queueScanResult("test-pkg", makeSampleFindings(), 0, "pypi", "0.9.1");
+
+    const args = vi.mocked(contribute.scanResult).mock.calls[0][0];
+    expect(args.packageVersion).toBe("0.9.1");
+    expect(args.ecosystem).toBe("pypi");
+  });
+
   it("calls scanResult for each invocation", () => {
     queueScanResult("pkg-a", makeSampleFindings());
     queueScanResult("pkg-b", []);

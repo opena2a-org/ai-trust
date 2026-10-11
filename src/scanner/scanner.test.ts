@@ -19,7 +19,7 @@ vi.mock("./hma.js", () => ({
 
 import { downloadPackage } from "./downloader.js";
 import { runHmaScan } from "./hma.js";
-import { scanPackage, scanLocalPath, assertPackageMatchesName } from "./index.js";
+import { scanPackage, scanLocalPath, assertPackageMatchesName, readPackageVersion } from "./index.js";
 
 let tmpRoot: string;
 const mockCleanup = vi.fn().mockResolvedValue(undefined);
@@ -75,6 +75,20 @@ describe("scanPackage", () => {
     expect(result.trustScore).toBeCloseTo(0.95);
     expect(result.trustLevel).toBe(3);
     expect(result.verdict).toBe("safe");
+  });
+
+  it("carries the version from the downloaded package's own manifest", async () => {
+    setupDownload("test-pkg");
+    vi.mocked(runHmaScan).mockResolvedValue({
+      score: 95,
+      maxScore: 100,
+      findings: [],
+      projectType: "mcp",
+      timestamp: "2026-03-14T00:00:00Z",
+    });
+
+    const result = await scanPackage("test-pkg");
+    expect(result.packageVersion).toBe("1.0.0");
   });
 
   it("derives warning verdict for high-severity findings", async () => {
@@ -274,6 +288,51 @@ describe("scanPackage", () => {
     vi.mocked(runHmaScan).mockResolvedValue(baseScan(30));
     result = await scanPackage("pkg-d");
     expect(result.trustLevel).toBe(0);
+  });
+});
+
+describe("readPackageVersion", () => {
+  it("reads version from an npm package.json", async () => {
+    const dir = setupDownloadRaw(JSON.stringify({ name: "a", version: "2.3.4-beta.1" }));
+    await expect(readPackageVersion(dir, "npm")).resolves.toBe("2.3.4-beta.1");
+  });
+
+  it("returns undefined when package.json has no version or cannot be parsed", async () => {
+    const dir = setupDownloadRaw(JSON.stringify({ name: "a" }));
+    await expect(readPackageVersion(dir, "npm")).resolves.toBeUndefined();
+    writeFileSync(join(dir, "package.json"), "{ not json");
+    await expect(readPackageVersion(dir, "npm")).resolves.toBeUndefined();
+  });
+
+  it("drops a version field that is not version-shaped instead of sending it", async () => {
+    const dir = setupDownloadRaw(
+      JSON.stringify({ name: "a", version: '1.0.0 "mcpServers": { "leaky": {} }' }),
+    );
+    await expect(readPackageVersion(dir, "npm")).resolves.toBeUndefined();
+  });
+
+  it("reads Version from a PyPI sdist PKG-INFO header", async () => {
+    const dir = setupDownloadRaw(null);
+    writeFileSync(
+      join(dir, "PKG-INFO"),
+      "Metadata-Version: 2.1\nName: demo\nVersion: 0.9.1\n\nVersion: 9.9.9 in the body is ignored\n",
+    );
+    await expect(readPackageVersion(dir, "pypi")).resolves.toBe("0.9.1");
+  });
+
+  it("reads Version from a PyPI wheel dist-info METADATA", async () => {
+    const dir = setupDownloadRaw(null);
+    mkdirSync(join(dir, "demo-1.4.0.dist-info"), { recursive: true });
+    writeFileSync(
+      join(dir, "demo-1.4.0.dist-info", "METADATA"),
+      "Metadata-Version: 2.1\r\nName: demo\r\nVersion: 1.4.0\r\n",
+    );
+    await expect(readPackageVersion(dir, "pypi")).resolves.toBe("1.4.0");
+  });
+
+  it("returns undefined for a PyPI tree with no metadata file", async () => {
+    const dir = setupDownloadRaw(null);
+    await expect(readPackageVersion(dir, "pypi")).resolves.toBeUndefined();
   });
 });
 

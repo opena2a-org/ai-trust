@@ -7,6 +7,7 @@ import { Command } from "commander";
 import { registerAuditCommand } from "./audit.js";
 
 vi.mock("@opena2a/registry-client", () => ({
+  firstPartySignerFromEnv: vi.fn().mockReturnValue(undefined),
   RegistryClient: vi.fn().mockImplementation(function () {
     return {
       batchQuery: vi.fn(),
@@ -64,7 +65,7 @@ vi.mock("../telemetry/index.js", () => {
 import { RegistryClient } from "@opena2a/registry-client";
 import { parseDependencyFile } from "../utils/parser.js";
 import { isHmaAvailable, scanPackage } from "../scanner/index.js";
-import { sendScanPing, isContributeEnabled } from "../telemetry/index.js";
+import { sendScanPing, isContributeEnabled, queueScanResult } from "../telemetry/index.js";
 
 function createProgram(): Command {
   const program = new Command();
@@ -270,5 +271,72 @@ describe("audit command", () => {
 
       expect(sendScanPing).not.toHaveBeenCalled();
     });
+  });
+
+  it("publishes check IDs and results only, never finding names or messages, and sends the package version (#97)", async () => {
+    vi.mocked(parseDependencyFile).mockResolvedValue([{ name: "leaky-pkg" }]);
+    const mockPublishScan = vi.fn().mockResolvedValue({ accepted: true });
+    vi.mocked(RegistryClient).mockImplementation(
+      function () {
+        return {
+          batchQuery: vi.fn().mockResolvedValue({
+            results: [{ name: "leaky-pkg", found: false }],
+            meta: { total: 1, found: 0, notFound: 1 },
+          }),
+          publishScan: mockPublishScan,
+        } as any;
+      }
+    );
+    vi.mocked(isHmaAvailable).mockResolvedValue(true);
+    vi.mocked(scanPackage).mockResolvedValue({
+      packageName: "leaky-pkg",
+      packageVersion: "4.5.6",
+      scan: {
+        score: 70,
+        maxScore: 100,
+        findings: [
+          {
+            checkId: "AST-SCOPE-003",
+            name: "Scope mismatch in mcp.json",
+            description: "Declared capability exceeds stated purpose",
+            category: "scope",
+            severity: "medium",
+            passed: false,
+            message: 'does not match purpose "{ "mcpServers": { "leaky": {',
+            file: "mcp.json",
+            attackClass: "SCOPE-ESCALATION",
+          },
+        ],
+        projectType: "mcp_server",
+        timestamp: "2026-04-12T00:00:00Z",
+      },
+      trustScore: 0.7,
+      trustLevel: 2,
+      verdict: "warning",
+    });
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "audit", "package.json", "--scan-missing", "--contribute",
+    ]);
+
+    expect(mockPublishScan).toHaveBeenCalledOnce();
+    const submission = mockPublishScan.mock.calls[0][0];
+    const wire = JSON.stringify(submission);
+    expect(wire).not.toContain("mcpServers");
+    expect(wire).not.toContain("Scope mismatch");
+    expect(submission.version).toBe("4.5.6");
+    expect(submission.findings).toEqual([
+      {
+        checkId: "AST-SCOPE-003",
+        name: "AST-SCOPE-003",
+        severity: "medium",
+        passed: false,
+        message: "",
+        category: "scope",
+        attackClass: "SCOPE-ESCALATION",
+      },
+    ]);
+    expect(queueScanResult).toHaveBeenCalledWith("leaky-pkg", expect.any(Array), 0, "npm", "4.5.6");
   });
 });

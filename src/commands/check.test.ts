@@ -677,6 +677,85 @@ describe("check command", () => {
       expect(queueScanResult).toHaveBeenCalled();
     });
 
+    it("publishes check IDs and results only, never finding names or messages, and sends the package version (#97)", async () => {
+      const leaked = '"mcp.leaky.*" does not match purpose "{ "mcpServers": { "leaky": { "command": "node"';
+      const mockPublishScan = vi.fn().mockResolvedValue({ accepted: true });
+      vi.mocked(RegistryClient).mockImplementation(
+        function () {
+          return {
+            checkTrust: vi.fn().mockRejectedValue(new PackageNotFoundError("scan-me")),
+            batchQuery: vi.fn(),
+            publishScan: mockPublishScan,
+          } as any;
+        }
+      );
+      vi.mocked(isHmaAvailable).mockResolvedValue(true);
+      vi.mocked(scanPackage).mockResolvedValue({
+        packageName: "scan-me",
+        packageVersion: "1.2.3",
+        scan: {
+          score: 70,
+          maxScore: 100,
+          findings: [
+            {
+              checkId: "AST-SCOPE-003",
+              name: "Scope mismatch in mcp.json",
+              description: "Declared capability exceeds stated purpose",
+              category: "scope",
+              severity: "medium",
+              passed: false,
+              message: leaked,
+              file: "mcp.json",
+              line: 1,
+              fix: "Narrow the declared scope",
+              attackClass: "SCOPE-ESCALATION",
+            },
+          ],
+          projectType: "mcp_server",
+          timestamp: "2026-03-14T00:00:00Z",
+        },
+        trustScore: 0.7,
+        trustLevel: 2,
+        verdict: "warning",
+      });
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node",
+        "test",
+        "check",
+        "scan-me",
+        "--scan-if-missing",
+        "--contribute",
+      ]);
+
+      expect(mockPublishScan).toHaveBeenCalledOnce();
+      const submission = mockPublishScan.mock.calls[0][0];
+      const wire = JSON.stringify(submission);
+      expect(wire).not.toContain("mcpServers");
+      expect(wire).not.toContain("Scope mismatch in mcp.json");
+      expect(wire).not.toContain("mcp.json");
+      expect(submission.version).toBe("1.2.3");
+      expect(submission.findings).toEqual([
+        {
+          checkId: "AST-SCOPE-003",
+          name: "AST-SCOPE-003",
+          severity: "medium",
+          passed: false,
+          message: "",
+          category: "scope",
+          attackClass: "SCOPE-ESCALATION",
+        },
+      ]);
+      expect(queueScanResult).toHaveBeenCalledWith(
+        "scan-me",
+        expect.any(Array),
+        0,
+        "npm",
+        "1.2.3"
+      );
+    });
+
     it("handles telemetry failure gracefully (non-fatal)", async () => {
       vi.mocked(flushQueue).mockResolvedValue(false);
       const mockCheckTrust = vi

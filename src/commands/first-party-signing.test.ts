@@ -9,10 +9,11 @@
  *
  *   1. The env var name is exactly AI_TRUST_CI_SIGNING_KEY.
  *   2. The claimed source is exactly "ci" (NOT first_party_scanner — ai-trust is our CI).
- *   3. ai-trust never sends `version`, so the signed STRONG canonical has an EMPTY version
- *      segment (`name||score|maxScore|ci|nonce|signedAt`). The signature must still verify
- *      against the raw 32-byte public key, or every ci-signed publish silently downgrades
- *      to community at the registry.
+ *   3. ai-trust sends the downloaded package's `version` when its manifest carries one, and
+ *      omits it otherwise. Both shapes must sign a STRONG canonical that verifies against
+ *      the raw 32-byte public key: `name|version|score|...` when versioned, and an EMPTY
+ *      version segment (`name||score|maxScore|ci|nonce|signedAt`) when not. A mismatch
+ *      silently downgrades every ci-signed publish to community at the registry.
  *
  * Uses the real @opena2a/registry-client signer (this file deliberately does NOT mock it).
  */
@@ -26,8 +27,10 @@ const KEY_ENV = "AI_TRUST_CI_SIGNING_KEY";
 // A fixed 32-byte seed (base64), the way our CI secret store would supply it.
 const SEED = Buffer.alloc(32, 7);
 
-// ai-trust's actual submission shape is version-less (audit.ts / check.ts never set version).
+// A scan whose downloaded manifest carried no usable version is published version-less.
 const SCAN = { name: "@scope/pkg", score: 90, maxScore: 100 } as const;
+// A scan of a downloaded package that declares its version (the usual case).
+const VERSIONED_SCAN = { name: "@scope/pkg", version: "1.2.3", score: 90, maxScore: 100 } as const;
 
 describe("ai-trust first-party (source=ci) signing", () => {
   let original: string | undefined;
@@ -74,6 +77,24 @@ describe("ai-trust first-party (source=ci) signing", () => {
 
     // The signature verifies against the on-wire public key — proving the registry would
     // honor source=ci instead of downgrading to community.
+    const ok = nacl.sign.detached.verify(
+      Buffer.from(canonical, "utf-8"),
+      Buffer.from(prov.signature, "base64"),
+      Buffer.from(prov.publicKey, "base64"),
+    );
+    expect(ok).toBe(true);
+  });
+
+  it("signs a versioned scan over a canonical that binds the version", () => {
+    process.env[KEY_ENV] = SEED.toString("base64");
+    const signer = firstPartySignerFromEnv({ keyEnv: KEY_ENV, source: "ci" })!;
+
+    const prov = signer.sign(VERSIONED_SCAN);
+    const canonical = strongCanonical(VERSIONED_SCAN, prov.source, prov.nonce, prov.signedAt);
+    expect(canonical).toBe(
+      `${VERSIONED_SCAN.name}|${VERSIONED_SCAN.version}|${VERSIONED_SCAN.score}|${VERSIONED_SCAN.maxScore}|ci|${prov.nonce}|${prov.signedAt}`,
+    );
+
     const ok = nacl.sign.detached.verify(
       Buffer.from(canonical, "utf-8"),
       Buffer.from(prov.signature, "base64"),
