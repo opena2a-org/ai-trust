@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -347,6 +347,33 @@ describe("readPackageVersion", () => {
     await expect(readPackageVersion(dir, "pypi")).resolves.toBeUndefined();
     expect(performance.now() - started).toBeLessThan(1000);
   });
+
+  it("does not follow a manifest symlink out of the extracted package", async () => {
+    const outside = join(tmpRoot, "outside");
+    mkdirSync(join(outside, "elsewhere.dist-info"), { recursive: true });
+    writeFileSync(join(outside, "PKG-INFO"), "Metadata-Version: 2.1\nName: other\nVersion: 6.6.6\n");
+    writeFileSync(join(outside, "elsewhere.dist-info", "METADATA"), "Name: other\nVersion: 6.6.7\n");
+    writeFileSync(join(outside, "package.json"), JSON.stringify({ name: "other", version: "6.6.8" }));
+
+    const dir = setupDownloadRaw(null);
+    symlinkSync(join(outside, "PKG-INFO"), join(dir, "PKG-INFO"));
+    symlinkSync(join(outside, "elsewhere.dist-info"), join(dir, "demo-1.0.dist-info"));
+    symlinkSync(join(outside, "package.json"), join(dir, "package.json"));
+
+    await expect(readPackageVersion(dir, "pypi")).resolves.toBeUndefined();
+    await expect(readPackageVersion(dir, "npm")).resolves.toBeUndefined();
+  });
+
+  it("skips a symlinked PKG-INFO and still reads a regular dist-info METADATA", async () => {
+    const outside = join(tmpRoot, "outside-PKG-INFO");
+    writeFileSync(outside, "Metadata-Version: 2.1\nName: other\nVersion: 6.6.6\n");
+    const dir = setupDownloadRaw(null);
+    symlinkSync(outside, join(dir, "PKG-INFO"));
+    mkdirSync(join(dir, "demo-1.4.0.dist-info"));
+    writeFileSync(join(dir, "demo-1.4.0.dist-info", "METADATA"), "Name: demo\nVersion: 1.4.0\n");
+
+    await expect(readPackageVersion(dir, "pypi")).resolves.toBe("1.4.0");
+  });
 });
 
 describe("assertPackageMatchesName (package identity guard)", () => {
@@ -428,6 +455,16 @@ describe("assertPackageMatchesName (package identity guard)", () => {
     const dir = setupDownloadRaw(null);
     await expect(assertPackageMatchesName(dir, "foo")).rejects.toThrow(
       /could not be read \(ENOENT\)/,
+    );
+  });
+
+  it("rejects when package.json is a symlink, without reading its target", async () => {
+    const outside = join(tmpRoot, "outside-package.json");
+    writeFileSync(outside, JSON.stringify({ name: "foo", version: "1.0.0" }));
+    const dir = setupDownloadRaw(null);
+    symlinkSync(outside, join(dir, "package.json"));
+    await expect(assertPackageMatchesName(dir, "foo")).rejects.toThrow(
+      /package\.json is not a regular file/,
     );
   });
 
