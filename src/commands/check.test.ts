@@ -4,6 +4,9 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Command } from "commander";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { registerCheckCommand } from "./check.js";
 
 // Mock the API client, preserving the real PackageNotFoundError class
@@ -1026,5 +1029,109 @@ describe("check command", () => {
       expect(help).toMatch(/--scan-if-missing\s+deprecated/);
       expect(help).not.toMatch(/ai-trust check \S+ --scan-if-missing/);
     });
+  });
+});
+
+// The documented exit-code contract is checked against the exit code the
+// command actually sets, so the README table cannot drift from the code again
+// (it once had no row for not-found or out-of-scope).
+describe("documented exit codes match check outcomes", () => {
+  const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+  const readDoc = (rel: string) => readFileSync(resolve(REPO_ROOT, rel), "utf8");
+
+  // Rows of the README "## Exit codes" table as `| <code> | <Outcome>: ... |`.
+  function readmeExitCodes(): Map<string, number> {
+    const section =
+      readDoc("README.md").split(/^## Exit codes$/m)[1]?.split(/^## /m)[0] ?? "";
+    const rows = new Map<string, number>();
+    for (const m of section.matchAll(/^\| (\d) \| ([^:|]+):/gm)) {
+      rows.set(m[2].trim(), Number(m[1]));
+    }
+    return rows;
+  }
+
+  let consoleSpy: ReturnType<typeof vi.spyOn>;
+  let consoleErrSpy: ReturnType<typeof vi.spyOn>;
+  let savedExitCode: number | undefined;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    savedExitCode = process.exitCode;
+    process.exitCode = undefined;
+  });
+
+  afterEach(() => {
+    consoleSpy.mockRestore();
+    consoleErrSpy.mockRestore();
+    process.exitCode = savedExitCode;
+  });
+
+  const outcomes: { outcome: string; name: string; registry: () => Promise<unknown> }[] = [
+    {
+      outcome: "Safe",
+      name: "good-pkg",
+      registry: async () => ({ name: "good-pkg", found: true, verdict: "safe", trustLevel: 3 }),
+    },
+    {
+      outcome: "Out of scope",
+      name: "express",
+      registry: async () => ({
+        name: "express",
+        found: true,
+        verdict: "safe",
+        trustLevel: 3,
+        packageType: "library",
+      }),
+    },
+    {
+      outcome: "Operational error",
+      name: "some-pkg",
+      registry: async () => {
+        throw new Error("network failure");
+      },
+    },
+    {
+      outcome: "Warning or blocked",
+      name: "risky-pkg",
+      registry: async () => ({ name: "risky-pkg", found: true, verdict: "warning", trustLevel: 1 }),
+    },
+    {
+      outcome: "Not found",
+      name: "nonexistent-xyz-999",
+      registry: async () => {
+        throw new PackageNotFoundError("nonexistent-xyz-999");
+      },
+    },
+  ];
+
+  for (const { outcome, name, registry } of outcomes) {
+    it(`README row "${outcome}" gives the code check sets`, async () => {
+      vi.mocked(RegistryClient).mockImplementation(function () {
+        return { checkTrust: vi.fn(registry), batchQuery: vi.fn(), publishScan: vi.fn() } as any;
+      });
+
+      await createProgram().parseAsync(["node", "test", "check", name, "--no-scan"]);
+
+      const documented = readmeExitCodes().get(outcome);
+      expect(documented, `README exit-code table has no "${outcome}" row`).toBeDefined();
+      expect(process.exitCode ?? 0).toBe(documented);
+    });
+  }
+
+  it("README documents below-threshold as exit 2 (behavior pinned in batch.test.ts)", () => {
+    expect(readmeExitCodes().get("Below threshold")).toBe(2);
+  });
+
+  it("release checklist and changelog do not contradict the README table", () => {
+    const smoke = readDoc("docs/testing/release-smoke.md");
+    expect(smoke).toMatch(/check express --no-scan .*exit 0/);
+    expect(smoke).not.toMatch(/1 for errors\/high-risk/);
+    expect(smoke).not.toMatch(/2 for not-found\/out-of-scope/);
+    expect(readDoc("CHANGELOG.md")).not.toContain("exit 1 for below-threshold");
+    expect(readDoc("docs/use-cases/check-before-install.md")).toMatch(
+      /# Exit code 0 = safe or out of scope, 1 = operational error, 2 = warning, blocked or not found/,
+    );
   });
 });

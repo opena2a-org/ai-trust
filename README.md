@@ -204,11 +204,14 @@ ai-trust check express --registry-url http://localhost:8080      # custom regist
 
 ## Exit codes
 
-| Code | Meaning |
+| Code | Outcome |
 |---|---|
-| 0 | All queried packages are safe and meet the trust threshold |
-| 1 | Operational error (network failure, file not found, server error) |
-| 2 | Policy signal: one or more packages have warning or blocked verdict, or fall below `--min-trust` |
+| 0 | Safe: all queried packages are safe and meet the trust threshold |
+| 0 | Out of scope: the package is a general-purpose library, not an AI package, and the registry has not flagged it as warning or blocked |
+| 1 | Operational error: network failure, file not found, server error, or invalid arguments |
+| 2 | Warning or blocked: one or more packages have a warning or blocked verdict |
+| 2 | Below threshold: one or more packages fall below `--min-trust` (`audit`, `batch`) |
+| 2 | Not found: a package is not in the registry and was not scanned locally, or does not exist on npm or PyPI |
 
 ## Community contribution
 
