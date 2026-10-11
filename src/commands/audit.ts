@@ -148,7 +148,16 @@ export function registerAuditCommand(program: Command): void {
         }
 
         if (globalOpts.json) {
-          console.log(formatJson(response));
+          // The registry's batch answers do not echo the ecosystem the
+          // packages were queried under, so tag each result with it: a JSON
+          // consumer can then tell a requirements.txt audit (pypi) from a
+          // package.json audit (npm) without re-deriving it from the path.
+          console.log(
+            formatJson({
+              ...response,
+              results: response.results.map((r) => ({ ...r, ecosystem })),
+            })
+          );
         } else {
           console.log(formatBatchResults(response, minTrust));
         }

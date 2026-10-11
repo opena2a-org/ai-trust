@@ -8,7 +8,7 @@ Trust verification CLI for AI packages. MCP servers, A2A agents, skills, AI tool
 
 [![npm version](https://img.shields.io/npm/v/ai-trust.svg)](https://www.npmjs.com/package/ai-trust)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Tests](https://img.shields.io/badge/tests-201%20passing-brightgreen)](https://github.com/opena2a-org/ai-trust)
+[![CI](https://github.com/opena2a-org/ai-trust/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/opena2a-org/ai-trust/actions/workflows/ci.yml)
 
 [Website](https://opena2a.org/ai-trust) · [Registry](https://registry.opena2a.org) · [Discord](https://discord.gg/uRZa3KXgEn)
 

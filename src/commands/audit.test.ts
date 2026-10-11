@@ -173,6 +173,42 @@ describe("audit command", () => {
     expect(process.exitCode).toBe(2);
   });
 
+  it("tags every --json result with the ecosystem the file was queried under", async () => {
+    vi.mocked(detectEcosystem).mockReturnValueOnce("pypi");
+    vi.mocked(parseDependencyFile).mockResolvedValue([
+      { name: "fastapi", ecosystem: "pypi" },
+      { name: "pydantic", ecosystem: "pypi" },
+    ]);
+    const mockBatchQuery = vi.fn().mockResolvedValue({
+      results: [
+        { name: "fastapi", found: true, trustLevel: 3, verdict: "safe" },
+        { name: "pydantic", found: true, trustLevel: 3, verdict: "safe" },
+      ],
+      meta: { total: 2, found: 2, notFound: 0 },
+    });
+    vi.mocked(RegistryClient).mockImplementation(
+      function () {
+        return { checkTrust: vi.fn(), batchQuery: mockBatchQuery } as any;
+      }
+    );
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "--json",
+      "audit",
+      "requirements.txt",
+    ]);
+
+    const printed = JSON.parse(String(consoleSpy.mock.calls[0][0]));
+    expect(printed.results).toHaveLength(2);
+    for (const r of printed.results) {
+      expect(r.ecosystem).toBe("pypi");
+    }
+    expect(printed.meta).toEqual({ total: 2, found: 2, notFound: 0 });
+  });
+
   it("shows friendly error for ENOENT (missing file)", async () => {
     const enoentError = new Error(
       "ENOENT: no such file or directory, open 'nonexistent.json'"
