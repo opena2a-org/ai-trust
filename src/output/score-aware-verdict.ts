@@ -111,7 +111,7 @@ export function buildScoreAwareVerdict(
     // remote scans are third-party code the user does not own → review/avoid.
     const guidance = remote
       ? "Review before depending on it, or choose a vetted version."
-      : "Run `secure --fix` to auto-remediate where possible, then rescan.";
+      : "Run `npx hackmyagent secure --fix` to auto-remediate where possible, then rescan.";
     return {
       status: "needs-fix",
       headline: `Usable with caveats${countSuffix(counts)}`,
@@ -124,7 +124,7 @@ export function buildScoreAwareVerdict(
   if (counts.total > 0) {
     const guidance = remote
       ? "Minor findings in the package's own code — review at your discretion."
-      : "Minor findings — run `secure --fix` to auto-remediate where possible.";
+      : "Minor findings — run `npx hackmyagent secure --fix` to auto-remediate where possible.";
     return {
       status: "safe",
       headline: `Looks safe — ${counts.total} minor finding${counts.total > 1 ? "s" : ""}`,

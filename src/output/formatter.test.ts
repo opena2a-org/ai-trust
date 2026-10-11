@@ -637,10 +637,12 @@ describe("formatScanResult", () => {
     expect(remoteOutput).not.toContain("secure --fix");
     expect(remoteOutput).toMatch(/review|depend/i);
 
-    // Local default keeps the `secure --fix` remediation guidance.
+    // Local default keeps the `secure --fix` remediation guidance, named as
+    // the hackmyagent command (ai-trust has no `secure` command).
     const localOutput = formatScanResult(result, { remote: false });
     expect(localOutput).toContain("local scan");
-    expect(localOutput).toContain("secure --fix");
+    expect(localOutput).toContain("npx hackmyagent secure --fix");
+    expect(localOutput).not.toMatch(/(?<!npx hackmyagent )secure --fix/);
   });
 
   it("remote verdict (downloaded package): high/critical findings still avoid `secure --fix` in Next Steps", () => {
@@ -705,7 +707,8 @@ describe("formatScanResult", () => {
     });
     const output = formatScanResult(result);
     expect(output).toContain("local scan");
-    expect(output).toContain("secure --fix");
+    expect(output).toContain("npx hackmyagent secure --fix");
+    expect(output).not.toMatch(/(?<!npx hackmyagent )secure --fix/);
   });
 
   it("still shows the score on a clean scan that DID run checks (suppression must not over-fire)", () => {
