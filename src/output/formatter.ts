@@ -33,6 +33,11 @@ import {
   type VerdictFinding,
 } from "@opena2a/cli-ui";
 import { buildScoreAwareVerdict } from "./score-aware-verdict.js";
+import {
+  hasRecordedIssues,
+  readSecurityProfile,
+  type RegistrySecurityProfile,
+} from "./security-profile.js";
 import { mapScanStatusForMeter } from "@opena2a/check-core";
 import { classify, tierLabel } from "@opena2a/ai-classifier";
 import type { Tier } from "@opena2a/ai-classifier";
@@ -197,6 +202,65 @@ function buildCheckCtas(answer: TrustAnswer, isScanError: boolean): NextStepsCta
   return ctas;
 }
 
+const MAX_LISTED_CVES = 5;
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+/**
+ * Headline for a passed verdict whose registry profile records findings or
+ * CVEs. "No known issues" would contradict the counts printed below it; the
+ * verdict and exit code stay the registry's.
+ */
+function passedWithRecordedIssuesText(profile: RegistrySecurityProfile): string {
+  const severities: string[] = [];
+  if (profile.criticalCount > 0) severities.push(`${profile.criticalCount} critical`);
+  if (profile.highCount > 0) severities.push(`${profile.highCount} high`);
+  const parts: string[] = [];
+  if (severities.length > 0) {
+    // "2 critical and 1 high finding": the noun agrees with the last count.
+    const last = profile.highCount > 0 ? profile.highCount : profile.criticalCount;
+    parts.push(`${severities.join(" and ")} finding${last === 1 ? "" : "s"}`);
+  }
+  if (profile.knownCves.length > 0) {
+    parts.push(plural(profile.knownCves.length, "known CVE"));
+  }
+  return `Passed, but the registry recorded ${parts.join(", plus ")}`;
+}
+
+/** "Findings" and "CVEs" lines from the registry's security profile. */
+function securityProfileLines(
+  profile: RegistrySecurityProfile,
+  scanStatus: string | undefined,
+): string[] {
+  const counts = [
+    `${profile.criticalCount} critical`,
+    `${profile.highCount} high`,
+  ];
+  const status = scanStatus?.trim();
+  if (status) counts.push(`scan status ${status}`);
+  const findingsTone: CheckTone =
+    profile.criticalCount > 0 ? "critical" : profile.highCount > 0 ? "warning" : "good";
+
+  let cves: string;
+  let cvesTone: CheckTone;
+  if (profile.knownCves.length === 0) {
+    cves = "none recorded";
+    cvesTone = "dim";
+  } else {
+    const shown = profile.knownCves.slice(0, MAX_LISTED_CVES).join(", ");
+    const more = profile.knownCves.length - MAX_LISTED_CVES;
+    cves = more > 0 ? `${shown} +${more} more` : shown;
+    cvesTone = "critical";
+  }
+
+  return [
+    `  ${"Findings".padEnd(CHECK_LABEL_WIDTH)}${paintCheckTone(findingsTone, counts.join(" · "))}`,
+    `  ${"CVEs".padEnd(CHECK_LABEL_WIDTH)}${paintCheckTone(cvesTone, cves)}`,
+  ];
+}
+
 function renderNextStepsLines(ctas: NextStepsCta[]): string[] {
   const { lines } = renderNextSteps({ ctas });
   return lines.map((s) => {
@@ -227,6 +291,7 @@ export function formatCheckResult(answer: TrustAnswer): string {
   });
 
   const isScanError = isScanErrorStatus(answer.scanStatus);
+  const profile = readSecurityProfile(answer);
   const out: string[] = [];
 
   // Header
@@ -241,6 +306,12 @@ export function formatCheckResult(answer: TrustAnswer): string {
   const vc = verdictColor(answer.verdict);
   if (isScanError) {
     out.push(`  ${chalk.bold(chalk.red("Scan failed \u2014 score is unreliable"))}`);
+  } else if (
+    profile &&
+    normalizeVerdict(answer.verdict) === "safe" &&
+    hasRecordedIssues(profile)
+  ) {
+    out.push(`  ${chalk.bold(chalk.yellow(passedWithRecordedIssuesText(profile)))}`);
   } else {
     out.push(`  ${chalk.bold(vc(block.verdict.text))}`);
   }
@@ -258,6 +329,12 @@ export function formatCheckResult(answer: TrustAnswer): string {
     }
     const label = line.label.padEnd(CHECK_LABEL_WIDTH);
     out.push(`  ${label}${paintCheckTone(line.tone, line.value)}`);
+  }
+
+  // Registry finding counts and known CVEs. Omitted on a failed scan, whose
+  // counts are as unreliable as its score, and when no profile came back.
+  if (profile && !isScanError) {
+    out.push(...securityProfileLines(profile, answer.scanStatus));
   }
 
   // Dependencies

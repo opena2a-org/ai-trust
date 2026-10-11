@@ -274,6 +274,111 @@ describe("formatCheckResult", () => {
   });
 });
 
+describe("formatCheckResult registry security profile (#105)", () => {
+  // Shape of the registry answer for @modelcontextprotocol/server-filesystem
+  // with includeProfile=true: verdict passed, scan status warnings, and a
+  // profile that records one high finding.
+  function withProfile(
+    securityProfile: Record<string, unknown> | undefined,
+    overrides: Partial<TrustAnswer> = {},
+  ): TrustAnswer {
+    return {
+      ...makeTrustAnswer({
+        name: "@modelcontextprotocol/server-filesystem",
+        verdict: "passed",
+        scanStatus: "warnings",
+        ...overrides,
+      }),
+      securityProfile,
+    } as TrustAnswer;
+  }
+
+  it("does not say 'No known issues' when the registry records a high finding", () => {
+    const output = formatCheckResult(
+      withProfile({ criticalCount: 0, highCount: 1, knownCves: [] }),
+    );
+
+    expect(output).not.toContain("No known issues");
+    expect(output).toContain("Passed, but the registry recorded 1 high finding");
+    expect(output).toMatch(/Findings\s+0 critical · 1 high · scan status warnings/);
+    expect(output).toMatch(/CVEs\s+none recorded/);
+  });
+
+  it("names critical findings and known CVEs in the headline and lists the CVEs", () => {
+    const output = formatCheckResult(
+      withProfile({
+        criticalCount: 2,
+        highCount: 1,
+        knownCves: ["CVE-2025-0001", { id: "GHSA-aaaa-bbbb-cccc" }],
+      }),
+    );
+
+    expect(output).toContain(
+      "Passed, but the registry recorded 2 critical and 1 high finding, plus 2 known CVEs",
+    );
+    expect(output).toMatch(/Findings\s+2 critical · 1 high/);
+    expect(output).toMatch(/CVEs\s+CVE-2025-0001, GHSA-aaaa-bbbb-cccc/);
+  });
+
+  it("caps the listed CVEs and counts the rest", () => {
+    const knownCves = Array.from({ length: 7 }, (_, i) => `CVE-2025-000${i + 1}`);
+    const output = formatCheckResult(
+      withProfile({ criticalCount: 0, highCount: 0, knownCves }),
+    );
+
+    expect(output).toContain("Passed, but the registry recorded 7 known CVEs");
+    expect(output).toContain("CVE-2025-0005 +2 more");
+    expect(output).not.toContain("CVE-2025-0006");
+  });
+
+  it("keeps 'No known issues' and shows zero counts when the profile is clean", () => {
+    const output = formatCheckResult(
+      withProfile(
+        { criticalCount: 0, highCount: 0, knownCves: [] },
+        { scanStatus: "passed" },
+      ),
+    );
+
+    expect(output).toContain("No known issues");
+    expect(output).toMatch(/Findings\s+0 critical · 0 high · scan status passed/);
+    expect(output).toMatch(/CVEs\s+none recorded/);
+  });
+
+  it("keeps the registry's warning headline and adds the counts", () => {
+    const output = formatCheckResult(
+      withProfile({ criticalCount: 1, highCount: 0, knownCves: [] }, { verdict: "warning" }),
+    );
+
+    expect(output).toContain("Warning");
+    expect(output).not.toContain("Passed, but");
+    expect(output).toMatch(/Findings\s+1 critical · 0 high/);
+  });
+
+  it("omits the Findings and CVEs lines when the registry returned no profile", () => {
+    const output = formatCheckResult(withProfile(undefined));
+
+    expect(output).toContain("No known issues");
+    expect(output).not.toContain("Findings");
+    expect(output).not.toContain("CVEs");
+  });
+
+  it("omits the lines when the profile carries no numeric counts", () => {
+    const output = formatCheckResult(withProfile({ knownCves: ["CVE-2025-0001"] }));
+
+    expect(output).not.toContain("Findings");
+    expect(output).not.toContain("CVE-2025-0001");
+  });
+
+  it("omits the counts on a failed scan, whose counts are unreliable", () => {
+    const output = formatCheckResult(
+      withProfile({ criticalCount: 0, highCount: 1, knownCves: [] }, { scanStatus: "error" }),
+    );
+
+    expect(output).toContain("Scan failed");
+    expect(output).not.toContain("Findings");
+  });
+});
+
 describe("formatBatchResults", () => {
   function makeBatchResponse(
     results: TrustAnswer[],

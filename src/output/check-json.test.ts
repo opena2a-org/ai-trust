@@ -50,6 +50,77 @@ describe("buildCheckJsonFromAnswer (registry path)", () => {
     expect(json).not.toHaveProperty("findings");
   });
 
+  it("carries the registry's finding counts, known CVEs, scan status and scan date (#105)", () => {
+    const answer = {
+      name: "@modelcontextprotocol/server-filesystem",
+      packageType: "mcp_server",
+      trustLevel: 3,
+      trustScore: 0.7866666666666666,
+      verdict: "passed",
+      scanStatus: "warnings",
+      lastScannedAt: "2026-03-02T00:46:00.496394Z",
+      found: true,
+      securityProfile: {
+        id: "profile-id",
+        criticalCount: 0,
+        highCount: 1,
+        knownCves: [],
+        hasDrift: false,
+      },
+    } as TrustAnswer;
+    const json = buildCheckJsonFromAnswer(answer);
+    expect(json).toEqual({
+      name: "@modelcontextprotocol/server-filesystem",
+      source: "registry",
+      found: true,
+      packageType: "mcp_server",
+      verdict: "passed",
+      trustLevel: 3,
+      trustScore: 0.7866666666666666,
+      scanStatus: "warnings",
+      lastScannedAt: "2026-03-02T00:46:00.496394Z",
+      securityProfile: { criticalCount: 0, highCount: 1, knownCves: [] },
+    });
+  });
+
+  it("normalizes known CVE entries to identifiers", () => {
+    const answer = {
+      name: "some-mcp",
+      trustLevel: 2,
+      trustScore: 0.5,
+      verdict: "passed",
+      found: true,
+      securityProfile: {
+        criticalCount: 1,
+        highCount: 0,
+        knownCves: ["CVE-2025-0001", { cveId: "CVE-2025-0002" }, 42, ""],
+      },
+    } as TrustAnswer;
+    expect(buildCheckJsonFromAnswer(answer).securityProfile).toEqual({
+      criticalCount: 1,
+      highCount: 0,
+      knownCves: ["CVE-2025-0001", "CVE-2025-0002"],
+    });
+  });
+
+  it("omits securityProfile when the registry returned none or no numeric counts", () => {
+    const base = {
+      name: "some-mcp",
+      trustLevel: 2,
+      trustScore: 0.5,
+      verdict: "passed",
+      found: true,
+    };
+    expect(buildCheckJsonFromAnswer(base as TrustAnswer)).not.toHaveProperty(
+      "securityProfile",
+    );
+    const partial = {
+      ...base,
+      securityProfile: { highCount: 1, knownCves: [] },
+    } as TrustAnswer;
+    expect(buildCheckJsonFromAnswer(partial)).not.toHaveProperty("securityProfile");
+  });
+
   it("propagates found=false without inventing a verdict", () => {
     const answer = {
       name: "ghost",
