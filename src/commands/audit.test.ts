@@ -65,7 +65,8 @@ vi.mock("../telemetry/index.js", () => {
 import { RegistryClient } from "@opena2a/registry-client";
 import { parseDependencyFile, detectEcosystem } from "../utils/parser.js";
 import { isHmaAvailable, scanPackage } from "../scanner/index.js";
-import { sendScanPing, isContributeEnabled, queueScanResult } from "../telemetry/index.js";
+import { sendScanPing, isContributeEnabled, queueScanResult, saveContributeChoice } from "../telemetry/index.js";
+import { confirm } from "../utils/prompt.js";
 
 function createProgram(): Command {
   const program = new Command();
@@ -384,5 +385,71 @@ describe("audit command", () => {
       ecosystem: "pypi",
     });
     expect(queueScanResult).toHaveBeenCalledWith("py-pkg", expect.any(Array), 0, "pypi", "0.9.1");
+  });
+
+  describe("share prompt on a terminal", () => {
+    let savedIsTTY: boolean | undefined;
+    const mockPublishScan = vi.fn();
+
+    beforeEach(() => {
+      savedIsTTY = process.stdin.isTTY;
+      Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+      // The user presses Enter, which accepts the prompt's default (yes).
+      vi.mocked(confirm).mockResolvedValue(true);
+      vi.mocked(isContributeEnabled).mockReturnValue(undefined);
+      vi.mocked(parseDependencyFile).mockResolvedValue([{ name: "tty-pkg" }]);
+      mockPublishScan.mockResolvedValue({ accepted: true });
+      vi.mocked(RegistryClient).mockImplementation(
+        function () {
+          return {
+            batchQuery: vi.fn().mockResolvedValue({
+              results: [{ name: "tty-pkg", found: false }],
+              meta: { total: 1, found: 0, notFound: 1 },
+            }),
+            publishScan: mockPublishScan,
+          } as any;
+        }
+      );
+      vi.mocked(isHmaAvailable).mockResolvedValue(true);
+      vi.mocked(scanPackage).mockResolvedValue({
+        packageName: "tty-pkg",
+        scan: {
+          score: 90,
+          maxScore: 100,
+          findings: [],
+          projectType: "library",
+          timestamp: "2026-04-12T00:00:00Z",
+        },
+        trustScore: 0.9,
+        trustLevel: 3,
+        verdict: "safe",
+      });
+    });
+
+    afterEach(() => {
+      Object.defineProperty(process.stdin, "isTTY", { value: savedIsTTY, configurable: true });
+      vi.mocked(confirm).mockResolvedValue(false);
+    });
+
+    it("asks to share when no choice is saved and no flag is given", async () => {
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "audit", "package.json", "--scan-missing"]);
+
+      expect(confirm).toHaveBeenCalledWith("Share these scans with the community?", true);
+      expect(mockPublishScan).toHaveBeenCalledOnce();
+    });
+
+    it("--no-contribute neither asks nor shares, and saves no choice (#96)", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "audit", "package.json", "--scan-missing", "--no-contribute",
+      ]);
+
+      expect(confirm).not.toHaveBeenCalled();
+      expect(saveContributeChoice).not.toHaveBeenCalled();
+      expect(queueScanResult).not.toHaveBeenCalled();
+      expect(mockPublishScan).not.toHaveBeenCalled();
+      expect(sendScanPing).not.toHaveBeenCalled();
+    });
   });
 });
