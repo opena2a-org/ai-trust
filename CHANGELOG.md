@@ -46,15 +46,49 @@
 
   The old goldens of the three `mcp` entries and `kitchen-sink` carried the remote model's `SEM-LLM-*` findings, which the new goldens do not, so their old → new change is not a measure of the pin alone. Two entries now sit exactly on a verdict line: `skill/benign/clean-skill` at 70 (`safe` needs 70) and `mcp/malicious/shell-rce-mcp` at 40 (`warning` needs 40). Two harness runs (one recording, one comparing), each from a fresh harness home whose caller cache held no model files, gave identical output: every golden matches; 7 passed, 4 failed, 1 skipped. The four failures are score-band misses only: `ibm-mcp-clone` (93 vs [48, 54]), `shell-rce-mcp` (40 vs [11, 17]), `nested-claude-skill` (71 vs [48, 54]) and `nested-mcp-config` (40 vs [25, 31]). They stay as recorded gaps: a buggy MCP server scored `safe`, an RCE MCP server not `blocked`, and two nested malicious fixtures above their bands. Writing their measured scores into the bands would record those false negatives as correct.
 - **Bumped the pinned `hackmyagent` scanner `0.24.0` → `0.25.0`, so local repo scans use content-aware git detection.** ai-trust delegates repo scanning to the hackmyagent it pins exactly. 0.25.0 makes `GIT-001`/`GIT-002` existence-aware via authoritative `git check-ignore` — a missing or incomplete `.gitignore` is a **LOW** advisory when no committable file matches the uncovered patterns (removing a false-`high` on clean/template repos) and stays **HIGH** when a genuine un-ignored match exists — and moves un-ignored `.env` secret exposure to the content-calibrated **`GIT-003`** (`critical`). It also surfaces `CRED-002`/`PERM-001` findings that previously never reached output (an un-ignored private key now scores), plus recursive `CRED-002` + `secrets.json`/`credentials.json` scanning, and the `@opena2a/aim-sdk` `1.0.1` → `1.0.2` security pin. The `release-smoke:corpus` goldens and the shared corpus `aiTrust` repo score bands were rebaselined to match — a deliberate, documented re-bake because the pinned scanner version changed, not a mask over drift. Golden deltas are only the expected content-aware-git changes: benign `tiny-clean-repo` `GIT-002` `high`→`low` (90→98, verdict `safe`), buggy `leaky-env-example` `GIT-002` `high`→`low` (77→83), malicious `kitchen-sink` gains `GIT-003` + the now-visible `CRED-002`/`PERM-001` (score stays `0`).
+
+### Fixed
+
+- **The anonymous scan ping had no working way to disable it.** `check`/`audit`'s `sendScanPing` (package name + verdict + score, sent to `api.oa2a.org` on every local scan) fired unconditionally regardless of contribution consent. `--help` has advertised `--no-contribute` as the way to stop it since the two-bucket telemetry policy shipped, but the flag was never registered with Commander — `check express --no-contribute` errored with `unknown option '--no-contribute'`. Package name + verdict is scan-result data under that policy (it names what you scanned), not invocation telemetry, so it needs the same opt-in as full contribution. `--no-contribute` is now a real option on both `check` and `audit`, an explicit `--contribute`/`--no-contribute` now correctly overrides a persisted config choice either way (mirrors hackmyagent's existing priority order), and the ping is gated on the same consent as `queueScanResult`. `ai-trust telemetry off` still does not affect this ping — that toggles a separate config file (Tier-1 invocation telemetry) and always has; `--no-contribute` (or `opena2a config contribute off`) is the way to stop scan-result data specifically. Filed for follow-up: the `--help` text's "or ai-trust telemetry off" half of this promise is not implemented here (nor in hackmyagent, which advertises the identical line) and is a separate, fleet-wide gap.
+
+## 0.7.6 (2026-06-19)
+
+### Added
+
+- **`check --json` has one stable, documented shape.** Both in-scope paths, a registry lookup and a local scan, now map onto one camelCase object: `name`, `source`, `found`, `packageType`, `verdict`, `trustLevel`, `trustScore`, plus `score`, `maxScore` and `findings` for scans. A value the pipeline does not produce is omitted, never filled in. stdout carries only the JSON.
+- **`check` honours `AI_TRUST_CLI_PREFIX`.** When ai-trust runs as `opena2a registry <pkg>`, the wrapper sets `AI_TRUST_CLI_PREFIX='opena2a registry'`, and every command `check` cites in its own output (usage line, examples, next-steps footer, not-found hints) uses that prefix in place of `ai-trust check`. Output is unchanged when the variable is unset, and `audit` and `batch` citations are not affected.
+
+### Changed
+
+- **The `hackmyagent` scanner is pinned exactly at `0.23.11`, up from `^0.17.1`.** `check --scan-path` runs the scanner in deep mode, so local scan scores move with it. The four `release-smoke:corpus` goldens it affects were rebaselined and every verdict direction holds: benign `clean-skill` goes from `warning` (60) to `safe` (73), malicious `exfil-skill` goes from 2 to 5 critical findings and stays `blocked`.
+
+### Fixed
+
+- **The terminal verdict and the `--json` verdict no longer disagree.** The human headline counted findings by severity and the Observations block used a severity-only verdict, while `--json` used the score-aware one, so a third-party package scoring 90/100 with a high finding read `warning` in JSON and "Not safe to ship" in the terminal. Both human surfaces now derive from the same score-aware verdict as `--json`. Verdict thresholds, severity assignment and exit codes are unchanged; local scans keep the `secure --fix` guidance and downloaded packages keep the review-or-avoid guidance.
+- **`release-smoke:corpus` reads scan results again.** The curated `check --json` moved `score` and `findings` to the top level while the harness still read them under `scan`, so every fixture reported no parsable result. It now reads the top level and falls back to the nested shape.
+
+### Documentation
+
+- The README's Links section points to aicomply.
+
+## 0.7.5 (2026-06-08)
+
+### Changed
+
 - **Out-of-scope library JSON now agrees with the human output.** `check <library> --json` (e.g. `check express --json --no-scan`) previously spread the registry record at the top level, so a script read `trustScore` / `trustLevel` / `verdict` as an ai-trust verdict even though the human output declares the package out of scope and shows no score. The JSON now leads with `outOfScope: true` / `scored: false`, and the registry's raw data is preserved under `registryData` (reference only, not an ai-trust verdict).
 - **Local-scan output no longer presents a score from zero executed checks.** When a scan finds no analyzable surfaces (0 static checks, no semantic findings), the verdict reads `No analyzable surfaces — not scored` and the Security meter is suppressed instead of showing a vacuous `100/100`. The Observations "Checks" line now reports executed checks (passed + failed, from HMA's `allFindings`) rather than the failure count, so "N static" reflects what was actually measured.
 - **Batch all-clear message is grammatical for a single package.** "All 1 AI package meet minimum trust level N" is now "The AI package meets minimum trust level N".
+- **`--version` prints one parseable line on stdout.** With `@opena2a/cli-ui` `0.5.1` → `0.5.2`, `ai-trust --version` writes the bare `ai-trust x.y.z` line to stdout and the telemetry disclosure to stderr, so a script can capture the version on its own.
+- **Scans of downloaded packages no longer suggest `secure --fix`.** The default `check <pkg>` path scans an npm or PyPI package the user downloaded and does not own, so its verdict line and Next Steps now recommend pinning a vetted version or choosing an alternative, and the header reads `downloaded package`. `--scan-path` on the user's own tree still reads `local scan` and keeps the `secure --fix` guidance.
 
 ### Fixed
 
 - **`telemetry <unknown-action>` now exits non-zero.** It printed "Unknown action …" but exited 0; scripts and CI can now detect the usage error (exit 1). Valid actions and the default still exit 0.
 - **Malformed dependency-file JSON now gives an actionable error.** `audit` on a broken `package.json` surfaced only the raw parser string ("Expected property name … at position 2"). It now names the file and suggests the fix (trailing commas / unquoted keys / unclosed brace) plus a one-line validate command.
-- **The anonymous scan ping had no working way to disable it.** `check`/`audit`'s `sendScanPing` (package name + verdict + score, sent to `api.oa2a.org` on every local scan) fired unconditionally regardless of contribution consent. `--help` has advertised `--no-contribute` as the way to stop it since the two-bucket telemetry policy shipped, but the flag was never registered with Commander — `check express --no-contribute` errored with `unknown option '--no-contribute'`. Package name + verdict is scan-result data under that policy (it names what you scanned), not invocation telemetry, so it needs the same opt-in as full contribution. `--no-contribute` is now a real option on both `check` and `audit`, an explicit `--contribute`/`--no-contribute` now correctly overrides a persisted config choice either way (mirrors hackmyagent's existing priority order), and the ping is gated on the same consent as `queueScanResult`. `ai-trust telemetry off` still does not affect this ping — that toggles a separate config file (Tier-1 invocation telemetry) and always has; `--no-contribute` (or `opena2a config contribute off`) is the way to stop scan-result data specifically. Filed for follow-up: the `--help` text's "or ai-trust telemetry off" half of this promise is not implemented here (nor in hackmyagent, which advertises the identical line) and is a separate, fleet-wide gap.
+
+### Security
+
+- **The `vitest` dev dependency is raised to `^4.1.8` for GHSA-5xrq-8626-4rwp** (critical, Vitest UI server, affecting the previously locked 3.2.4). This is development tooling only and does not change the published CLI. The CI test matrix drops Node 18, which vitest 4 does not support; the CLI's `engines` stays `>=18.0.0`.
 
 ## 0.7.4 (2026-06-07)
 
