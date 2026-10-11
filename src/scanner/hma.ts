@@ -138,7 +138,11 @@ export async function runHmaScan(
   const deep = options.deep ?? true;
   const analm = options.analm ?? false;
   const hma = await resolveHma();
-  const args = [...hma.prefixArgs, "secure", "--format", "json"];
+  // Always pass --no-contribute: ai-trust decides about contribution itself
+  // (check/audit honour --contribute / --no-contribute and the saved choice).
+  // Without the flag the HMA subprocess reads ~/.opena2a/config.json and
+  // queues its own scan_result, so `--no-contribute` would not stop it.
+  const args = [...hma.prefixArgs, "secure", "--format", "json", "--no-contribute"];
   if (deep) {
     args.push("--deep");
   }

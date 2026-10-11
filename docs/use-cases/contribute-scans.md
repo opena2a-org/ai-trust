@@ -55,8 +55,10 @@ The OpenA2A Registry uses community-contributed scan data to calculate trust sco
 ## Opt out at any time
 
 ```bash
-ai-trust config contribute off
+opena2a config contribute off
 ```
+
+To skip a single scan, pass `--no-contribute` to `ai-trust check` or `ai-trust audit`.
 
 Or:
 
