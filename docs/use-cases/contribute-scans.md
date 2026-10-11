@@ -62,7 +62,7 @@ The OpenA2A Registry uses community-contributed scan data to calculate trust sco
 opena2a config contribute off
 ```
 
-To skip a single scan, pass `--no-contribute` to `ai-trust check` or `ai-trust audit`.
+To skip a single scan, pass `--no-contribute` to `ai-trust check` or `ai-trust audit`: ai-trust then shares nothing from that scan. If contribution is saved as on, the bundled scanner (hackmyagent) still sends its classification telemetry for a default scan: for each file it classifies, a content type, a SHA-256 hash of the content and the classification result. `--no-contribute` does not stop that. Add `--no-deep`, or turn contribution off as shown above, to stop it.
 
 Or:
 

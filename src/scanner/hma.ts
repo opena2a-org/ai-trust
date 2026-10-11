@@ -145,6 +145,8 @@ export async function runHmaScan(
   // (check/audit honour --contribute / --no-contribute and the saved choice).
   // Without the flag the HMA subprocess reads ~/.opena2a/config.json and
   // queues its own scan_result, so `--no-contribute` would not stop it.
+  // The flag does not cover HMA's NanoMind classification telemetry, which a
+  // deep scan still sends whenever the saved choice is on.
   const args = [...hma.prefixArgs, "secure", "--format", "json", "--no-contribute"];
   if (deep) {
     args.push("--deep");
