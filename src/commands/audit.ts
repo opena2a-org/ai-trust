@@ -341,18 +341,12 @@ async function handleAuditContribution(
     process.stderr.write(tip + "\n");
   }
 
+  // Contribution is silent once consent is given, as in `check`: no per-run line.
   try {
     for (const { name, scanResult } of scannedResults) {
       queueScanResult(name, scanResult.scan.findings, 0, ecosystem, scanResult.packageVersion);
     }
-    const ok = await flushQueue(registryUrl);
-    if (ok) {
-      console.error(
-        chalk.green(
-          `  Scan data shared for ${scannedResults.length} package(s). Thank you for building trust in AI.`
-        )
-      );
-    }
+    await flushQueue(registryUrl);
   } catch {
     // Non-fatal
   }

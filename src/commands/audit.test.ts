@@ -65,7 +65,13 @@ vi.mock("../telemetry/index.js", () => {
 import { RegistryClient } from "@opena2a/registry-client";
 import { parseDependencyFile, detectEcosystem } from "../utils/parser.js";
 import { isHmaAvailable, scanPackage } from "../scanner/index.js";
-import { sendScanPing, isContributeEnabled, queueScanResult, saveContributeChoice } from "../telemetry/index.js";
+import {
+  sendScanPing,
+  isContributeEnabled,
+  queueScanResult,
+  saveContributeChoice,
+  flushQueue,
+} from "../telemetry/index.js";
 import { confirm } from "../utils/prompt.js";
 
 function createProgram(): Command {
@@ -487,5 +493,68 @@ describe("audit command", () => {
       expect(mockPublishScan).not.toHaveBeenCalled();
       expect(sendScanPing).not.toHaveBeenCalled();
     });
+  });
+
+  it("contributes silently once consent is given (no per-scan contribution line)", async () => {
+    vi.mocked(parseDependencyFile).mockResolvedValue([{ name: "quiet-pkg" }]);
+    vi.mocked(flushQueue).mockResolvedValue(true);
+    const mockPublishScan = vi
+      .fn()
+      .mockResolvedValue({ publishId: "0123456789abcdef" });
+    vi.mocked(RegistryClient).mockImplementation(
+      function () {
+        return {
+          checkTrust: vi.fn(),
+          batchQuery: vi.fn().mockResolvedValue({
+            results: [{ name: "quiet-pkg", found: false }],
+            meta: { total: 1, found: 0, notFound: 1 },
+          }),
+          publishScan: mockPublishScan,
+        } as any;
+      }
+    );
+    vi.mocked(isHmaAvailable).mockResolvedValue(true);
+    vi.mocked(scanPackage).mockResolvedValue({
+      packageName: "quiet-pkg",
+      scan: {
+        score: 90,
+        maxScore: 100,
+        findings: [],
+        projectType: "library",
+        timestamp: "2026-04-12T00:00:00Z",
+      },
+      trustScore: 0.9,
+      trustLevel: 3,
+      verdict: "safe",
+    });
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    try {
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "audit", "package.json", "--scan-missing", "--contribute",
+      ]);
+    } finally {
+      stderrSpy.mockRestore();
+      vi.mocked(flushQueue).mockResolvedValue(false);
+    }
+
+    // The contribution still happens...
+    expect(queueScanResult).toHaveBeenCalled();
+    expect(flushQueue).toHaveBeenCalled();
+    expect(mockPublishScan).toHaveBeenCalled();
+    // ...but nothing about it is printed.
+    const printed = [
+      ...consoleSpy.mock.calls,
+      ...consoleErrSpy.mock.calls,
+      ...stderrSpy.mock.calls,
+    ]
+      .map((args) => args.map(String).join(" "))
+      .join("\n");
+    expect(printed).not.toMatch(/Scan data shared/i);
+    expect(printed).not.toMatch(/Thank you for building trust/i);
+    expect(printed).not.toMatch(/Published to registry/i);
   });
 });

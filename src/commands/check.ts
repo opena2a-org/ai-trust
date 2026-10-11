@@ -556,14 +556,11 @@ async function submitContribution(
   registryUrl: string,
   opts?: { type?: string }
 ): Promise<void> {
+  // Contribution is silent once consent is given: no per-scan line. Disclosure
+  // lives in the consent prompt, `--help`, and `config contribute status`.
   try {
     queueScanResult(name, scanResult.scan.findings, 0, "npm", scanResult.packageVersion);
-    const ok = await flushQueue(registryUrl);
-    if (ok) {
-      console.error(
-        chalk.green("  Scan shared with the community. Thank you for building trust in AI.")
-      );
-    }
+    await flushQueue(registryUrl);
   } catch {
     // Non-fatal: contribution should never crash the scan
   }
@@ -580,13 +577,10 @@ async function submitContribution(
       keyEnv: "AI_TRUST_CI_SIGNING_KEY",
       source: "ci",
     });
-    const resp = await client.publishScan(
+    await client.publishScan(
       buildScanSubmission(name, scanResult, { toolVersion: AI_TRUST_VERSION, type: opts?.type, ecosystem: "npm" }),
       signer,
     );
-    if (resp.publishId) {
-      console.error(chalk.dim(`  Published to registry (${resp.publishId.slice(0, 8)})`));
-    }
   } catch {
     // Non-fatal: contribution should never crash the scan
   }
