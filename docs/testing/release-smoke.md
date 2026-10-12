@@ -41,7 +41,7 @@ git worktree remove /tmp/ai-trust-baseline
 node dist/index.js --version              # prints: ai-trust 0.x.x + telemetry disclosure
 node dist/index.js --version 2>/dev/null  # stdout ONLY: single clean line `ai-trust 0.x.x`
 node dist/index.js --version 2>&1 1>/dev/null  # stderr ONLY: telemetry disclosure
-node dist/index.js --help       # lists check, batch, audit, telemetry subcommands
+node dist/index.js --help       # lists check, audit, batch, config, telemetry subcommands
 node dist/index.js check -h     # check-specific options
 node dist/index.js audit -h     # audit-specific options
 node dist/index.js batch -h     # batch-specific options

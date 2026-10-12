@@ -76,6 +76,9 @@ function resolveBackend(): ConfigBackend {
 interface Opena2aConfig {
   contribute?: {
     enabled?: boolean;
+    consentedAt?: string | null;
+    /** When ai-trust last saved an explicit on/off choice. */
+    decidedAt?: string;
   };
   telemetry?: {
     scanCount?: number;
@@ -192,10 +195,17 @@ export function isContributeEnabled(): boolean | undefined {
   // check the raw config to distinguish "not configured" from "opted out".
   if (enabled) return true;
   // Check if there's an explicit choice saved
-  const config = readConfig();
-  if (config.contribute?.enabled === false) return false;
-  if (config.contribute?.enabled === true) return true;
-  return undefined;
+  const contribute = readConfig().contribute;
+  if (contribute?.enabled === true) return true;
+  if (contribute?.enabled !== false) return undefined;
+  // @opena2a/shared writes its defaults (`enabled: false, consentedAt: null`)
+  // whenever it saves the file, and the bundled scanner saves it on every
+  // run, so that pair on its own is not a choice. A choice saved through
+  // ai-trust carries `decidedAt`.
+  if (contribute.consentedAt === null && typeof contribute.decidedAt !== "string") {
+    return undefined;
+  }
+  return false;
 }
 
 /**
@@ -244,6 +254,11 @@ export function saveContributeChoice(enabled: boolean): void {
   if (!enabled) {
     resolveBackend().dismissContributePrompt();
   }
+  // Mark the choice as made, so isContributeEnabled() can tell a saved
+  // "off" from the defaults other writers of this file fill in.
+  const config = readConfig();
+  config.contribute = { ...config.contribute, decidedAt: new Date().toISOString() };
+  writeConfig(config);
 }
 
 /**
@@ -265,7 +280,7 @@ export function recordScanAndMaybeShowTip(): string | null {
     "",
     "  Tip: Your scans help build community trust data for MCP servers and AI agents.",
     "  Share anonymized results so other developers can make informed security decisions.",
-    "  Enable: npx ai-trust check --contribute  (or: opena2a config contribute on)",
+    "  Enable: npx ai-trust check --contribute  (or: ai-trust config contribute on)",
     "",
   ].join("\n");
 }

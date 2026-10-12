@@ -8,11 +8,13 @@ Time: 3 min.
 
 `ai-trust check` never asks whether to share: it shares a scan only when contribution is enabled or you pass `--contribute`. `ai-trust audit` on a terminal asks after it scans packages that the registry does not have, unless contribution is already enabled or you pass `--contribute` or `--no-contribute`, and saves your answer in `~/.opena2a/config.json`. The setting is shared across all OpenA2A tools (opena2a-cli, hackmyagent, ai-trust).
 
-To save the preference up front, use opena2a-cli:
+To save the preference up front:
 
 ```bash
-opena2a config contribute on
+ai-trust config contribute on
 ```
+
+With opena2a-cli installed, `opena2a config contribute on` does the same.
 
 Check the saved choice at any time:
 
@@ -74,12 +76,12 @@ It carries no package name, no file path and no contributor token. The hash is n
 ## Opt out at any time
 
 ```bash
-opena2a config contribute off
+ai-trust config contribute off
 ```
 
 To skip a single scan, pass `--no-contribute` to `ai-trust check` or `ai-trust audit`: ai-trust then shares nothing from that scan. If contribution is saved as on, the bundled scanner (hackmyagent) still sends its classification telemetry for a default scan: for each file it classifies, a content type, a SHA-256 hash of the content and the classification result. `--no-contribute` does not stop that. Add `--no-deep`, or turn contribution off as shown above, to stop it.
 
-Or:
+Or, with opena2a-cli installed:
 
 ```bash
 opena2a config contribute off

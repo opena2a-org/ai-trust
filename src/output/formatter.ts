@@ -141,6 +141,15 @@ function outOfScopeNamesLine(unrelated: TrustAnswer[]): string {
   return `  ${chalk.dim(preview)}${more}`;
 }
 
+/**
+ * The scanner's fix text names its own CLI bare (`hackmyagent secure --fix`).
+ * ai-trust installs hackmyagent as a dependency, not on PATH, so show the
+ * `npx hackmyagent ...` form the Verdict and Next Steps lines already use.
+ */
+function runnableFix(fix: string): string {
+  return fix.replace(/(?<![\w./@-])(?<!npx )hackmyagent(?= [a-z])/g, "npx hackmyagent");
+}
+
 // ── Formatters ────────────────────────────────────────────────────────
 
 // Color tone painters \u2014 CLIs own chalk per the cli-ui contract.
@@ -891,7 +900,7 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
         lines.push(`  ${sevColor("\u2502")} ${f.message}`);
       }
       if (f.fix) {
-        lines.push(`  ${sevColor("\u2502")} ${chalk.cyan("Fix:")} ${f.fix}`);
+        lines.push(`  ${sevColor("\u2502")} ${chalk.cyan("Fix:")} ${runnableFix(f.fix)}`);
       }
       if (f.attackClass) {
         lines.push(

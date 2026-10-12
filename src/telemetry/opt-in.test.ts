@@ -11,6 +11,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import { createRequire } from "node:module";
 import {
   isContributeEnabled,
   shouldPromptContribute,
@@ -78,6 +79,63 @@ describe("isContributeEnabled", () => {
     // from not-yet-configured (undefined)
     writeConfig(tempHome, { contribute: { enabled: false } });
     expect(isContributeEnabled()).toBe(false);
+  });
+
+  it("returns undefined for the defaults @opena2a/shared writes on any save", () => {
+    // The bundled scanner saves the file on every run, filling in these
+    // defaults; no choice was made.
+    writeConfig(tempHome, {
+      version: 1,
+      contribute: { enabled: false, consentedAt: null, consentVersion: "1.0" },
+      telemetry: { scanCount: 1, contributePromptDismissedAt: null },
+    });
+    expect(isContributeEnabled()).toBeUndefined();
+  });
+});
+
+describe("isContributeEnabled with the @opena2a/shared backend", () => {
+  const sharedConfig = createRequire(import.meta.url)("@opena2a/shared") as {
+    incrementScanCount(): number;
+  };
+  let tempHome: string;
+  let savedHome: string | undefined;
+
+  beforeEach(() => {
+    tempHome = createTempDir();
+    savedHome = process.env.HOME;
+    process.env.HOME = tempHome;
+    delete process.env.OPENA2A_HOME;
+    _resetBackend();
+  });
+
+  afterEach(() => {
+    process.env.HOME = savedHome;
+    cleanupDir(tempHome);
+    _resetBackend();
+  });
+
+  function homeConfig(): { contribute?: Record<string, unknown> } {
+    return readConfig(path.join(tempHome, ".opena2a"));
+  }
+
+  it("stays not set after another tool's scan saves the file", () => {
+    sharedConfig.incrementScanCount();
+    expect(homeConfig().contribute).toMatchObject({ enabled: false, consentedAt: null });
+    expect(isContributeEnabled()).toBeUndefined();
+  });
+
+  it("keeps a saved off choice through later saves by another tool", () => {
+    sharedConfig.incrementScanCount();
+    saveContributeChoice(false);
+    expect(isContributeEnabled()).toBe(false);
+    sharedConfig.incrementScanCount();
+    expect(isContributeEnabled()).toBe(false);
+  });
+
+  it("keeps a saved on choice", () => {
+    saveContributeChoice(true);
+    sharedConfig.incrementScanCount();
+    expect(isContributeEnabled()).toBe(true);
   });
 });
 

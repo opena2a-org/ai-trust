@@ -26,6 +26,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import ts from "typescript";
+import { reinstallCommand } from "./hma.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -108,7 +109,11 @@ interface ScanOutcome {
   error?: string;
 }
 
-async function scanFrom(modulePath: string, decoyDir: string): Promise<ScanOutcome> {
+async function scanFrom(
+  modulePath: string,
+  decoyDir: string,
+  extraEnv: Record<string, string> = {},
+): Promise<ScanOutcome> {
   const target = join(root, "target");
   mkdirSync(target, { recursive: true });
   const script = [
@@ -124,7 +129,7 @@ async function scanFrom(modulePath: string, decoyDir: string): Promise<ScanOutco
     process.execPath,
     ["--input-type=module", "-e", script],
     {
-      env: { ...process.env, PATH: `${decoyDir}:${process.env.PATH ?? ""}` },
+      env: { ...process.env, PATH: `${decoyDir}:${process.env.PATH ?? ""}`, ...extraEnv },
       timeout: 60_000,
     },
   );
@@ -167,5 +172,67 @@ describe("scanner resolution in a consumer install", () => {
     expect(outcome.available).toBe(false);
     expect(outcome.projectType).toBeUndefined();
     expect(outcome.error).toMatch(/hackmyagent/);
+  });
+
+  it("does not run a hackmyagent that only NODE_PATH reaches", async () => {
+    const consumer = join(root, "node-path");
+    const modulePath = installAiTrust(consumer);
+    const elsewhere = join(root, "node-path-elsewhere", "node_modules");
+    installScanner(elsewhere, "node-path-copy", 22);
+
+    const outcome = await scanFrom(modulePath, pathDecoy("node-path"), { NODE_PATH: elsewhere });
+
+    expect(outcome.available).toBe(false);
+    expect(outcome.projectType).toBeUndefined();
+    expect(outcome.error).toMatch(/outside the node_modules directories above ai-trust/);
+  });
+});
+
+describe("reinstall command for a missing scanner", () => {
+  /** Lay out an ai-trust package at `pkgDir` and return its dist/scanner directory. */
+  function aiTrustAt(pkgDir: string): string {
+    const scannerDir = join(pkgDir, "dist", "scanner");
+    mkdirSync(scannerDir, { recursive: true });
+    writeFileSync(join(pkgDir, "package.json"), JSON.stringify({ name: "ai-trust" }));
+    return scannerDir;
+  }
+
+  function project(dir: string, name: string): void {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name }));
+  }
+
+  it("names a global reinstall for a global install", () => {
+    const from = aiTrustAt(join(root, "reinstall-global", "lib", "node_modules", "ai-trust"));
+    expect(reinstallCommand(from)).toBe("npm install -g ai-trust");
+  });
+
+  it("names `npm install` in the project for a project dependency", () => {
+    const app = join(root, "reinstall-project", "app");
+    project(app, "app");
+    const from = aiTrustAt(join(app, "node_modules", "ai-trust"));
+    expect(reinstallCommand(from)).toBe(`cd ${app} && npm install`);
+  });
+
+  it("names the opena2a-cli reinstall when ai-trust is installed under a global opena2a-cli", () => {
+    const cli = join(root, "reinstall-cli", "lib", "node_modules", "opena2a-cli");
+    project(cli, "opena2a-cli");
+    const from = aiTrustAt(join(cli, "node_modules", "ai-trust"));
+    expect(reinstallCommand(from)).toBe("npm install -g opena2a-cli");
+  });
+
+  it("names `npm install` in the project when opena2a-cli is a project dependency", () => {
+    const app = join(root, "reinstall-cli-project", "my app");
+    project(app, "app");
+    const cli = join(app, "node_modules", "@opena2a", "cli");
+    project(cli, "@opena2a/cli");
+    const from = aiTrustAt(join(cli, "node_modules", "ai-trust"));
+    expect(reinstallCommand(from)).toBe(`cd '${app}' && npm install`);
+  });
+
+  it("names `npm install` in a source checkout", () => {
+    const checkout = join(root, "reinstall-checkout", "ai-trust");
+    const from = aiTrustAt(checkout);
+    expect(reinstallCommand(from)).toBe(`cd ${checkout} && npm install`);
   });
 });

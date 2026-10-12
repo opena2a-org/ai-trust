@@ -35,6 +35,7 @@ vi.mock("../utils/registry-client.js", async (importOriginal) => {
 // Keep the scanner out of the module graph — --no-scan never reaches it.
 vi.mock("../scanner/index.js", () => ({
   isHmaAvailable: vi.fn().mockResolvedValue(false),
+  reinstallCommand: vi.fn().mockReturnValue("npm install -g ai-trust"),
   scanPackage: vi.fn(),
   scanLocalPath: vi.fn(),
 }));
