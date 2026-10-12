@@ -610,6 +610,46 @@ describe("formatBatchResults", () => {
       );
     });
 
+    const eightLibraries = [
+      "react", "vue", "express", "lodash", "chalk", "axios", "moment", "underscore",
+    ];
+
+    function outOfScopeLine(output: string): string {
+      const lines = output.replace(/\x1b\[[0-9;]*m/g, "").split("\n");
+      const header = lines.findIndex((l) => l.includes("Out of scope (libraries)"));
+      return lines.slice(header + 1).find((l) => l.includes("react")) ?? "";
+    }
+
+    it("names the first six libraries and counts the rest when only libraries are present", () => {
+      const response = makeBatchResponse(
+        eightLibraries.map((name) => makeTrustAnswer({ name, packageType: "library" }))
+      );
+      const output = formatBatchResults(response, 3);
+
+      expect(outOfScopeLine(output).trim()).toBe(
+        "react, vue, express, lodash, chalk, axios + 2 more"
+      );
+      expect(output).not.toContain("moment");
+      expect(output).not.toContain("underscore");
+    });
+
+    it("names the first six libraries and counts the rest in the mixed-batch footer", () => {
+      const response = makeBatchResponse([
+        makeTrustAnswer({ name: "my-mcp", packageType: "mcp_server", trustLevel: 3 }),
+        ...eightLibraries.map((name) =>
+          makeTrustAnswer({ name, packageType: "library", trustLevel: 2, verdict: "listed" })
+        ),
+      ]);
+      const output = formatBatchResults(response, 3);
+
+      expect(output).toContain("my-mcp");
+      expect(outOfScopeLine(output).trim()).toBe(
+        "react, vue, express, lodash, chalk, axios + 2 more"
+      );
+      expect(output).not.toContain("moment");
+      expect(output).not.toContain("underscore");
+    });
+
     it("library verdicts do not affect the AI package trust threshold check", () => {
       // A blocked library should NOT make the audit fail because it's out of
       // ai-trust's scope — we don't adjudicate general libraries.
@@ -923,6 +963,47 @@ describe("formatScanResult", () => {
     expect(output).toContain("local scan");
     expect(output).toContain("npx hackmyagent secure --fix");
     expect(output).not.toMatch(/(?<!npx hackmyagent )secure --fix/);
+  });
+
+  it("gives the finding's Fix line the same `npx hackmyagent` form as the Verdict", () => {
+    // The scanner's own fix text names its CLI bare (`hackmyagent secure
+    // --fix`); the Verdict names the npx form. One form in both places.
+    const result = makeScanResult({
+      scan: {
+        score: 93,
+        maxScore: 100,
+        checksEvaluated: 26,
+        findings: [
+          {
+            checkId: "GIT-001",
+            name: "Missing .gitignore",
+            description: "No .gitignore file",
+            category: "git",
+            severity: "low",
+            passed: false,
+            message: "Create .gitignore to protect sensitive files",
+            fix: "hackmyagent secure --fix",
+          },
+          {
+            checkId: "GIT-002",
+            name: "Incomplete .gitignore",
+            description: "Patterns missing",
+            category: "git",
+            severity: "low",
+            passed: false,
+            message: "Add the missing patterns",
+            fix: "Run npx hackmyagent secure --fix, or add the patterns by hand",
+          },
+        ],
+        projectType: "library",
+        timestamp: "2026-03-15T00:00:00Z",
+      },
+    });
+    const output = formatScanResult(result).replace(/\x1b\[[0-9;]*m/g, "");
+    expect(output).toContain("Minor findings — run `npx hackmyagent secure --fix`");
+    expect(output).toContain("Fix: npx hackmyagent secure --fix\n");
+    expect(output).toContain("Fix: Run npx hackmyagent secure --fix, or add the patterns by hand");
+    expect(output).not.toMatch(/(?<!npx )hackmyagent secure --fix/);
   });
 
   it("still shows the score on a clean scan that DID run checks (suppression must not over-fire)", () => {

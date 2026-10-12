@@ -35,6 +35,7 @@ vi.mock("../output/formatter.js", () => ({
 // Mock scanner
 vi.mock("../scanner/index.js", () => ({
   isHmaAvailable: vi.fn().mockResolvedValue(false),
+  reinstallCommand: vi.fn().mockReturnValue("cd /work/project && npm install"),
   scanPackage: vi.fn(),
   scanLocalPath: vi.fn(),
 }));
@@ -487,6 +488,11 @@ describe("check command", () => {
       expect(process.exitCode).toBe(1);
       expect(consoleErrSpy).toHaveBeenCalledWith(
         expect.stringContaining("HMA (HackMyAgent) is required")
+      );
+      // The reinstall command fits the install, not always a global one.
+      expect(consoleErrSpy).toHaveBeenCalledWith("  cd /work/project && npm install");
+      expect(consoleErrSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining("npm install -g ai-trust")
       );
     });
 

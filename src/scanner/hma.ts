@@ -4,12 +4,15 @@
  */
 
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { basename, dirname, join, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
+
+const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 
 export interface SemanticFinding {
   intentClass: string;
@@ -69,23 +72,41 @@ export interface HmaFinding {
  * node_modules or nested it under ai-trust. Its `bin` entry is run with the
  * current Node binary. Nothing on PATH and no npx fallback is consulted, so
  * the version pinned in package.json is the version that runs; when it is
- * not installed, resolution fails instead of running some other copy.
+ * not installed, resolution fails instead of running some other copy. Node
+ * also looks in NODE_PATH and its home-directory module folders after the
+ * node_modules directories above ai-trust; a copy found there is refused.
  *
  * Returns { cmd, prefixArgs } where cmd=process.execPath and
  * prefixArgs=["/path/to/hackmyagent/<bin>"].
  */
 let _resolvedHma: { cmd: string; prefixArgs: string[] } | null = null;
 
+/** True when `file` lies in a node_modules directory of `fromDir` or one of its ancestors. */
+function isInAncestorNodeModules(file: string, fromDir: string): boolean {
+  let dir = fromDir;
+  while (true) {
+    if (file.startsWith(join(dir, "node_modules") + sep)) return true;
+    const parent = dirname(dir);
+    if (parent === dir) return false;
+    dir = parent;
+  }
+}
+
 function resolveHma(): { cmd: string; prefixArgs: string[] } {
   if (_resolvedHma) return _resolvedHma;
 
   let entry: string;
   try {
-    entry = createRequire(import.meta.url).resolve("hackmyagent");
+    entry = realpathSync(createRequire(import.meta.url).resolve("hackmyagent"));
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(
       `The pinned hackmyagent dependency could not be resolved: ${message.split("\n")[0]}`,
+    );
+  }
+  if (!isInAncestorNodeModules(entry, realpathSync(MODULE_DIR))) {
+    throw new Error(
+      `The pinned hackmyagent dependency is not installed; the copy at ${entry} is outside the node_modules directories above ai-trust`,
     );
   }
 
@@ -131,6 +152,54 @@ export async function isHmaAvailable(): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+function packageName(dir: string): string | undefined {
+  try {
+    const name = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")).name;
+    return typeof name === "string" ? name : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The directory whose node_modules holds the package at `pkgDir`, or null. */
+function installingDir(pkgDir: string): string | null {
+  let nodeModules = dirname(pkgDir);
+  if (basename(nodeModules).startsWith("@")) nodeModules = dirname(nodeModules);
+  return basename(nodeModules) === "node_modules" ? dirname(nodeModules) : null;
+}
+
+function shellPath(path: string): string {
+  return /^[\w@%+=:,./-]+$/.test(path) ? path : `'${path.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * The command that reinstalls the pinned scanner for the way this copy of
+ * ai-trust was installed: `npm install -g ai-trust` for a global install,
+ * `npm install` in the project that depends on it, and the reinstall of the
+ * package that depends on it otherwise (a global opena2a-cli, for example).
+ */
+export function reinstallCommand(fromDir: string = MODULE_DIR): string {
+  let pkgDir = fromDir;
+  while (packageName(pkgDir) !== "ai-trust") {
+    const parent = dirname(pkgDir);
+    if (parent === pkgDir) return "npm install -g ai-trust";
+    pkgDir = parent;
+  }
+  let name = "ai-trust";
+  while (true) {
+    const owner = installingDir(pkgDir);
+    // Not inside a node_modules: a source checkout.
+    if (owner === null) return `cd ${shellPath(pkgDir)} && npm install`;
+    // A global prefix holds no package.json.
+    if (!existsSync(join(owner, "package.json"))) return `npm install -g ${name}`;
+    // A project that depends on the package directly.
+    if (installingDir(owner) === null) return `cd ${shellPath(owner)} && npm install`;
+    // A package that depends on it: reinstall that package instead.
+    pkgDir = owner;
+    name = packageName(owner) ?? name;
   }
 }
 

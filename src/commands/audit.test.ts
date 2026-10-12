@@ -36,6 +36,7 @@ vi.mock("../output/formatter.js", () => ({
 
 vi.mock("../scanner/index.js", () => ({
   isHmaAvailable: vi.fn().mockResolvedValue(false),
+  reinstallCommand: vi.fn().mockReturnValue("npm install -g ai-trust"),
   scanPackage: vi.fn(),
 }));
 

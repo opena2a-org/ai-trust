@@ -20,7 +20,7 @@ import {
 } from "../output/formatter.js";
 import { buildNotFoundOutput, translateDownloadError } from "@opena2a/check-core";
 import { resolveAndLog, parsePackageTarget } from "../utils/resolve.js";
-import { isHmaAvailable, scanPackage, scanLocalPath } from "../scanner/index.js";
+import { isHmaAvailable, reinstallCommand, scanPackage, scanLocalPath } from "../scanner/index.js";
 import type { ScanResult } from "../scanner/index.js";
 import { confirm } from "../utils/prompt.js";
 import {
@@ -104,7 +104,7 @@ export function registerCheckCommand(program: Command): void {
       if (opts.scanPath) {
         if (!(await isHmaAvailable())) {
           console.error(
-            chalk.red("error: HMA is not available. ai-trust runs the hackmyagent version it pins as a dependency, and that copy could not be run. Reinstall ai-trust: npm install -g ai-trust"),
+            chalk.red(`error: HMA is not available. ai-trust runs the hackmyagent version it pins as a dependency, and that copy could not be run. Reinstall it: ${reinstallCommand()}`),
           );
           process.exit(2);
         }
@@ -519,7 +519,7 @@ async function handleContribute(
 
       if (wantsToShare) {
         console.error(
-          chalk.gray("  (Future scans will auto-share. Change: opena2a config contribute off)")
+          chalk.gray("  (Future scans will auto-share. Change: ai-trust config contribute off)")
         );
         await submitContribution(name, ecosystem, scanResult, globalOpts.registryUrl, { type: opts.type });
         return;
@@ -619,9 +619,9 @@ async function checkHmaReady(): Promise<boolean> {
   const available = await isHmaAvailable();
   if (!available) {
     console.error(
-      "HMA (HackMyAgent) is required for scanning. ai-trust runs the hackmyagent version it pins as a dependency, and that copy could not be run. Reinstall ai-trust:"
+      "HMA (HackMyAgent) is required for scanning. ai-trust runs the hackmyagent version it pins as a dependency, and that copy could not be run. Reinstall it:"
     );
-    console.error("  npm install -g ai-trust");
+    console.error(`  ${reinstallCommand()}`);
     process.exitCode = 1;
     return false;
   }

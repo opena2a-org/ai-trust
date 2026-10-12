@@ -13,7 +13,7 @@ import {
   formatBatchResults,
   formatJson,
 } from "../output/formatter.js";
-import { isHmaAvailable, scanPackage } from "../scanner/index.js";
+import { isHmaAvailable, reinstallCommand, scanPackage } from "../scanner/index.js";
 import type { ScanResult } from "../scanner/index.js";
 import { confirm } from "../utils/prompt.js";
 import {
@@ -132,9 +132,9 @@ export function registerAuditCommand(program: Command): void {
           if (shouldScan) {
             if (!(await isHmaAvailable())) {
               console.error(
-                "HMA (HackMyAgent) is required for scanning. ai-trust runs the hackmyagent version it pins as a dependency, and that copy could not be run. Reinstall ai-trust:"
+                "HMA (HackMyAgent) is required for scanning. ai-trust runs the hackmyagent version it pins as a dependency, and that copy could not be run. Reinstall it:"
               );
-              console.error("  npm install -g ai-trust");
+              console.error(`  ${reinstallCommand()}`);
             } else {
               await scanMissingPackages(
                 notFound,
@@ -204,9 +204,9 @@ async function scanMissingPackages(
   const available = await isHmaAvailable();
   if (!available) {
     console.error(
-      "HMA (HackMyAgent) is required for scanning. ai-trust runs the hackmyagent version it pins as a dependency, and that copy could not be run. Reinstall ai-trust:"
+      "HMA (HackMyAgent) is required for scanning. ai-trust runs the hackmyagent version it pins as a dependency, and that copy could not be run. Reinstall it:"
     );
-    console.error("  npm install -g ai-trust");
+    console.error(`  ${reinstallCommand()}`);
     return;
   }
 
@@ -313,7 +313,7 @@ async function handleAuditContribution(
 
       if (wantsToShare) {
         console.error(
-          chalk.gray("  (Future scans will auto-share. Change: opena2a config contribute off)")
+          chalk.gray("  (Future scans will auto-share. Change: ai-trust config contribute off)")
         );
       } else {
         return;

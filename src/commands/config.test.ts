@@ -110,6 +110,28 @@ describe("config contribute command", () => {
     expect(JSON.parse(stdout())).toEqual({ contribute: false });
   });
 
+  it("status reports not set after a scan saved the shared defaults", async () => {
+    // What the bundled scanner leaves in a fresh home after one scan.
+    const scannerDefaults = {
+      version: 1,
+      contribute: { enabled: false, consentedAt: null, consentVersion: "1.0" },
+      telemetry: { scanCount: 1, contributePromptDismissedAt: null },
+    };
+    fs.writeFileSync(path.join(tempHome, "config.json"), JSON.stringify(scannerDefaults));
+
+    await run(["config", "contribute", "status"]);
+    expect(stdout()).toContain("Community contribution: not set");
+    logSpy.mockClear();
+    await run(["--json", "config", "contribute", "status"]);
+    expect(JSON.parse(stdout())).toEqual({ contribute: null });
+
+    logSpy.mockClear();
+    await run(["config", "contribute", "off"]);
+    logSpy.mockClear();
+    await run(["config", "contribute", "status"]);
+    expect(stdout()).toContain("Community contribution: disabled");
+  });
+
   it("rejects an unknown action with exit code 1 and writes nothing", async () => {
     await run(["config", "contribute", "maybe"]);
     expect(process.exitCode).toBe(1);

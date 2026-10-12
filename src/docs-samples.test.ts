@@ -264,32 +264,125 @@ describe("docs cite only registered ai-trust commands and flags", () => {
     return helpCache.get(key)!;
   }
 
-  it("each cited subcommand and flag appears in the CLI help", async () => {
+  /** Subcommand names listed under "Commands:" in the root help. */
+  function subcommands(rootHelp: string): Set<string> {
+    const names = new Set<string>();
+    for (const line of (rootHelp.split(/^Commands:\n/m)[1] ?? "").split("\n")) {
+      if (line.trim() === "") break;
+      const m = line.match(/^  (\S+)/);
+      if (m) names.add(m[1]);
+    }
+    return names;
+  }
+
+  /**
+   * Problems in one cited command: `ai-trust <sub> [flags]` (also written
+   * `npx ai-trust`, `node dist/index.js` or `$AI`, after any VAR=value
+   * prefix). An `inline` citation (a code span in prose) may also leave out
+   * the program name, as changelog entries do (`audit --scan-missing`); a
+   * span whose first word is not a subcommand is prose or sample output
+   * (`ai-trust 0.x.x`), not a command, so only its flags are checked.
+   */
+  async function citationProblems(where: string, segment: string, inline: boolean): Promise<string[]> {
     const rootHelp = await help();
+    const text = segment.trim().replace(/^(?:\w+=\S*\s+)+/, "");
+    const prefixed = text.match(/^(?:npx\s+)?(?:ai-trust|node\s+dist\/index\.js|\$AI)(?:\s+(.*))?$/);
+    if (!prefixed && !inline) return [];
+    const words = prefixed ? (prefixed[1] ?? "") : text;
+    const sub = words.split(/\s+/)[0];
+    const flagsIn = (s: string) => s.match(/--[a-z][a-z-]*/g) ?? [];
+    const registered = (flag: string, helpText: string) =>
+      new RegExp(`(^|[\\s,])${flag}\\b(?!-)`, "m").test(helpText);
     const problems: string[] = [];
-    for (const doc of DOCS) {
-      for (const f of fences(readDoc(doc)).filter((x) => !isOutput(x))) {
-        for (const line of commandLines(f)) {
-          for (const segment of line.split(/\|\||&&|\||;|\$\(/)) {
-            const m = segment.trim().match(/^(?:npx\s+)?ai-trust\s+(\S+)(.*)$/);
-            if (!m) continue;
-            const [, sub, rest] = m;
-            const escaped = sub.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-            if (!new RegExp(`^  ${escaped}(\\s|$)`, "m").test(rootHelp)) {
-              problems.push(`${doc}: unknown subcommand in "${line}"`);
-              continue;
-            }
-            const subHelp = await help(sub);
-            for (const flag of rest.match(/--[a-z][a-z-]*/g) ?? []) {
-              const registered = new RegExp(`(^|[\\s,])${flag}\\b(?!-)`, "m");
-              if (!registered.test(subHelp) && !registered.test(rootHelp)) {
-                problems.push(`${doc}: unregistered flag ${flag} in "${line}"`);
-              }
-            }
-          }
+
+    if (sub.startsWith("-")) {
+      if (!prefixed) return [];
+      for (const flag of flagsIn(words)) {
+        if (!registered(flag, rootHelp)) problems.push(`${where}: unregistered flag ${flag} in "${segment.trim()}"`);
+      }
+      return problems;
+    }
+    if (!subcommands(rootHelp).has(sub)) {
+      return prefixed && sub && !inline ? [`${where}: unknown subcommand in "${segment.trim()}"`] : [];
+    }
+    const subHelp = await help(sub);
+    for (const flag of flagsIn(words.slice(sub.length))) {
+      if (!registered(flag, subHelp) && !registered(flag, rootHelp)) {
+        problems.push(`${where}: unregistered flag ${flag} in "${segment.trim()}"`);
+      }
+    }
+    return problems;
+  }
+
+  const segments = (line: string) => line.split(/\|\||&&|\||;|\$\(/);
+
+  /** Commands cited in the shell blocks of `markdown`. */
+  async function shellBlockProblems(where: string, markdown: string): Promise<string[]> {
+    const problems: string[] = [];
+    for (const f of fences(markdown).filter((x) => !isOutput(x))) {
+      for (const line of commandLines(f)) {
+        for (const segment of segments(line)) {
+          problems.push(...(await citationProblems(where, segment, false)));
         }
       }
     }
+    return problems;
+  }
+
+  /** Commands cited in inline code spans outside the code blocks of `markdown`. */
+  async function inlineProblems(where: string, markdown: string): Promise<string[]> {
+    const problems: string[] = [];
+    const prose = markdown.replace(/^```[^\n]*\n[\s\S]*?^```[ \t]*$/gm, "");
+    for (const [, span] of prose.matchAll(/`([^`\n]+)`/g)) {
+      for (const segment of segments(span)) {
+        problems.push(...(await citationProblems(where, segment, true)));
+      }
+    }
+    return problems;
+  }
+
+  /** The `## Unreleased` section of CHANGELOG.md. */
+  function unreleasedChangelog(): string {
+    const text = readDoc("CHANGELOG.md");
+    const start = text.search(/^## Unreleased[ \t]*$/m);
+    if (start < 0) return "";
+    const section = text.slice(start).replace(/^[^\n]*\n/, "");
+    const end = section.search(/^## /m);
+    return end < 0 ? section : section.slice(0, end);
+  }
+
+  it("each cited subcommand and flag appears in the CLI help", async () => {
+    const problems: string[] = [];
+    for (const doc of DOCS) {
+      problems.push(...(await shellBlockProblems(doc, readDoc(doc))));
+    }
     expect(problems).toEqual([]);
+  }, 60000);
+
+  it("the release checklist cites only registered subcommands and flags", async () => {
+    const doc = "docs/testing/release-smoke.md";
+    const problems = [
+      ...(await shellBlockProblems(doc, readDoc(doc))),
+      ...(await inlineProblems(doc, readDoc(doc))),
+    ];
+    expect(problems).toEqual([]);
+  }, 60000);
+
+  it("the Unreleased changelog section cites only registered subcommands and flags", async () => {
+    const section = unreleasedChangelog();
+    expect(section).toMatch(/^### /m);
+    const problems = [
+      ...(await shellBlockProblems("CHANGELOG.md (Unreleased)", section)),
+      ...(await inlineProblems("CHANGELOG.md (Unreleased)", section)),
+    ];
+    expect(problems).toEqual([]);
+  }, 60000);
+
+  it("flags an option a command rejects when a changelog entry cites it", async () => {
+    // `audit` has --scan-missing; --scan-if-missing belongs to `check`.
+    const entry = "- `audit --scan-if-missing` now scans; `check --scan-if-missing` is deprecated.";
+    expect(await inlineProblems("entry", entry)).toEqual([
+      'entry: unregistered flag --scan-if-missing in "audit --scan-if-missing"',
+    ]);
   }, 60000);
 });
