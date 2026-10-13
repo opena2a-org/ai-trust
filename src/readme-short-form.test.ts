@@ -5,7 +5,7 @@
  *
  * These checks hold that form: the word, section and paragraph budgets; no
  * version numbers or dates in the README (the capture sidecar records them);
- * a Telemetry section that does not call the telemetry anonymous and whose
+ * AIM named in full where it first appears; a Telemetry section that does not call the telemetry anonymous and whose
  * commands run; links and anchors that resolve; each reference section at
  * its path under docs/; and a quick-start sample that is a verbatim slice of
  * the recorded capture.
@@ -33,6 +33,7 @@ const CAPTURE = "docs/captures/quick-start.txt";
 const SIDECAR = "docs/captures/quick-start.json";
 const VERSION_OR_DATE = /v?[0-9]+\.[0-9]+\.[0-9]+|20[0-9]{2}-[0-9]{2}-[0-9]{2}/;
 const ANONYMOUS_CLASS = /anonymi[sz]ed|anonymous|irreversible|no personal data|does not identify/i;
+const AIM_FIRST_USE = "OpenA2A AIM (Agent Identity Management)";
 const FENCE = /^\s*```/;
 
 function words(text: string): number {
@@ -106,6 +107,13 @@ describe("README: short form", () => {
   it("carries no version number or date", () => {
     const hits = LINES.map((l, i) => `${i + 1}: ${l}`).filter((l) => VERSION_OR_DATE.test(l.replace(/^\d+: /, "")));
     expect(hits).toEqual([]);
+  });
+
+  it(`names AIM as "${AIM_FIRST_USE}" where it first mentions it`, () => {
+    // -1 on both sides when the README does not mention AIM at all.
+    const first = README.search(/\bAIM\b/);
+    const expected = first === -1 ? -1 : first - "OpenA2A ".length;
+    expect(README.indexOf(AIM_FIRST_USE)).toBe(expected);
   });
 
   it(`shows the first command and the start of its output within the first ${FIRST_SCREEN_LINES} lines`, () => {
