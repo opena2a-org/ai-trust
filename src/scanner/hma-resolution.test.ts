@@ -76,7 +76,11 @@ function installScanner(nodeModules: string, label: string, score: number): void
 
 /** Compile hma.ts into `<consumer>/node_modules/ai-trust/dist/scanner/hma.js`. */
 function installAiTrust(consumer: string): string {
-  const pkgDir = join(consumer, "node_modules", "ai-trust");
+  return compileAiTrust(join(consumer, "node_modules", "ai-trust"));
+}
+
+/** Compile hma.ts into `<pkgDir>/dist/scanner/hma.js` of an ai-trust package at `pkgDir`. */
+function compileAiTrust(pkgDir: string): string {
   mkdirSync(join(pkgDir, "dist", "scanner"), { recursive: true });
   writeFileSync(
     join(pkgDir, "package.json"),
@@ -185,6 +189,50 @@ describe("scanner resolution in a consumer install", () => {
     expect(outcome.available).toBe(false);
     expect(outcome.projectType).toBeUndefined();
     expect(outcome.error).toMatch(/outside the node_modules directories above ai-trust/);
+  });
+
+  it("does not run a hackmyagent in a home-directory module folder", async () => {
+    const consumer = join(root, "home-folder");
+    const modulePath = installAiTrust(consumer);
+    const home = join(root, "home-folder-home");
+    installScanner(join(home, ".node_modules"), "home-copy", 44);
+
+    const outcome = await scanFrom(modulePath, pathDecoy("home-folder"), { HOME: home });
+
+    expect(outcome.available).toBe(false);
+    expect(outcome.projectType).toBeUndefined();
+    expect(outcome.error).toMatch(/outside the node_modules directories above ai-trust/);
+  });
+
+  it("runs the pinned scanner when node_modules is a symlink to another directory", async () => {
+    // A checkout whose node_modules links to a directory outside it.
+    const checkout = join(root, "symlinked-node-modules", "ai-trust");
+    const target = join(root, "symlinked-node-modules-target", "node_modules");
+    installScanner(target, "pinned", 77);
+    const modulePath = compileAiTrust(checkout);
+    symlinkSync(target, join(checkout, "node_modules"));
+
+    const outcome = await scanFrom(modulePath, pathDecoy("symlinked-node-modules"));
+
+    expect(outcome.error).toBeUndefined();
+    expect(outcome.available).toBe(true);
+    expect(outcome.projectType).toBe("pinned");
+    expect(outcome.score).toBe(77);
+  });
+
+  it("runs a pinned scanner that is linked into node_modules (npm link)", async () => {
+    const consumer = join(root, "linked");
+    const modulePath = installAiTrust(consumer);
+    const linkedFrom = join(root, "linked-global", "lib", "node_modules");
+    installScanner(linkedFrom, "pinned", 77);
+    symlinkSync(join(linkedFrom, "hackmyagent"), join(consumer, "node_modules", "hackmyagent"));
+
+    const outcome = await scanFrom(modulePath, pathDecoy("linked"));
+
+    expect(outcome.error).toBeUndefined();
+    expect(outcome.available).toBe(true);
+    expect(outcome.projectType).toBe("pinned");
+    expect(outcome.score).toBe(77);
   });
 });
 

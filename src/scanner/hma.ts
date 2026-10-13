@@ -75,17 +75,32 @@ export interface HmaFinding {
  * not installed, resolution fails instead of running some other copy. Node
  * also looks in NODE_PATH and its home-directory module folders after the
  * node_modules directories above ai-trust; a copy found there is refused.
+ * A copy those node_modules directories reach through a symlink (a
+ * node_modules that links elsewhere, or a package added with `npm link`)
+ * is used.
  *
  * Returns { cmd, prefixArgs } where cmd=process.execPath and
  * prefixArgs=["/path/to/hackmyagent/<bin>"].
  */
 let _resolvedHma: { cmd: string; prefixArgs: string[] } | null = null;
 
-/** True when `file` lies in a node_modules directory of `fromDir` or one of its ancestors. */
-function isInAncestorNodeModules(file: string, fromDir: string): boolean {
+/**
+ * True when the real path `entry` lies in the hackmyagent package that one of
+ * the node_modules directories Node searches from `fromDir` holds, directly
+ * or through a symlink. NODE_PATH and the home-directory module folders are
+ * not among those directories.
+ */
+function isFromAncestorNodeModules(entry: string, fromDir: string): boolean {
   let dir = fromDir;
   while (true) {
-    if (file.startsWith(join(dir, "node_modules") + sep)) return true;
+    // Like Node, skip a directory that is itself named node_modules.
+    if (basename(dir) !== "node_modules") {
+      try {
+        if (entry.startsWith(realpathSync(join(dir, "node_modules", "hackmyagent")) + sep)) return true;
+      } catch {
+        // No hackmyagent in this node_modules directory.
+      }
+    }
     const parent = dirname(dir);
     if (parent === dir) return false;
     dir = parent;
@@ -104,7 +119,7 @@ function resolveHma(): { cmd: string; prefixArgs: string[] } {
       `The pinned hackmyagent dependency could not be resolved: ${message.split("\n")[0]}`,
     );
   }
-  if (!isInAncestorNodeModules(entry, realpathSync(MODULE_DIR))) {
+  if (!isFromAncestorNodeModules(entry, MODULE_DIR)) {
     throw new Error(
       `The pinned hackmyagent dependency is not installed; the copy at ${entry} is outside the node_modules directories above ai-trust`,
     );
