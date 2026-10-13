@@ -110,7 +110,7 @@ For each command verify:
 1. Output is produced — not silent, no hang
 2. No `require is not defined`, `ERR_REQUIRE_ESM`, or unhandled rejection
 3. Exit codes: 0 for safe or out-of-scope, 1 for operational errors, 2 for
-   warning, blocked, below `--min-trust` or not-found (see the README's exit-code table)
+   warning, blocked, below `--min-trust` or not-found (see the exit-code table in docs/commands.md)
 4. No stack traces in normal paths (stderr is acceptable for debug log lines)
 5. No BLOCKED verdict for a general-purpose library like `express` (it must be
    "Out of scope" Tier 3, not "BLOCKED")

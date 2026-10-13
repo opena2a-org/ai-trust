@@ -44,6 +44,8 @@ const FIXTURE: RegistryFixture = JSON.parse(
 
 const DOCS = [
   "README.md",
+  "docs/commands.md",
+  "docs/install.md",
   "docs/USE-CASES.md",
   ...readdirSync(join(ROOT, "docs/use-cases"))
     .filter((f) => f.endsWith(".md"))
@@ -65,7 +67,7 @@ const SAMPLES: Sample[] = [
     doc: "README.md",
     command: "npx ai-trust check @modelcontextprotocol/server-filesystem --no-scan",
   },
-  { doc: "README.md", command: "ai-trust audit package.json", cwd: DEMO_DIR },
+  { doc: "docs/commands.md", command: "ai-trust audit package.json", cwd: DEMO_DIR },
   {
     doc: "docs/use-cases/check-before-install.md",
     command: "npx ai-trust check @modelcontextprotocol/server-filesystem --no-scan",
@@ -407,13 +409,13 @@ describe("docs check examples name AI packages", () => {
   });
 });
 
-describe("README: the from-source step runs a trust lookup", () => {
-  const readme = readDoc("README.md");
-  const start = readme.indexOf("\n### From source\n");
+describe("docs/install.md: the from-source step runs a trust lookup", () => {
+  const install = readDoc("docs/install.md");
+  const start = install.indexOf("\n## From source\n");
   const ends = ["\n## ", "\n### "]
-    .map((h) => readme.indexOf(h, start + 1))
+    .map((h) => install.indexOf(h, start + 1))
     .filter((i) => i !== -1);
-  const steps = fences(readme.slice(start, ends.length ? Math.min(...ends) : undefined))
+  const steps = fences(install.slice(start, ends.length ? Math.min(...ends) : undefined))
     .filter((f) => !isOutput(f))
     .flatMap(commandLines);
   const verify = steps.filter((l) => l.startsWith("node dist/index.js "));

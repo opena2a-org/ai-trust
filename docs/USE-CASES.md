@@ -1,4 +1,4 @@
-# Use Cases
+# Use cases
 
 Practical guides for common ai-trust workflows. Each guide includes the exact commands, expected output, and what to do next. The output samples are checked against the current build by `src/docs-samples.test.ts`; registry values (scores, scan ages) are from the day the samples were captured and will differ when you run the commands.
 
