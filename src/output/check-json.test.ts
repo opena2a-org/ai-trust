@@ -103,7 +103,7 @@ describe("buildCheckJsonFromAnswer (registry path)", () => {
     });
   });
 
-  it("omits securityProfile when the registry returned none or no numeric counts", () => {
+  it("omits securityProfile when the registry returned none or nothing readable in it", () => {
     const base = {
       name: "some-mcp",
       trustLevel: 2,
@@ -114,11 +114,55 @@ describe("buildCheckJsonFromAnswer (registry path)", () => {
     expect(buildCheckJsonFromAnswer(base as TrustAnswer)).not.toHaveProperty(
       "securityProfile",
     );
-    const partial = {
+    const unreadable = {
+      ...base,
+      securityProfile: { criticalCount: null, highCount: -1, knownCves: [] },
+    } as unknown as TrustAnswer;
+    expect(buildCheckJsonFromAnswer(unreadable)).not.toHaveProperty("securityProfile");
+  });
+
+  it("keeps the readable fields of a profile whose other count is missing or invalid (#129)", () => {
+    const base = {
+      name: "some-mcp",
+      trustLevel: 2,
+      trustScore: 0.5,
+      verdict: "passed",
+      found: true,
+    };
+    const missing = {
       ...base,
       securityProfile: { highCount: 1, knownCves: [] },
     } as TrustAnswer;
-    expect(buildCheckJsonFromAnswer(partial)).not.toHaveProperty("securityProfile");
+    expect(buildCheckJsonFromAnswer(missing).securityProfile).toEqual({
+      highCount: 1,
+      knownCves: [],
+    });
+    const invalid = {
+      ...base,
+      securityProfile: { criticalCount: null, highCount: 2 },
+    } as unknown as TrustAnswer;
+    expect(buildCheckJsonFromAnswer(invalid).securityProfile).toEqual({
+      highCount: 2,
+      knownCves: [],
+    });
+  });
+
+  it("leaves control characters in registry strings to JSON escaping (#129)", () => {
+    const answer = {
+      name: "some-mcp",
+      trustLevel: 2,
+      trustScore: 0.5,
+      verdict: "passed",
+      found: true,
+      securityProfile: {
+        criticalCount: 0,
+        highCount: 0,
+        knownCves: ["CVE-\u001b]0;x\u0007-1"],
+      },
+    } as TrustAnswer;
+    const result = buildCheckJsonFromAnswer(answer);
+    expect(result.securityProfile?.knownCves).toEqual(["CVE-\u001b]0;x\u0007-1"]);
+    expect(JSON.stringify(result)).not.toMatch(/[\u0000-\u001f]/);
   });
 
   it("propagates found=false without inventing a verdict", () => {

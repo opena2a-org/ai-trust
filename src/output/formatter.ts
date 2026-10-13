@@ -38,6 +38,7 @@ import {
   readSecurityProfile,
   type RegistrySecurityProfile,
 } from "./security-profile.js";
+import { capLength, sanitizeRegistryValue } from "./sanitize.js";
 import { mapScanStatusForMeter } from "@opena2a/check-core";
 import { classify, tierLabel } from "@opena2a/ai-classifier";
 import type { Tier } from "@opena2a/ai-classifier";
@@ -57,29 +58,28 @@ function normalizeScanStatus(status?: string): string | undefined {
 
 // ── ai-trust-specific helpers ─────────────────────────────────────────
 
+/**
+ * True when the scan status names a finished scan, so the score is a
+ * measurement: a status the `check` meter accepts (mapScanStatusForMeter), or
+ * `local` for a package `audit --scan-missing` scanned on this machine. An
+ * empty, pending, in-progress or unrecognized status has no score behind it.
+ */
+function hasScore(scanStatus?: string): boolean {
+  const status = normalizeScanStatus(scanStatus);
+  return status === "local" || mapScanStatusForMeter(status) !== undefined;
+}
+
 function formatScore(trustScore: number, scanStatus?: string): string {
   const status = normalizeScanStatus(scanStatus);
   if (status === "error") return "Scan error";
   if (status === "failed") return "Scan failed";
-  const notScanned =
-    !status ||
-    status === "" ||
-    status === "pending" ||
-    status === "not_applicable";
-  if (notScanned && !hasPassedScan(status)) {
-    return "Not scanned";
-  }
+  if (!hasScore(status)) return "Not scanned";
   return `${Math.round(trustScore * 100)}/100`;
 }
 
 function isScanErrorStatus(scanStatus?: string): boolean {
   const status = normalizeScanStatus(scanStatus);
   return status === "error" || status === "failed";
-}
-
-function hasPassedScan(scanStatus?: string): boolean {
-  const status = normalizeScanStatus(scanStatus);
-  return status === "passed" || status === "warnings";
 }
 
 function scanStatusColor(status?: string): (text: string) => string {
@@ -211,6 +211,16 @@ function buildCheckCtas(answer: TrustAnswer, isScanError: boolean): NextStepsCta
 }
 
 const MAX_LISTED_CVES = 5;
+// Longest advisory identifier printed whole; a longer entry is cut and marked.
+const MAX_ADVISORY_ID_LENGTH = 40;
+
+/**
+ * Headline for a passed verdict whose registry scan status is `warnings` when
+ * no profile came back or the profile records no critical or high finding and
+ * no CVE. "No known issues" would contradict the scan status; the verdict and
+ * exit code stay the registry's.
+ */
+const PASSED_WITH_SCAN_WARNINGS = "Passed, but the registry's scan reported warnings";
 
 function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
@@ -222,13 +232,15 @@ function plural(count: number, noun: string): string {
  * verdict and exit code stay the registry's.
  */
 function passedWithRecordedIssuesText(profile: RegistrySecurityProfile): string {
+  const critical = profile.criticalCount ?? 0;
+  const high = profile.highCount ?? 0;
   const severities: string[] = [];
-  if (profile.criticalCount > 0) severities.push(`${profile.criticalCount} critical`);
-  if (profile.highCount > 0) severities.push(`${profile.highCount} high`);
+  if (critical > 0) severities.push(`${critical} critical`);
+  if (high > 0) severities.push(`${high} high`);
   const parts: string[] = [];
   if (severities.length > 0) {
     // "2 critical and 1 high finding": the noun agrees with the last count.
-    const last = profile.highCount > 0 ? profile.highCount : profile.criticalCount;
+    const last = high > 0 ? high : critical;
     parts.push(`${severities.join(" and ")} finding${last === 1 ? "" : "s"}`);
   }
   if (profile.knownCves.length > 0) {
@@ -237,19 +249,26 @@ function passedWithRecordedIssuesText(profile: RegistrySecurityProfile): string 
   return `Passed, but the registry recorded ${parts.join(", plus ")}`;
 }
 
+/** "3 critical", or "critical not reported" for a count the registry did not report. */
+function countText(count: number | undefined, severity: string): string {
+  return count === undefined ? `${severity} not reported` : `${count} ${severity}`;
+}
+
 /** "Findings" and "CVEs" lines from the registry's security profile. */
 function securityProfileLines(
   profile: RegistrySecurityProfile,
   scanStatus: string | undefined,
 ): string[] {
-  const counts = [
-    `${profile.criticalCount} critical`,
-    `${profile.highCount} high`,
-  ];
+  const { criticalCount, highCount } = profile;
+  const counts = [countText(criticalCount, "critical"), countText(highCount, "high")];
   const status = scanStatus?.trim();
   if (status) counts.push(`scan status ${status}`);
-  const findingsTone: CheckTone =
-    profile.criticalCount > 0 ? "critical" : profile.highCount > 0 ? "warning" : "good";
+  // Green only when both counts were reported and both are zero.
+  let findingsTone: CheckTone;
+  if ((criticalCount ?? 0) > 0) findingsTone = "critical";
+  else if ((highCount ?? 0) > 0) findingsTone = "warning";
+  else if (criticalCount === undefined || highCount === undefined) findingsTone = "default";
+  else findingsTone = "good";
 
   let cves: string;
   let cvesTone: CheckTone;
@@ -257,7 +276,10 @@ function securityProfileLines(
     cves = "none recorded";
     cvesTone = "dim";
   } else {
-    const shown = profile.knownCves.slice(0, MAX_LISTED_CVES).join(", ");
+    const shown = profile.knownCves
+      .slice(0, MAX_LISTED_CVES)
+      .map((id) => capLength(id, MAX_ADVISORY_ID_LENGTH))
+      .join(", ");
     const more = profile.knownCves.length - MAX_LISTED_CVES;
     cves = more > 0 ? `${shown} +${more} more` : shown;
     cvesTone = "critical";
@@ -288,7 +310,9 @@ function renderNextStepsLines(ctas: NextStepsCta[]): string[] {
   });
 }
 
-export function formatCheckResult(answer: TrustAnswer): string {
+export function formatCheckResult(registryAnswer: TrustAnswer): string {
+  // Registry strings are remote data: control characters are removed first.
+  const answer = sanitizeRegistryValue(registryAnswer);
   if (!answer.found) {
     return formatNotFound({
       pkg: answer.name,
@@ -330,6 +354,11 @@ export function formatCheckResult(answer: TrustAnswer): string {
     hasRecordedIssues(profile)
   ) {
     out.push(`  ${chalk.bold(chalk.yellow(passedWithRecordedIssuesText(profile)))}`);
+  } else if (
+    normalizeVerdict(answer.verdict) === "safe" &&
+    scanStatusForMeter === "warnings"
+  ) {
+    out.push(`  ${chalk.bold(chalk.yellow(PASSED_WITH_SCAN_WARNINGS))}`);
   } else {
     out.push(`  ${chalk.bold(vc(block.verdict.text))}`);
   }
@@ -415,7 +444,10 @@ export function formatBatchResults(
   minTrust: number
 ): string {
   const lines: string[] = [];
-  const { native, unrelated, unknown } = partitionByTier(response.results);
+  // Registry strings are remote data: control characters are removed first.
+  const { native, unrelated, unknown } = partitionByTier(
+    sanitizeRegistryValue(response.results),
+  );
 
   // Header: summarize the scope split before anything else so the user knows
   // how many of their dependencies are actually in ai-trust's scope.
@@ -1049,5 +1081,11 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
 }
 
 export function formatJson(data: unknown): string {
-  return JSON.stringify(data, null, 2);
+  // JSON.stringify escapes the C0 controls. DEL and the C1 controls come out
+  // raw, so they are written as \u00XX escapes, which parse back to the same
+  // string. They occur only inside JSON strings.
+  return JSON.stringify(data, null, 2).replace(
+    /[\u007f-\u009f]/g,
+    (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
 }

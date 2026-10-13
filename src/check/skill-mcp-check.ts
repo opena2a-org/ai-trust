@@ -13,6 +13,7 @@ import { renderCheckRichBlock, type CheckRichBlockInput } from "@opena2a/cli-ui"
 import { fetchNarrative } from "./narrative-fetch.js";
 import { buildRichBlockInput } from "./rich-block-adapter.js";
 import { printRichBlock, type RichBlockPalette } from "./render-rich-block.js";
+import { sanitizeRegistryValue } from "../output/sanitize.js";
 
 const SKILL_PREFIX = "skill:";
 const MCP_PREFIX = "mcp:";
@@ -157,7 +158,10 @@ export async function checkSkillOrMcp(
     return { rendered: true, input };
   }
 
-  const rendered = renderCheckRichBlock(input);
+  // The narrative and trust fields are the registry's strings: control
+  // characters are removed before rendering. The returned `input` stays as
+  // received.
+  const rendered = renderCheckRichBlock(sanitizeRegistryValue(input));
   printRichBlock(rendered, { palette: options.palette });
 
   return { rendered: true, input };

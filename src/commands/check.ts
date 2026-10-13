@@ -19,7 +19,8 @@ import {
   formatNotFound,
 } from "../output/formatter.js";
 import { buildNotFoundOutput, translateDownloadError } from "@opena2a/check-core";
-import { resolveAndLog, parsePackageTarget } from "../utils/resolve.js";
+import { resolveAndLog, parsePackageTarget, bareEcosystemPrefix } from "../utils/resolve.js";
+import { stripControlCharacters } from "../output/sanitize.js";
 import { isHmaAvailable, reinstallCommand, scanPackage, scanLocalPath } from "../scanner/index.js";
 import type { ScanResult } from "../scanner/index.js";
 import { confirm } from "../utils/prompt.js";
@@ -168,7 +169,7 @@ export function registerCheckCommand(program: Command): void {
         });
         if (result.rendered) {
           if (globalOpts.json && result.input) {
-            console.log(JSON.stringify(result.input, null, 2));
+            console.log(formatJson(result.input));
           }
           return;
         }
@@ -176,6 +177,17 @@ export function registerCheckCommand(program: Command): void {
         // as a normal lookup target. Replace the name so downstream
         // logic (no-scan, scan paths) operates on the unprefixed name.
         rawName = parsed.name;
+      }
+
+      // `pip:` or `npm:` with nothing after it names no package: a usage
+      // error, not a lookup of a package called "pip:".
+      const barePrefix = bareEcosystemPrefix(rawName);
+      if (barePrefix) {
+        console.error(
+          `Error: No package name after "${barePrefix}". Usage: ${checkCitation()} ${barePrefix}<package>`
+        );
+        process.exitCode = 1;
+        return;
       }
 
       // Strip ecosystem prefix (pip: / npm:) before MCP-shorthand resolution.
@@ -249,7 +261,8 @@ export function registerCheckCommand(program: Command): void {
                 error: message,
               })));
             } else {
-              console.error(`Error: ${message}`);
+              // A registry error can quote the registry's response body.
+              console.error(`Error: ${stripControlCharacters(message)}`);
             }
             process.exitCode = 1;
           }
@@ -282,7 +295,10 @@ export function registerCheckCommand(program: Command): void {
         if (!(err instanceof PackageNotFoundError)) {
           // Unexpected registry error — don't fail the scan, just log and continue.
           // The user asked for trust info; let the scan produce something useful.
-          const message = err instanceof Error ? err.message : String(err);
+          // A registry error can quote the registry's response body.
+          const message = stripControlCharacters(
+            err instanceof Error ? err.message : String(err),
+          );
           console.error(chalk.dim(`  Registry lookup failed (${message}); proceeding with local scan.`));
         }
         // PackageNotFoundError: registry doesn't know this package — scan it.
@@ -671,15 +687,17 @@ function printLibraryWithTrust(result: TrustAnswer, asJson: boolean): void {
     }));
     return;
   }
+  // The name is the registry's string: control characters are removed first.
+  const name = stripControlCharacters(result.name);
   console.error("");
   console.error(
-    `  ${chalk.bold.white(result.name)}  ${chalk.dim("library (registry-classified)")}`
+    `  ${chalk.bold.white(name)}  ${chalk.dim("library (registry-classified)")}`
   );
   console.error(
     `  ${chalk.cyan("Out of scope for ai-trust")} ${chalk.dim("\u2014 the registry classifies this as a general-purpose library.")}`
   );
   console.error(`  ${chalk.dim("For a thorough security audit:")}`);
-  console.error(`    ${chalk.cyan(`hackmyagent check ${result.name}`)}`);
+  console.error(`    ${chalk.cyan(`hackmyagent check ${name}`)}`);
   console.error("");
 }
 

@@ -58,7 +58,8 @@ export interface CheckJsonResult {
   /**
    * Critical and high finding counts and known CVE identifiers the registry
    * records for the package (registry path only; omitted when the registry
-   * returned no profile).
+   * returned no profile). A count the registry did not report is omitted
+   * from the object.
    */
   securityProfile?: RegistrySecurityProfile;
   /** Raw HMA points scored (scan path only). */

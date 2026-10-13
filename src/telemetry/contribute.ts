@@ -91,6 +91,13 @@ function resolveOsType(): "linux" | "macos" | "windows" {
 // Verdict computation
 // ---------------------------------------------------------------------------
 
+/** "fail" with a failed critical check, "warn" with a failed high check, else "pass". */
+function verdictFromCounts(critical: number, high: number): string {
+  if (critical > 0) return "fail";
+  if (high > 0) return "warn";
+  return "pass";
+}
+
 function computeVerdict(findings: HmaFinding[]): string {
   const critical = findings.filter(
     (f) => !f.passed && f.severity === "critical"
@@ -98,9 +105,7 @@ function computeVerdict(findings: HmaFinding[]): string {
   const high = findings.filter(
     (f) => !f.passed && f.severity === "high"
   ).length;
-  if (critical > 0) return "fail";
-  if (high > 0) return "warn";
-  return "pass";
+  return verdictFromCounts(critical, high);
 }
 
 // ---------------------------------------------------------------------------
@@ -155,6 +160,13 @@ export function queueScanResult(
   });
 }
 
+const SCAN_PING_TIMEOUT_MS = 5000;
+
+// Scan pings sent and not yet answered. The process exit waits for them
+// (scanPingsSettled), so the exit cap in index.ts does not end a ping the
+// registry is still answering.
+const pendingScanPings = new Set<Promise<void>>();
+
 /**
  * Send an anonymous scan ping to the registry.
  *
@@ -200,18 +212,36 @@ export function sendScanPing(
     submittedAt: new Date().toISOString(),
   });
 
-  // Fire and forget — never block the user, never crash
-  fetch(url, {
+  // Not awaited by the command: never block the user, never crash. The
+  // promise is tracked so the process exit can wait for the answer.
+  const ping: Promise<void> = fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "User-Agent": `ai-trust/${VERSION}`,
     },
     body,
-    signal: AbortSignal.timeout(5000),
-  }).catch(() => {
-    // Silently ignore — telemetry must never affect UX
-  });
+    signal: AbortSignal.timeout(SCAN_PING_TIMEOUT_MS),
+  }).then(
+    async (res) => {
+      // The answer's body is not read; release the connection.
+      await res.body?.cancel().catch(() => undefined);
+    },
+    () => {
+      // Silently ignore — telemetry must never affect UX
+    },
+  );
+  pendingScanPings.add(ping);
+  void ping.then(() => pendingScanPings.delete(ping));
+}
+
+/**
+ * Resolves once every scan ping sent so far has been answered or has failed.
+ * A ping aborts itself after SCAN_PING_TIMEOUT_MS, which bounds the wait.
+ * Never rejects.
+ */
+export async function scanPingsSettled(): Promise<void> {
+  await Promise.all(pendingScanPings);
 }
 
 /**
@@ -239,7 +269,8 @@ export async function flushQueue(
  */
 export function buildContributionPayload(
   packageName: string,
-  findings: HmaFinding[]
+  findings: HmaFinding[],
+  ecosystem: ContributionPayload["ecosystem"] = "npm"
 ): ContributionPayload {
   const contributionFindings: ContributionFinding[] = findings.map((f) => ({
     checkId: f.checkId,
@@ -251,7 +282,7 @@ export function buildContributionPayload(
     contributorToken: getContributorToken(),
     packageName,
     packageVersion: "",
-    ecosystem: "npm",
+    ecosystem,
     scanTimestamp: new Date().toISOString(),
     findings: contributionFindings,
     aiTrustVersion: VERSION,
@@ -270,6 +301,12 @@ export async function submitContribution(
   payload: ContributionPayload,
   registryUrl?: string
 ): Promise<ContributionResult> {
+  const critical = payload.findings.filter(
+    (f) => f.result === "fail" && f.severity === "critical"
+  ).length;
+  const high = payload.findings.filter(
+    (f) => f.result === "fail" && f.severity === "high"
+  ).length;
   const event: ContributionEvent = {
     type: "scan_result",
     tool: "ai-trust",
@@ -282,12 +319,8 @@ export async function submitContribution(
     scanSummary: {
       totalChecks: payload.findings.length,
       passed: payload.findings.filter((f) => f.result === "pass").length,
-      critical: payload.findings.filter(
-        (f) => f.result === "fail" && f.severity === "critical"
-      ).length,
-      high: payload.findings.filter(
-        (f) => f.result === "fail" && f.severity === "high"
-      ).length,
+      critical,
+      high,
       medium: payload.findings.filter(
         (f) => f.result === "fail" && f.severity === "medium"
       ).length,
@@ -302,7 +335,7 @@ export async function submitContribution(
                 100
             )
           : 0,
-      verdict: "pass",
+      verdict: verdictFromCounts(critical, high),
       durationMs: 0,
     },
   };
