@@ -97,7 +97,7 @@ With contribution saved on, the bundled scanner also sends a SHA-256 hash and th
 - [Contributing](CONTRIBUTING.md) and security reports
 - [Demo recording](docs/ai-trust-demo.gif)
 - [Website](https://opena2a.org/ai-trust), [Discord](https://discord.gg/uRZa3KXgEn)
-- Other OpenA2A tools: [OpenA2A CLI](https://github.com/opena2a-org/opena2a), [HackMyAgent](https://github.com/opena2a-org/hackmyagent), [Secretless](https://github.com/opena2a-org/secretless-ai), [AIM](https://github.com/opena2a-org/agent-identity-management), [Browser Guard](https://github.com/opena2a-org/AI-BrowserGuard), [DVAA](https://github.com/opena2a-org/damn-vulnerable-ai-agent), [aicomply](https://github.com/opena2a-org/aicomply)
+- Other OpenA2A tools: [OpenA2A CLI](https://github.com/opena2a-org/opena2a), [HackMyAgent](https://github.com/opena2a-org/hackmyagent), [Secretless](https://github.com/opena2a-org/secretless-ai), [OpenA2A AIM (Agent Identity Management)](https://github.com/opena2a-org/agent-identity-management), [Browser Guard](https://github.com/opena2a-org/AI-BrowserGuard), [DVAA](https://github.com/opena2a-org/damn-vulnerable-ai-agent), [aicomply](https://github.com/opena2a-org/aicomply)
 
 ## License
 
