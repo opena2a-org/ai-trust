@@ -2,7 +2,10 @@
  * Tests for the audit command logic.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { Command } from "commander";
 import { registerAuditCommand } from "./audit.js";
 
@@ -242,6 +245,86 @@ describe("audit command", () => {
 
     expect(process.exitCode).toBe(1);
     expect(consoleErrSpy).toHaveBeenCalledWith("Error: File not found");
+    // Only a missing file gets the accepted-files and next-command lines.
+    expect(consoleErrSpy).toHaveBeenCalledTimes(1);
+  });
+
+  describe("file not found: what audit reads and the next command", () => {
+    let dir: string;
+    let cwdSpy: MockInstance<() => string>;
+
+    function missing(file: string): void {
+      const err = new Error(
+        `ENOENT: no such file or directory, open '${file}'`
+      ) as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      vi.mocked(parseDependencyFile).mockRejectedValue(err);
+    }
+
+    function stderrLines(): string[] {
+      return consoleErrSpy.mock.calls.map((c) => String(c[0]));
+    }
+
+    beforeEach(() => {
+      dir = mkdtempSync(join(tmpdir(), "ai-trust-audit-"));
+      cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(dir);
+    });
+
+    afterEach(() => {
+      cwdSpy.mockRestore();
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    it("points to the help when the directory holds no file audit reads", async () => {
+      missing("package.json");
+      await createProgram().parseAsync(["node", "test", "audit", "package.json"]);
+
+      expect(stderrLines()).toEqual([
+        "Error: File not found: package.json",
+        "  No dependencies were checked. The audit command reads package.json or requirements.txt.",
+        "  Next: ai-trust audit --help",
+      ]);
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("names requirements.txt when it sits beside a missing package.json", async () => {
+      writeFileSync(join(dir, "requirements.txt"), "");
+      missing("package.json");
+      await createProgram().parseAsync(["node", "test", "audit", "package.json"]);
+
+      expect(stderrLines()).toEqual([
+        "Error: File not found: package.json",
+        "  No dependencies were checked. The audit command reads package.json or requirements.txt.",
+        "  Next: ai-trust audit requirements.txt",
+      ]);
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("points to the help when the argument has a directory part", async () => {
+      writeFileSync(join(dir, "package.json"), "{}");
+      missing("sub/package.json");
+      await createProgram().parseAsync(["node", "test", "audit", "sub/package.json"]);
+
+      expect(stderrLines()).toEqual([
+        "Error: File not found: sub/package.json",
+        "  No dependencies were checked. The audit command reads package.json or requirements.txt.",
+        "  Next: ai-trust audit --help",
+      ]);
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("keeps the --json error object unchanged", async () => {
+      missing("package.json");
+      await createProgram().parseAsync(["node", "test", "--json", "audit", "package.json"]);
+
+      expect(consoleSpy).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(String(consoleSpy.mock.calls[0][0]))).toEqual({
+        file: "package.json",
+        error: "File not found: package.json",
+      });
+      expect(consoleErrSpy).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(1);
+    });
   });
 
   describe("scan ping consent gating (regression: package name + verdict + score is scan-result data, requires the same consent as full contribution)", () => {

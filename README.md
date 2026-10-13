@@ -21,19 +21,18 @@ npx ai-trust check @modelcontextprotocol/server-filesystem --no-scan
 ```
 
 ```
-  @modelcontextprotocol/server-filesystem  mcp server · scanned 223 days ago (stale)
+  @modelcontextprotocol/server-filesystem  mcp server · scanned 225 days ago (stale)
   Passed, but the registry recorded 1 high finding
 
   Trust     ━━━━━━━━━━━━━━━━━━━━ 79/100
   Level     Scanned  Blocked > Warning > Listed > Scanned > Verified
   Scans     3 community scans
-  Last scan 223 days ago (stale)
+  Last scan 225 days ago (stale)
   Findings  0 critical · 1 high · scan status warnings
   CVEs      none recorded
 
   ── Next Steps ──────────────────────────────────────────────
   → Fresh scan  ai-trust check @modelcontextprotocol/server-filesystem
-  • Full project audit  ai-trust audit package.json
 ```
 
 `--no-scan` prints the registry's answer. Without it, ai-trust downloads the package and scans it locally with [HackMyAgent](https://github.com/opena2a-org/hackmyagent) instead, which takes longer and prints a scan report.
