@@ -35,7 +35,7 @@ const SHELL_LANGS = new Set(["bash", "sh", "shell", "zsh"]);
 
 interface RegistryFixture {
   query: Record<string, unknown>;
-  batch: Array<{ name: string }>;
+  batch: Array<{ name: string; packageType?: string }>;
 }
 
 const FIXTURE: RegistryFixture = JSON.parse(
@@ -385,4 +385,53 @@ describe("docs cite only registered ai-trust commands and flags", () => {
       'entry: unregistered flag --scan-if-missing in "audit --scan-if-missing"',
     ]);
   }, 60000);
+});
+
+// A `check` on a general-purpose library prints the out-of-scope notice, not a
+// trust result, so a docs example that runs one never shows what ai-trust does.
+describe("docs check examples name AI packages", () => {
+  it("no shell-block `check` targets a package the registry fixture classifies as a library", () => {
+    const libraries = new Set(
+      FIXTURE.batch.filter((r) => r.packageType === "library").map((r) => r.name),
+    );
+    const problems: string[] = [];
+    for (const doc of DOCS) {
+      for (const f of fences(readDoc(doc)).filter((x) => !isOutput(x))) {
+        for (const line of commandLines(f)) {
+          const m = line.match(/^(?:npx\s+)?(?:ai-trust|node dist\/index\.js)\s+check\s+(\S+)/);
+          if (m && libraries.has(m[1])) problems.push(`${doc}: "${line}"`);
+        }
+      }
+    }
+    expect(problems).toEqual([]);
+  });
+});
+
+describe("README: the from-source step runs a trust lookup", () => {
+  const readme = readDoc("README.md");
+  const start = readme.indexOf("\n### From source\n");
+  const ends = ["\n## ", "\n### "]
+    .map((h) => readme.indexOf(h, start + 1))
+    .filter((i) => i !== -1);
+  const steps = fences(readme.slice(start, ends.length ? Math.min(...ends) : undefined))
+    .filter((f) => !isOutput(f))
+    .flatMap(commandLines);
+  const verify = steps.filter((l) => l.startsWith("node dist/index.js "));
+
+  it("ends the build with one `node dist/index.js` command", () => {
+    expect(start).toBeGreaterThan(-1);
+    expect(verify).toHaveLength(1);
+  });
+
+  it("checks a package the registry answers and prints its trust score", async () => {
+    const args = verify[0].split(/\s+/).slice(2);
+    expect(args[0]).toBe("check");
+    // The fixture must answer the lookup: an unanswered name falls through to
+    // a download and scan, which this suite does not run.
+    expect(Object.keys(FIXTURE.query)).toContain(args[1]);
+    const { stdout, status } = await runCli([...args, "--registry-url", registryUrl], scratch);
+    expect(status).toBe(0);
+    expect(stdout).toMatch(/^\s*Trust\s/m);
+    expect(stdout).not.toMatch(/Out of scope/);
+  }, 30000);
 });
