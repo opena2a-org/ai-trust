@@ -64,7 +64,7 @@ git clone https://github.com/opena2a-org/ai-trust.git
 cd ai-trust
 npm install
 npm run build
-node dist/index.js check express
+node dist/index.js check @modelcontextprotocol/server-filesystem --no-scan
 ```
 
 ### Verifying what was installed
@@ -190,10 +190,10 @@ Flags: `--type`, `--min-trust` (trust level 0-4, default 2).
 ## Output options
 
 ```bash
-ai-trust check express --json                                    # JSON output for scripting
-ai-trust audit package.json --json                               # JSON audit output
-ai-trust check express --no-color                                # disable colored output
-ai-trust check express --registry-url http://localhost:8080      # custom registry endpoint
+ai-trust check server-filesystem --json                                # JSON output for scripting
+ai-trust audit package.json --json                                     # JSON audit output
+ai-trust check server-filesystem --no-color                            # disable colored output
+ai-trust check server-filesystem --registry-url http://localhost:8080  # custom registry endpoint
 ```
 
 ## Trust levels
