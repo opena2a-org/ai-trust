@@ -16,11 +16,15 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const README = readFileSync(resolve(HERE, "..", "README.md"), "utf8");
 
+/** The section under a `##` or `###` heading, up to the next heading of the same or a higher level. */
 function section(heading: string): string {
-  const start = README.indexOf(`\n## ${heading}\n`);
-  if (start === -1) throw new Error(`README has no "## ${heading}" section`);
-  const end = README.indexOf("\n## ", start + 1);
-  return README.slice(start, end === -1 ? undefined : end);
+  const match = new RegExp(`\\n(#{2,3}) ${heading}\\n`).exec(README);
+  if (!match) throw new Error(`README has no "## ${heading}" or "### ${heading}" section`);
+  const start = match.index;
+  const next = new RegExp(`\\n#{2,${match[1].length}} `, "g");
+  next.lastIndex = start + match[0].length - 1;
+  const end = next.exec(README);
+  return README.slice(start, end ? end.index : undefined);
 }
 
 describe("README: Using with opena2a-cli", () => {

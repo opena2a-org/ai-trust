@@ -88,3 +88,22 @@ opena2a config contribute off
 ```
 
 Your local scan results continue to work. Only the telemetry submission stops.
+
+## Community contribution
+
+Every scan you run can improve trust data for the entire community. A contributed scan carries the package name, version and ecosystem, the score and verdict, the project type, check counts by severity, and for each check its ID, pass/fail, severity, category and attack class. No file paths, source code, finding names, messages or descriptions. Contributions from one device share a pseudonymous contributor token: a SHA-256 hash of the hostname, username and a random salt that stays on your machine, so the hostname and username themselves are never sent.
+
+When contribution is saved as on, the bundled scanner (hackmyagent) also sends classification telemetry on a default scan: for each file its classifier reads, the content type, a SHA-256 hash of the content, the classification, confidence, verdict and model version, with no package name or file path. `--no-contribute` does not stop it; `--no-deep` or turning contribution off does. [What data is shared](#4-what-data-is-shared-and-what-is-not) lists the fields.
+
+No scan results are shared until you opt in. `check` never asks: after a few scans without a choice, it prints a tip on how to opt in. `audit` on a terminal asks whether to share after it scans packages the registry does not have, unless contribution is already on or you pass `--contribute` or `--no-contribute`. A global choice is saved in `~/.opena2a/config.json` and shared across all OpenA2A tools (`opena2a-cli`, `hackmyagent`).
+
+```bash
+ai-trust check @modelcontextprotocol/server-filesystem --contribute   # contribute for this scan (non-interactive / CI)
+ai-trust config contribute on                  # opt in globally
+ai-trust config contribute off                 # opt out globally
+ai-trust config contribute status              # show the saved choice
+```
+
+With opena2a-cli installed, `opena2a config contribute on` and `opena2a config contribute off` change the same setting.
+
+More scans contributed means packages move from "Listed" to "Scanned" faster, reducing risk for everyone.

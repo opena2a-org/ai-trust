@@ -1149,16 +1149,16 @@ describe("check command", () => {
 });
 
 // The documented exit-code contract is checked against the exit code the
-// command actually sets, so the README table cannot drift from the code again
+// command actually sets, so the exit-code table in docs/commands.md cannot drift from the code again
 // (it once had no row for not-found or out-of-scope).
 describe("documented exit codes match check outcomes", () => {
   const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
   const readDoc = (rel: string) => readFileSync(resolve(REPO_ROOT, rel), "utf8");
 
-  // Rows of the README "## Exit codes" table as `| <code> | <Outcome>: ... |`.
-  function readmeExitCodes(): Map<string, number> {
+  // Rows of the docs/commands.md "## Exit codes" table as `| <code> | <Outcome>: ... |`.
+  function documentedExitCodes(): Map<string, number> {
     const section =
-      readDoc("README.md").split(/^## Exit codes$/m)[1]?.split(/^## /m)[0] ?? "";
+      readDoc("docs/commands.md").split(/^## Exit codes$/m)[1]?.split(/^## /m)[0] ?? "";
     const rows = new Map<string, number>();
     for (const m of section.matchAll(/^\| (\d) \| ([^:|]+):/gm)) {
       rows.set(m[2].trim(), Number(m[1]));
@@ -1223,24 +1223,24 @@ describe("documented exit codes match check outcomes", () => {
   ];
 
   for (const { outcome, name, registry } of outcomes) {
-    it(`README row "${outcome}" gives the code check sets`, async () => {
+    it(`Exit-code table row "${outcome}" gives the code check sets`, async () => {
       vi.mocked(RegistryClient).mockImplementation(function () {
         return { checkTrust: vi.fn(registry), batchQuery: vi.fn(), publishScan: vi.fn() } as any;
       });
 
       await createProgram().parseAsync(["node", "test", "check", name, "--no-scan"]);
 
-      const documented = readmeExitCodes().get(outcome);
-      expect(documented, `README exit-code table has no "${outcome}" row`).toBeDefined();
+      const documented = documentedExitCodes().get(outcome);
+      expect(documented, `docs/commands.md exit-code table has no "${outcome}" row`).toBeDefined();
       expect(process.exitCode ?? 0).toBe(documented);
     });
   }
 
-  it("README documents below-threshold as exit 2 (behavior pinned in batch.test.ts)", () => {
-    expect(readmeExitCodes().get("Below threshold")).toBe(2);
+  it("the exit-code table documents below-threshold as exit 2 (behavior pinned in batch.test.ts)", () => {
+    expect(documentedExitCodes().get("Below threshold")).toBe(2);
   });
 
-  it('README row "Local scan" gives the code check --scan-path sets for a blocked verdict', async () => {
+  it('Exit-code table row "Local scan" gives the code check --scan-path sets for a blocked verdict', async () => {
     vi.mocked(isHmaAvailable).mockResolvedValue(true);
     vi.mocked(scanLocalPath).mockResolvedValue({
       packageName: "fixture",
@@ -1258,12 +1258,12 @@ describe("documented exit codes match check outcomes", () => {
 
     await createProgram().parseAsync(["node", "test", "check", "fixture", "--scan-path", "/tmp/fixture"]);
 
-    const documented = readmeExitCodes().get("Local scan");
-    expect(documented, 'README exit-code table has no "Local scan" row').toBeDefined();
+    const documented = documentedExitCodes().get("Local scan");
+    expect(documented, 'docs/commands.md exit-code table has no "Local scan" row').toBeDefined();
     expect(process.exitCode ?? 0).toBe(documented);
   });
 
-  it('README row "Local scan could not run" gives the code check --scan-path exits with', async () => {
+  it('Exit-code table row "Local scan could not run" gives the code check --scan-path exits with', async () => {
     vi.mocked(isHmaAvailable).mockResolvedValue(true);
     vi.mocked(scanLocalPath).mockRejectedValue(new Error("ENOENT: no such file or directory"));
     let exitCode: number | undefined;
@@ -1279,12 +1279,12 @@ describe("documented exit codes match check outcomes", () => {
       exit.mockRestore();
     }
 
-    const documented = readmeExitCodes().get("Local scan could not run");
-    expect(documented, 'README exit-code table has no "Local scan could not run" row').toBeDefined();
+    const documented = documentedExitCodes().get("Local scan could not run");
+    expect(documented, 'docs/commands.md exit-code table has no "Local scan could not run" row').toBeDefined();
     expect(exitCode).toBe(documented);
   });
 
-  it("release checklist and changelog do not contradict the README table", () => {
+  it("release checklist and changelog do not contradict the exit-code table", () => {
     const smoke = readDoc("docs/testing/release-smoke.md");
     expect(smoke).toMatch(/check express --no-scan .*exit 0/);
     expect(smoke).not.toMatch(/1 for errors\/high-risk/);

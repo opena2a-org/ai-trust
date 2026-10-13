@@ -1,24 +1,17 @@
 # ai-trust
 
-[![Status: stable](https://img.shields.io/badge/status-stable-green)](./STATUS.md)
-
-> **[OpenA2A](https://github.com/opena2a-org/opena2a)**: [CLI](https://github.com/opena2a-org/opena2a) · [HackMyAgent](https://github.com/opena2a-org/hackmyagent) · [Secretless](https://github.com/opena2a-org/secretless-ai) · [AIM](https://github.com/opena2a-org/agent-identity-management) · [Browser Guard](https://github.com/opena2a-org/AI-BrowserGuard) · [DVAA](https://github.com/opena2a-org/damn-vulnerable-ai-agent)
-
-Trust verification CLI for AI packages. MCP servers, A2A agents, skills, AI tools, LLMs. Queries the OpenA2A Registry trust graph for security scans, community consensus, dependency risk, and known advisories. Apache 2.0.
-
+[![Status: stable](https://img.shields.io/badge/status-stable-green)](STATUS.md)
 [![npm version](https://img.shields.io/npm/v/ai-trust.svg)](https://www.npmjs.com/package/ai-trust)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![CI](https://github.com/opena2a-org/ai-trust/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/opena2a-org/ai-trust/actions/workflows/ci.yml)
 
-[Website](https://opena2a.org/ai-trust) · [Registry](https://registry.opena2a.org) · [Discord](https://discord.gg/uRZa3KXgEn)
-
-For general-purpose libraries (express, typescript, chalk, etc.) use [HackMyAgent](https://github.com/opena2a-org/hackmyagent) instead. ai-trust is scoped to AI-native packages only.
-
-## Quick start
+Trust verification CLI for AI packages: MCP servers, A2A agents, skills, AI tools and LLMs. It prints the OpenA2A Registry's scans and known advisories for a package, or downloads and scans it locally with HackMyAgent. For general-purpose libraries such as `express`, use [HackMyAgent](https://github.com/opena2a-org/hackmyagent) instead.
 
 ```bash
 npx ai-trust check @modelcontextprotocol/server-filesystem --no-scan
 ```
+
+What it prints ([full output](docs/captures/quick-start.txt)):
 
 ```
   @modelcontextprotocol/server-filesystem  mcp server · scanned 225 days ago (stale)
@@ -35,209 +28,43 @@ npx ai-trust check @modelcontextprotocol/server-filesystem --no-scan
   → Fresh scan  ai-trust check @modelcontextprotocol/server-filesystem
 ```
 
-`--no-scan` prints the registry's answer. Without it, ai-trust downloads the package and scans it locally with [HackMyAgent](https://github.com/opena2a-org/hackmyagent) instead, which takes longer and prints a scan report.
+It needs Node.js 18 or later and no account. With `--no-scan` it prints the registry's answer.
 
-![ai-trust demo: check an MCP server, then audit a package.json](docs/ai-trust-demo.gif)
+- [Check a package before you install it](#check-a-package-before-you-install-it)
+- [Gate a project's AI dependencies in CI](#gate-a-projects-ai-dependencies-in-ci)
+- [Run it through opena2a-cli](#using-with-opena2a-cli)
+- [Share scan results with the registry](docs/use-cases/contribute-scans.md)
+
+## Check a package before you install it
+
+```bash
+npx ai-trust check @modelcontextprotocol/server-filesystem
+```
+
+Without `--no-scan`, `check` downloads the package to a temporary directory and scans it with the bundled HackMyAgent, which takes longer. A general-purpose library gets an out-of-scope notice instead.
+
+`check` exits 0 for a safe or out-of-scope package, 1 on an operational error, and 2 for a warning or blocked verdict or a package that cannot be found.
+
+## Gate a project's AI dependencies in CI
+
+```bash
+npx ai-trust audit package.json --min-trust 3
+```
+
+`audit` reads `package.json` or `requirements.txt`, looks up each dependency and lists libraries as out of scope. It exits 2, failing the job, when a package has a warning or blocked verdict, falls below `--min-trust`, or is not in the registry and was not scanned. Exit 1 is an operational error.
+
+`--min-trust` defaults to 2 (Listed), so a listed but unscanned package passes; 3 requires a HackMyAgent scan. On a terminal `audit` offers to scan unknown packages; in CI, pass `--scan-missing`. `ai-trust batch <names...>` checks named packages. [Sample output](docs/commands.md#audit).
 
 ## Install
 
-### npm
-
 ```bash
-npx ai-trust check <pkg>     # run once, no install
-npm install -g ai-trust      # install globally
-```
-
-Requires Node.js 18 or later.
-
-### Homebrew
-
-```bash
+npm install -g ai-trust
 brew install opena2a-org/tap/ai-trust
 ```
 
-### From source
+On Linux x64, npm also runs the install script of `onnxruntime-node`, a scanner dependency, which downloads CUDA provider binaries from NuGet unless `ONNXRUNTIME_NODE_INSTALL=skip` is set. Build from source or check a release's provenance: [docs/install.md](docs/install.md).
 
-```bash
-git clone https://github.com/opena2a-org/ai-trust.git
-cd ai-trust
-npm install
-npm run build
-node dist/index.js check @modelcontextprotocol/server-filesystem --no-scan
-```
-
-### Verifying what was installed
-
-Every release since 0.3.0 publishes via npm Trusted Publishing with SLSA v1 provenance. No long-lived `NPM_TOKEN`. GitHub Actions exchanges its OIDC token with npm at publish time. Releases 0.1.0 through 0.2.25 were published before this and carry no attestation; upgrade to a current release to get one.
-
-To check your install, replace `<version>` below with the number `ai-trust --version` prints:
-
-```bash
-npm view ai-trust@<version> dist.attestations.provenance.predicateType
-# Prints "https://slsa.dev/provenance/v1" for 0.3.0 and later; prints nothing for 0.2.25 and earlier
-```
-
-## Scope: AI packages only
-
-ai-trust verifies trust for AI-native packages. For everything else, use HMA.
-
-| Your package is... | Use |
-|---|---|
-| MCP server, A2A agent, skill, AI tool, LLM | `ai-trust` |
-| General-purpose library (express, chalk, typescript, etc.) | `hackmyagent check <pkg>` |
-| Full codebase security audit | `hackmyagent secure .` |
-
-`ai-trust audit package.json` audits AI packages in the trust table and separately lists libraries in an "Out of scope" section with an HMA pointer.
-
-Running `ai-trust check express` on a general-purpose library returns an "out of scope" verdict with a redirect to `hackmyagent check express`. Intentional. ai-trust is for AI packages only.
-
-## Commands
-
-### `check`
-
-Download a single AI package, scan it locally, and print its trust verdict. `--no-scan` prints the registry's verdict instead, without downloading.
-
-```bash
-ai-trust check @modelcontextprotocol/server-filesystem
-ai-trust check my-custom-agent --type a2a_agent
-ai-trust check @modelcontextprotocol/server-postgres --json
-ai-trust check mcp-server-xyz --contribute                    # download + scan + share
-ai-trust check server-filesystem --no-scan                    # registry lookup only
-ai-trust check /path/to/local --scan-path /path/to/local      # scan a local directory
-```
-
-Flags: `--type`, `--contribute`, `--no-scan`, `--no-deep`, `--scan-path`, `--json`.
-
-### MCP server shorthand
-
-```bash
-# These are equivalent:
-ai-trust check server-filesystem
-ai-trust check @modelcontextprotocol/server-filesystem
-
-# Third-party MCP servers use their own package names:
-ai-trust check mcp-server-kubernetes
-ai-trust check @supabase/mcp-server-supabase
-ai-trust check @cloudflare/mcp-server-cloudflare
-```
-
-`server-*` resolves to `@modelcontextprotocol/server-*`. Third-party `mcp-server-*` packages are looked up by their actual name.
-
-### Local scan and registry lookup
-
-`check` downloads the package and scans it locally using [HackMyAgent](https://github.com/opena2a-org/hackmyagent), whether or not the registry has it, so the verdict comes from the current scanner rather than an older registry score. Packages the registry classifies as general-purpose libraries are not scanned; they get the out-of-scope notice. There is no prompt, so the same command works in a terminal and in CI:
-
-```bash
-ai-trust check mcp-server-xyz --contribute                     # download + scan + share
-ai-trust check server-filesystem --no-scan                     # registry lookup only, no download
-```
-
-With `--no-scan`, a package the registry does not have exits 2 and points at the plain `check` command to scan it. `--scan-if-missing` is accepted for compatibility and changes nothing, since every package is scanned.
-
-Local scans run HMA with NanoMind semantic analysis enabled by default. Pass `--no-deep` for static-only.
-
-### `audit`
-
-Parse dependency files and audit AI packages. Supports `.json` (package.json format) and `.txt` (requirements.txt format). Libraries get partitioned into an "Out of scope" section.
-
-```bash
-ai-trust audit package.json
-ai-trust audit requirements.txt
-ai-trust audit package.json --min-trust 3                      # require a scan (default 2)
-ai-trust audit package.json --scan-missing --contribute        # scan unknown AI packages
-```
-
-`--min-trust` defaults to 2 (Listed), so a package that is listed but not yet scanned meets the threshold and exits 0. Pass `--min-trust 3` to fail the gate on any package without a HackMyAgent scan.
-
-Example output for the sample project in [`docs/demo/package.json`](docs/demo/package.json) (five MCP packages, five libraries):
-
-```
-  5 AI packages audited · 5 libraries out of scope
-
-  PACKAGE                             TYPE          VERDICT   TRUST       SCORE           SCAN
-  ──────────────────────────────────────────────────────────────────────────────────────────────────
-  @modelcontextprotocol/sdk           mcp_server    SAFE      Scanned     ━━━━━━━━ 71  warnings
-  @modelcontextprotocol/server-fi...  mcp_server    SAFE      Scanned     ━━━━━━━━ 79  warnings
-  @modelcontextprotocol/server-me...  mcp_server    SAFE      Scanned     ━━━━━━━━ 79  warnings
-  @modelcontextprotocol/server-gi...  mcp_server    LISTED    Listed      ━━━━━━━━ --  -
-  mcp-server-kubernetes               mcp_server    LISTED    Listed      ━━━━━━━━ --  -
-
-  All 5 AI packages meet minimum trust level 2.
-
-  ── Out of scope (libraries) ────────────────────────────────
-  ai-trust is for AI packages. For general security, use HackMyAgent.
-  chalk, commander, express, typescript, vitest
-
-  Blocked > Warning > Listed > Scanned > Verified
-
-  ── Next Steps ──────────────────────────────────────────────
-  Library security:  npx hackmyagent secure .
-```
-
-### `batch`
-
-Look up trust verdicts for multiple AI packages at once. Non-AI packages get partitioned into the "Out of scope" footer.
-
-```bash
-ai-trust batch @modelcontextprotocol/server-filesystem @modelcontextprotocol/server-postgres
-ai-trust batch my-server-a my-server-b --type mcp_server
-ai-trust batch react vue express lodash chalk
-```
-
-Flags: `--type`, `--min-trust` (trust level 0-4, default 2).
-
-## Output options
-
-```bash
-ai-trust check server-filesystem --json                                # JSON output for scripting
-ai-trust audit package.json --json                                     # JSON audit output
-ai-trust check server-filesystem --no-color                            # disable colored output
-ai-trust check server-filesystem --registry-url http://localhost:8080  # custom registry endpoint
-```
-
-## Trust levels
-
-| Level | Label | Description |
-|---|---|---|
-| 0 | Blocked | Package is blocked due to security concerns |
-| 1 | Warning | Package has known issues |
-| 2 | Listed | Package is listed but not yet scanned |
-| 3 | Scanned | Package has been scanned by HackMyAgent |
-| 4 | Verified | Package is verified by the publisher |
-
-## Exit codes
-
-| Code | Outcome |
-|---|---|
-| 0 | Safe: all queried packages are safe and meet the trust threshold |
-| 0 | Out of scope: the package is a general-purpose library, not an AI package, and the registry has not flagged it as warning or blocked |
-| 0 | Local scan: `check --scan-path` finished scanning the directory, whatever the verdict. On this path a warning or blocked verdict does not yet exit 2 |
-| 1 | Operational error: network failure, file not found, server error, or invalid arguments |
-| 2 | Warning or blocked: one or more packages have a warning or blocked verdict (except with `check --scan-path`) |
-| 2 | Below threshold: one or more packages fall below `--min-trust` (`audit`, `batch`) |
-| 2 | Not found: a package is not in the registry and was not scanned locally, or does not exist on npm or PyPI |
-| 2 | Local scan could not run: `check --scan-path` found no scanner, or the directory does not exist or could not be scanned |
-
-## Community contribution
-
-Every scan you run can improve trust data for the entire community. A contributed scan carries the package name, version and ecosystem, the score and verdict, the project type, check counts by severity, and for each check its ID, pass/fail, severity, category and attack class. No file paths, source code, finding names, messages or descriptions. Contributions from one device share a pseudonymous contributor token: a SHA-256 hash of the hostname, username and a random salt that stays on your machine, so the hostname and username themselves are never sent.
-
-When contribution is saved as on, the bundled scanner (hackmyagent) also sends classification telemetry on a default scan: for each file its classifier reads, the content type, a SHA-256 hash of the content, the classification, confidence, verdict and model version, with no package name or file path. `--no-contribute` does not stop it; `--no-deep` or turning contribution off does. The [contribution guide](docs/use-cases/contribute-scans.md) lists the fields.
-
-No scan results are shared until you opt in. `check` never asks: after a few scans without a choice, it prints a tip on how to opt in. `audit` on a terminal asks whether to share after it scans packages the registry does not have, unless contribution is already on or you pass `--contribute` or `--no-contribute`. A global choice is saved in `~/.opena2a/config.json` and shared across all OpenA2A tools (`opena2a-cli`, `hackmyagent`).
-
-```bash
-ai-trust check @modelcontextprotocol/server-filesystem --contribute   # contribute for this scan (non-interactive / CI)
-ai-trust config contribute on                  # opt in globally
-ai-trust config contribute off                 # opt out globally
-ai-trust config contribute status              # show the saved choice
-```
-
-With opena2a-cli installed, `opena2a config contribute on` and `opena2a config contribute off` change the same setting.
-
-More scans contributed means packages move from "Listed" to "Scanned" faster, reducing risk for everyone.
-
-## Using with opena2a-cli
+### Using with opena2a-cli
 
 [`opena2a-cli`](https://github.com/opena2a-org/opena2a) is the unified CLI for the OpenA2A security toolchain. ai-trust powers `opena2a registry`.
 
@@ -247,36 +74,30 @@ opena2a registry @modelcontextprotocol/server-filesystem
 opena2a review                              # full security dashboard
 ```
 
-## Use cases
+## Telemetry
 
-| Guide | Time |
-|---|---|
-| [Check if a package is safe before installing](docs/use-cases/check-before-install.md) | 2 min |
-| [Verify an MCP server's trust score](docs/use-cases/check-mcp-server.md) | 3 min |
-| [Contribute trust data to the community](docs/use-cases/contribute-scans.md) | 3 min |
+Usage telemetry is on by default. After each command, ai-trust sends the tool name and version, the command name, success, duration, platform, Node.js major version and a persistent install ID to the OpenA2A Registry (`api.oa2a.org`), and no package name, argument, file path or content.
 
-Full index: [docs/USE-CASES.md](docs/USE-CASES.md).
-
-## Contributing
-
-Apache 2.0. PRs from outside the org welcome.
+The install ID is a hash derived from this machine's ID, kept in `~/.config/opena2a/telemetry.json`. Policy: [opena2a.org/telemetry](https://opena2a.org/telemetry).
 
 ```bash
-git clone https://github.com/opena2a-org/ai-trust.git
-cd ai-trust && npm install && npm run build && npm test
+ai-trust telemetry off            # or set OPENA2A_TELEMETRY=off for one run
+ai-trust telemetry status         # the current state and install ID
 ```
 
-Security issues: `info@opena2a.org` (coordinated disclosure, response within 24 hours).
+Sharing scan results is opt-in: `ai-trust config contribute on`, or `--contribute` for one scan. A shared scan sends the same registry the package name, version and ecosystem, score, verdict and per-check results with a pseudonymous contributor token, and no file paths or source code. `check` never asks; `audit` on a terminal asks after scanning packages the registry does not have.
 
-## Links
+With contribution saved on, the bundled scanner also sends a SHA-256 hash and the classification of each file it classifies; `--no-deep` stops that, `--no-contribute` does not. The choice is saved in `~/.opena2a/config.json` and shared by OpenA2A tools; `ai-trust config contribute off` turns it off. The [contribution guide](docs/use-cases/contribute-scans.md) lists every field.
 
-- [Website](https://opena2a.org/ai-trust)
-- [OpenA2A Registry](https://registry.opena2a.org). Trust scores and scan data.
-- [OpenA2A CLI](https://github.com/opena2a-org/opena2a). Unified security CLI.
-- [HackMyAgent](https://github.com/opena2a-org/hackmyagent). Local scanning for unverified packages.
-- [aicomply](https://github.com/opena2a-org/aicomply). Inline PII, credential, and regulated-data classification for agent I/O before it reaches an LLM.
+## Documentation
 
-Part of the [OpenA2A](https://opena2a.org) security platform.
+- [Command reference](docs/commands.md): options, MCP server shorthand, trust levels, exit codes
+- [Install from source and verify a release](docs/install.md)
+- [Use cases](docs/USE-CASES.md): step-by-step guides
+- [Contributing](CONTRIBUTING.md) and security reports
+- [Demo recording](docs/ai-trust-demo.gif)
+- [Website](https://opena2a.org/ai-trust), [Discord](https://discord.gg/uRZa3KXgEn)
+- Other OpenA2A tools: [OpenA2A CLI](https://github.com/opena2a-org/opena2a), [HackMyAgent](https://github.com/opena2a-org/hackmyagent), [Secretless](https://github.com/opena2a-org/secretless-ai), [AIM](https://github.com/opena2a-org/agent-identity-management), [Browser Guard](https://github.com/opena2a-org/AI-BrowserGuard), [DVAA](https://github.com/opena2a-org/damn-vulnerable-ai-agent), [aicomply](https://github.com/opena2a-org/aicomply)
 
 ## License
 

@@ -1,0 +1,36 @@
+{
+  "name": "quick-start",
+  "command": "npx ai-trust check @modelcontextprotocol/server-filesystem --no-scan",
+  "artifact": {
+    "package": "ai-trust",
+    "version": "0.7.6 with unreleased changes",
+    "source": "dist/index.js built from the repository with npm run build; the published 0.7.6 does not print the Findings and CVEs lines",
+    "invokedAs": "node dist/index.js check @modelcontextprotocol/server-filesystem --no-scan"
+  },
+  "capturedAt": "2026-10-13T22:12:27Z",
+  "registry": "https://api.oa2a.org",
+  "environment": {
+    "platform": "darwin arm64",
+    "node": "v26.7.0",
+    "cwd": "an empty directory",
+    "home": "an empty directory",
+    "variables": {
+      "CI": "true",
+      "TERM": "dumb",
+      "LANG": "en_US.UTF-8",
+      "OPENA2A_TELEMETRY": "off"
+    }
+  },
+  "exitCode": 0,
+  "outputs": {
+    "capture": "docs/captures/quick-start.txt",
+    "stream": "stdout",
+    "bytes": 668,
+    "stderr": "empty"
+  },
+  "readmeExcerpt": {
+    "file": "README.md",
+    "lines": "2-13 of the capture",
+    "omitted": "the blank first and last lines"
+  }
+}

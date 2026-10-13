@@ -36,7 +36,7 @@ The output tells you:
 - **Header** -- the package name, its type, and how long ago the registry last scanned it. `(stale)` marks a scan older than 90 days; a fresh local scan gives a current answer.
 - **Verdict line** -- `No known issues`, `Warning — review before installing`, `Blocked by registry`, or `Listed — limited signal` (in the registry, not yet scanned). This is the actionable recommendation. A `passed` verdict reads `No known issues` only when the registry records no critical or high finding and no known CVE; when it records any, the verdict line names them, as above.
 - **Trust** -- the registry trust score out of 100. Packages that have not been scanned show `not scanned` instead of a score.
-- **Level** -- how thoroughly the package has been evaluated, on the scale `Blocked > Warning > Listed > Scanned > Verified`. See [Trust Levels](../../README.md#trust-levels) for the full scale.
+- **Level** -- how thoroughly the package has been evaluated, on the scale `Blocked > Warning > Listed > Scanned > Verified`. See [Trust Levels](../commands.md#trust-levels) for the full scale.
 - **Scans** and **Last scan** -- how many community scans the registry holds and when the last one ran.
 - **Findings** -- critical and high finding counts from the registry's last scan, and that scan's status. Medium and low counts are not shown.
 - **CVEs** -- known CVE and advisory identifiers the registry records for the package, or `none recorded`.
@@ -72,4 +72,4 @@ npx ai-trust check @modelcontextprotocol/server-filesystem --no-scan
 # Exit code 0 = safe or out of scope, 1 = operational error, 2 = warning, blocked or not found
 ```
 
-See [Exit Codes](../../README.md#exit-codes) for the full list.
+See [Exit Codes](../commands.md#exit-codes) for the full list.
