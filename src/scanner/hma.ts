@@ -5,7 +5,7 @@
 
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
-import { createRequire } from "node:module";
+import Module, { createRequire } from "node:module";
 import { basename, dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -73,11 +73,13 @@ export interface HmaFinding {
  * current Node binary. Nothing on PATH and no npx fallback is consulted, so
  * the version pinned in package.json is the version that runs; when it is
  * not installed, resolution fails instead of running some other copy. Node
- * also looks in NODE_PATH and its home-directory module folders after the
- * node_modules directories above ai-trust; a copy found there is refused.
- * A copy those node_modules directories reach through a symlink (a
- * node_modules that links elsewhere, or a package added with `npm link`)
- * is used.
+ * also looks in its global folders (the NODE_PATH entries, the
+ * home-directory module folders and `<prefix>/lib/node`) after the
+ * node_modules directories above ai-trust; a copy found only there is
+ * refused. Any other copy Node's resolver returns runs: one that a
+ * node_modules directory reaches through a symlink (a node_modules that
+ * links elsewhere, or a package added with `npm link`), or one a patched
+ * resolver such as Yarn Plug'n'Play returns from its own cache.
  *
  * Returns { cmd, prefixArgs } where cmd=process.execPath and
  * prefixArgs=["/path/to/hackmyagent/<bin>"].
@@ -85,10 +87,29 @@ export interface HmaFinding {
 let _resolvedHma: { cmd: string; prefixArgs: string[] } | null = null;
 
 /**
+ * True when the real path `entry` lies under one of Node's global folders:
+ * the NODE_PATH entries, the home-directory module folders and
+ * `<prefix>/lib/node`, which Node searches only after the node_modules
+ * directories above the requiring module.
+ */
+function isInNodeGlobalFolder(entry: string): boolean {
+  // Node sets `globalPaths` at startup; the module typings do not declare it.
+  const globalPaths = (Module as unknown as { globalPaths?: string[] }).globalPaths ?? [];
+  for (const folder of globalPaths) {
+    try {
+      if (entry.startsWith(realpathSync(folder) + sep)) return true;
+    } catch {
+      // The folder does not exist.
+    }
+  }
+  return false;
+}
+
+/**
  * True when the real path `entry` lies in the hackmyagent package that one of
  * the node_modules directories Node searches from `fromDir` holds, directly
- * or through a symlink. NODE_PATH and the home-directory module folders are
- * not among those directories.
+ * or through a symlink. Node's global folders are not among those
+ * directories.
  */
 function isFromAncestorNodeModules(entry: string, fromDir: string): boolean {
   let dir = fromDir;
@@ -119,9 +140,9 @@ function resolveHma(): { cmd: string; prefixArgs: string[] } {
       `The pinned hackmyagent dependency could not be resolved: ${message.split("\n")[0]}`,
     );
   }
-  if (!isFromAncestorNodeModules(entry, MODULE_DIR)) {
+  if (isInNodeGlobalFolder(entry) && !isFromAncestorNodeModules(entry, MODULE_DIR)) {
     throw new Error(
-      `The pinned hackmyagent dependency is not installed; the copy at ${entry} is outside the node_modules directories above ai-trust`,
+      `The pinned hackmyagent dependency is not installed; the copy at ${entry} is in one of Node's global folders (NODE_PATH, a home-directory module folder or <prefix>/lib/node), outside the node_modules directories above ai-trust`,
     );
   }
 
