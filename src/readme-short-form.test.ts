@@ -6,7 +6,8 @@
  * These checks hold that form: the word, section and paragraph budgets; no
  * version numbers or dates in the README (the capture sidecar records them);
  * AIM named in full where it first appears; a Telemetry section that does not call the telemetry anonymous and whose
- * commands run; links and anchors that resolve; each reference section at
+ * commands run; links and anchors that resolve, and no external link to a
+ * host a link checker cannot fetch; each reference section at
  * its path under docs/; and a quick-start sample that is a verbatim slice of
  * the recorded capture.
  */
@@ -34,6 +35,9 @@ const SIDECAR = "docs/captures/quick-start.json";
 const VERSION_OR_DATE = /v?[0-9]+\.[0-9]+\.[0-9]+|20[0-9]{2}-[0-9]{2}-[0-9]{2}/;
 const ANONYMOUS_CLASS = /anonymi[sz]ed|anonymous|irreversible|no personal data|does not identify/i;
 const AIM_FIRST_USE = "OpenA2A AIM (Agent Identity Management)";
+// npmjs.com package pages answer 403 to any client without a browser session,
+// so a link checker can never confirm a link there resolves.
+const REFUSES_SCRIPTED_REQUESTS = /(^|\.)npmjs\.com$/;
 const FENCE = /^\s*```/;
 
 function words(text: string): number {
@@ -206,6 +210,12 @@ describe("README: links", () => {
       }
     }
     expect(problems).toEqual([]);
+  });
+
+  it("links no external host that refuses scripted requests", () => {
+    const external = [...README.matchAll(/\]\((https?:\/\/[^)\s]+)\)/g)].map(([, url]) => url);
+    expect(external.length).toBeGreaterThan(0);
+    expect(external.filter((url) => REFUSES_SCRIPTED_REQUESTS.test(new URL(url).host))).toEqual([]);
   });
 
   it("each reference section is at its path", () => {
