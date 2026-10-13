@@ -13,8 +13,12 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { execFile } from "node:child_process";
 import {
   chmodSync,
+  constants as fsConstants,
+  copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -117,6 +121,7 @@ async function scanFrom(
   modulePath: string,
   decoyDir: string,
   extraEnv: Record<string, string> = {},
+  nodeBinary: string = process.execPath,
 ): Promise<ScanOutcome> {
   const target = join(root, "target");
   mkdirSync(target, { recursive: true });
@@ -130,7 +135,7 @@ async function scanFrom(
     "console.log(JSON.stringify(out));",
   ].join("\n");
   const { stdout } = await execFileAsync(
-    process.execPath,
+    nodeBinary,
     ["--input-type=module", "-e", script],
     {
       env: { ...process.env, PATH: `${decoyDir}:${process.env.PATH ?? ""}`, ...extraEnv },
@@ -233,6 +238,66 @@ describe("scanner resolution in a consumer install", () => {
     expect(outcome.available).toBe(true);
     expect(outcome.projectType).toBe("pinned");
     expect(outcome.score).toBe(77);
+  });
+
+  it("runs a pinned scanner that a patched resolver returns from outside node_modules (Plug'n'Play)", async () => {
+    // Yarn Plug'n'Play has no node_modules: it patches Node's resolver to
+    // answer from its own cache. A resolver hook that does the same returns a
+    // copy laid out the way the Plug'n'Play cache lays it out.
+    const project = join(root, "pnp");
+    const modulePath = compileAiTrust(join(project, "ai-trust"));
+    const cacheEntry = join(project, ".yarn", "cache", "hackmyagent-npm-0.0.0-test.zip");
+    installScanner(join(cacheEntry, "node_modules"), "pinned", 77);
+    const hook = join(project, "resolver-hook.cjs");
+    writeFileSync(
+      hook,
+      [
+        'const Module = require("node:module");',
+        "const original = Module._resolveFilename;",
+        "Module._resolveFilename = function (request, ...rest) {",
+        `  if (request === "hackmyagent") return ${JSON.stringify(join(cacheEntry, "node_modules", "hackmyagent", "dist", "index.js"))};`,
+        "  return original.call(this, request, ...rest);",
+        "};",
+        "",
+      ].join("\n"),
+    );
+
+    const outcome = await scanFrom(modulePath, pathDecoy("pnp"), { NODE_OPTIONS: `--require ${hook}` });
+
+    expect(outcome.error).toBeUndefined();
+    expect(outcome.available).toBe(true);
+    expect(outcome.projectType).toBe("pinned");
+    expect(outcome.score).toBe(77);
+  });
+
+  it("does not run a hackmyagent in Node's <prefix>/lib/node folder", async () => {
+    // Node derives <prefix> from the directory above its own binary, so a
+    // copy of the binary under <prefix>/bin makes <prefix>/lib/node a global
+    // folder of that Node.
+    const consumer = join(root, "prefix-folder");
+    const modulePath = installAiTrust(consumer);
+    const prefix = join(root, "prefix-folder-prefix");
+    mkdirSync(join(prefix, "bin"), { recursive: true });
+    mkdirSync(join(prefix, "lib"), { recursive: true });
+    const nodeBinary = join(prefix, "bin", "node");
+    copyFileSync(process.execPath, nodeBinary, fsConstants.COPYFILE_FICLONE);
+    chmodSync(nodeBinary, 0o755);
+    // A Node built to load its own shared library from <prefix>/lib finds it
+    // from the copy too.
+    const realLib = join(dirname(dirname(realpathSync(process.execPath))), "lib");
+    if (existsSync(realLib)) {
+      for (const name of readdirSync(realLib)) {
+        if (name !== "node") symlinkSync(join(realLib, name), join(prefix, "lib", name));
+      }
+    }
+    installScanner(join(prefix, "lib", "node"), "prefix-copy", 55);
+
+    const outcome = await scanFrom(modulePath, pathDecoy("prefix-folder"), {}, nodeBinary);
+
+    expect(outcome.available).toBe(false);
+    expect(outcome.projectType).toBeUndefined();
+    expect(outcome.error).toMatch(/global folders/);
+    expect(outcome.error).toMatch(/outside the node_modules directories above ai-trust/);
   });
 });
 
