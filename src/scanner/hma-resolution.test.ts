@@ -196,6 +196,25 @@ describe("scanner resolution in a consumer install", () => {
     expect(outcome.error).toMatch(/outside the node_modules directories above ai-trust/);
   });
 
+  it("does not run a hackmyagent that only a symlink in a NODE_PATH folder reaches", async () => {
+    // The NODE_PATH folder holds a symlink to a copy elsewhere, the entry
+    // `npm link` leaves in npm's global folder.
+    const consumer = join(root, "node-path-link");
+    const modulePath = installAiTrust(consumer);
+    const checkout = join(root, "node-path-link-checkout", "node_modules");
+    installScanner(checkout, "linked-copy", 66);
+    const globalFolder = join(root, "node-path-link-global", "lib", "node_modules");
+    mkdirSync(globalFolder, { recursive: true });
+    symlinkSync(join(checkout, "hackmyagent"), join(globalFolder, "hackmyagent"));
+
+    const outcome = await scanFrom(modulePath, pathDecoy("node-path-link"), { NODE_PATH: globalFolder });
+
+    expect(outcome.available).toBe(false);
+    expect(outcome.projectType).toBeUndefined();
+    expect(outcome.error).toMatch(/global folders/);
+    expect(outcome.error).toMatch(/outside the node_modules directories above ai-trust/);
+  });
+
   it("does not run a hackmyagent in a home-directory module folder", async () => {
     const consumer = join(root, "home-folder");
     const modulePath = installAiTrust(consumer);

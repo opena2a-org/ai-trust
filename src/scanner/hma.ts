@@ -75,11 +75,12 @@ export interface HmaFinding {
  * not installed, resolution fails instead of running some other copy. Node
  * also looks in its global folders (the NODE_PATH entries, the
  * home-directory module folders and `<prefix>/lib/node`) after the
- * node_modules directories above ai-trust; a copy found only there is
- * refused. Any other copy Node's resolver returns runs: one that a
- * node_modules directory reaches through a symlink (a node_modules that
- * links elsewhere, or a package added with `npm link`), or one a patched
- * resolver such as Yarn Plug'n'Play returns from its own cache.
+ * node_modules directories above ai-trust; a copy found only there, in the
+ * folder or through a symlink in it, is refused. Any other copy Node's
+ * resolver returns runs: one that a node_modules directory above ai-trust
+ * reaches through a symlink (a node_modules that links elsewhere, or a
+ * package added with `npm link`), or one a patched resolver such as Yarn
+ * Plug'n'Play returns from its own cache.
  *
  * Returns { cmd, prefixArgs } where cmd=process.execPath and
  * prefixArgs=["/path/to/hackmyagent/<bin>"].
@@ -87,8 +88,9 @@ export interface HmaFinding {
 let _resolvedHma: { cmd: string; prefixArgs: string[] } | null = null;
 
 /**
- * True when the real path `entry` lies under one of Node's global folders:
- * the NODE_PATH entries, the home-directory module folders and
+ * True when the real path `entry` lies in the hackmyagent package that one of
+ * Node's global folders holds, directly or through a symlink. The global
+ * folders are the NODE_PATH entries, the home-directory module folders and
  * `<prefix>/lib/node`, which Node searches only after the node_modules
  * directories above the requiring module.
  */
@@ -97,9 +99,9 @@ function isInNodeGlobalFolder(entry: string): boolean {
   const globalPaths = (Module as unknown as { globalPaths?: string[] }).globalPaths ?? [];
   for (const folder of globalPaths) {
     try {
-      if (entry.startsWith(realpathSync(folder) + sep)) return true;
+      if (entry.startsWith(realpathSync(join(folder, "hackmyagent")) + sep)) return true;
     } catch {
-      // The folder does not exist.
+      // No hackmyagent in this folder.
     }
   }
   return false;
@@ -142,7 +144,7 @@ function resolveHma(): { cmd: string; prefixArgs: string[] } {
   }
   if (isInNodeGlobalFolder(entry) && !isFromAncestorNodeModules(entry, MODULE_DIR)) {
     throw new Error(
-      `The pinned hackmyagent dependency is not installed; the copy at ${entry} is in one of Node's global folders (NODE_PATH, a home-directory module folder or <prefix>/lib/node), outside the node_modules directories above ai-trust`,
+      `The pinned hackmyagent dependency is not installed; the copy at ${entry} was found through one of Node's global folders (NODE_PATH, a home-directory module folder or <prefix>/lib/node), outside the node_modules directories above ai-trust`,
     );
   }
 
