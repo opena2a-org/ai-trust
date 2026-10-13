@@ -2,7 +2,10 @@
  * Tests for output formatting functions.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import {
   formatCheckResult,
   formatBatchResults,
@@ -99,7 +102,7 @@ describe("formatCheckResult", () => {
     const output = formatCheckResult(answer);
 
     expect(output).toContain("Next Steps");
-    expect(output).toContain("ai-trust audit package.json");
+    expect(output).toContain("Fresh scan  ai-trust check some-pkg");
   });
 
   it("shows scan suggestion for warning verdict", () => {
@@ -1089,6 +1092,109 @@ describe("formatNotFound", () => {
       errorHint: "Looks like a git-style name.",
     });
     expect(output).toContain("Looks like a git-style name.");
+  });
+});
+
+// The audit next step is printed only where `ai-trust audit <file>` can run:
+// a package.json or requirements.txt in the current directory.
+describe("Full project audit next step", () => {
+  let dir: string;
+  let cwdSpy: MockInstance<() => string>;
+
+  function inDir(...files: string[]): void {
+    for (const f of files) writeFileSync(join(dir, f), "");
+  }
+
+  function makeCleanScan(overrides: Partial<ScanResult> = {}): ScanResult {
+    return {
+      packageName: "test-pkg",
+      trustScore: 0.85,
+      trustLevel: 3,
+      verdict: "safe",
+      scan: {
+        score: 85,
+        maxScore: 100,
+        findings: [],
+        projectType: "node",
+        timestamp: "2026-03-15T00:00:00Z",
+      },
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "ai-trust-cta-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(dir);
+  });
+
+  afterEach(() => {
+    cwdSpy.mockRestore();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  describe("after a registry answer", () => {
+    it("is omitted when the directory holds no dependency file", () => {
+      const output = formatCheckResult(makeTrustAnswer({ name: "some-pkg" }));
+      expect(output).toContain("Fresh scan  ai-trust check some-pkg");
+      expect(output).not.toContain("Full project audit");
+      expect(output).not.toContain("ai-trust audit");
+    });
+
+    it("names package.json when it exists", () => {
+      inDir("package.json");
+      const output = formatCheckResult(makeTrustAnswer({ name: "some-pkg" }));
+      expect(output).toContain("Full project audit  ai-trust audit package.json");
+    });
+
+    it("names requirements.txt when only it exists", () => {
+      inDir("requirements.txt");
+      const output = formatCheckResult(makeTrustAnswer({ name: "some-pkg" }));
+      expect(output).toContain("Full project audit  ai-trust audit requirements.txt");
+      expect(output).not.toContain("audit package.json");
+    });
+
+    it("names package.json when both exist", () => {
+      inDir("package.json", "requirements.txt");
+      const output = formatCheckResult(makeTrustAnswer({ name: "some-pkg" }));
+      expect(output).toContain("ai-trust audit package.json");
+      expect(output).not.toContain("audit requirements.txt");
+    });
+  });
+
+  describe("in the not-found block", () => {
+    it("is omitted when the directory holds no dependency file", () => {
+      const output = formatNotFound({ pkg: "mcp-server-xyz", ecosystem: "npm" });
+      expect(output).toContain("Scan locally  ai-trust check mcp-server-xyz");
+      expect(output).not.toContain("ai-trust audit");
+    });
+
+    it("names the file that exists", () => {
+      inDir("requirements.txt");
+      const output = formatNotFound({ pkg: "mcp-server-xyz", ecosystem: "npm" });
+      expect(output).toContain("Full project audit  ai-trust audit requirements.txt");
+    });
+  });
+
+  describe("after a scan", () => {
+    it("is omitted, with no empty Next Steps section, for a clean scan in a directory with no dependency file", () => {
+      const output = formatScanResult(makeCleanScan());
+      expect(output).not.toContain("ai-trust audit");
+      expect(output).not.toContain("Next Steps");
+    });
+
+    it("is omitted while the other next steps stay when the scan has findings", () => {
+      const output = formatScanResult(makeCleanScan({ verdict: "warning" }));
+      expect(output).toContain("Next Steps");
+      expect(output).toContain("Remediate:");
+      expect(output).not.toContain("ai-trust audit");
+    });
+
+    it("names the file that exists", () => {
+      inDir("package.json");
+      const output = formatScanResult(makeCleanScan());
+      expect(output).toContain("Next Steps");
+      expect(output).toContain("Full project audit: ai-trust audit package.json");
+    });
   });
 });
 

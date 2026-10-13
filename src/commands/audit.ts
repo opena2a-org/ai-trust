@@ -9,6 +9,7 @@ import { firstPartySignerFromEnv } from "@opena2a/registry-client";
 import type { TrustAnswer } from "@opena2a/registry-client";
 import { createRegistryClient } from "../utils/registry-client.js";
 import { parseDependencyFile, detectEcosystem } from "../utils/parser.js";
+import { findAuditFile } from "../utils/audit-file.js";
 import {
   formatBatchResults,
   formatJson,
@@ -26,6 +27,7 @@ import {
 } from "../telemetry/index.js";
 import { buildScanSubmission } from "../telemetry/publish.js";
 import { createRequire } from "node:module";
+import { basename } from "node:path";
 
 const require = createRequire(import.meta.url);
 const pkg = require("../../package.json");
@@ -170,25 +172,41 @@ export function registerAuditCommand(program: Command): void {
           process.exitCode = 2;
         }
       } catch (err: unknown) {
-        let message: string;
-        if (
+        const fileMissing =
           err instanceof Error &&
           "code" in err &&
-          (err as NodeJS.ErrnoException).code === "ENOENT"
-        ) {
-          message = `File not found: ${file}`;
-        } else {
-          message = err instanceof Error ? err.message : String(err);
-        }
+          (err as NodeJS.ErrnoException).code === "ENOENT";
+        const message = fileMissing
+          ? `File not found: ${file}`
+          : err instanceof Error
+            ? err.message
+            : String(err);
 
         if (globalOpts.json) {
           console.log(formatJson({ file, error: message }));
         } else {
           console.error(`Error: ${message}`);
+          if (fileMissing) {
+            console.error(
+              "  No dependencies were checked. The audit command reads package.json or requirements.txt."
+            );
+            console.error(`  Next: ${missingFileNextCommand(file)}`);
+          }
         }
         process.exitCode = 1;
       }
     });
+}
+
+/**
+ * The command to suggest after `audit <file>` found no file. When the
+ * argument was a bare file name and the current directory holds a file
+ * audit reads, that file is the next step; otherwise the help, which runs
+ * anywhere and lists what the command accepts.
+ */
+function missingFileNextCommand(file: string): string {
+  const found = basename(file) === file ? findAuditFile() : null;
+  return found && found !== file ? `ai-trust audit ${found}` : "ai-trust audit --help";
 }
 
 /**

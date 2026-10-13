@@ -43,6 +43,7 @@ import { classify, tierLabel } from "@opena2a/ai-classifier";
 import type { Tier } from "@opena2a/ai-classifier";
 import type { TrustAnswer, BatchResponse } from "@opena2a/registry-client";
 import type { ScanResult } from "../scanner/index.js";
+import { findAuditFile } from "../utils/audit-file.js";
 import { checkCitation } from "../utils/cli-prefix.js";
 
 // ── Visual helpers ─────────────────────────────────────────────���──────
@@ -204,10 +205,8 @@ function buildCheckCtas(answer: TrustAnswer, isScanError: boolean): NextStepsCta
       primary: true,
     });
   }
-  ctas.push({
-    label: "Full project audit",
-    command: "ai-trust audit package.json",
-  });
+  const audit = auditCta();
+  if (audit) ctas.push(audit);
   return ctas;
 }
 
@@ -268,6 +267,16 @@ function securityProfileLines(
     `  ${"Findings".padEnd(CHECK_LABEL_WIDTH)}${paintCheckTone(findingsTone, counts.join(" · "))}`,
     `  ${"CVEs".padEnd(CHECK_LABEL_WIDTH)}${paintCheckTone(cvesTone, cves)}`,
   ];
+}
+
+/**
+ * The "Full project audit" next step, or null when the current directory
+ * holds no file `audit` reads: a command that would fail is not a next step.
+ */
+function auditCta(): NextStepsCta | null {
+  const file = findAuditFile();
+  if (!file) return null;
+  return { label: "Full project audit", command: `ai-trust audit ${file}` };
 }
 
 function renderNextStepsLines(ctas: NextStepsCta[]): string[] {
@@ -386,20 +395,17 @@ export function formatNotFound(input: NotFoundBlockInput): string {
     }
   }
   out.push(divider("Next Steps"));
-  out.push(
-    ...renderNextStepsLines([
-      {
-        label: "Scan locally",
-        // check scans by default; --scan-if-missing is a no-op.
-        command: `${checkCitation()} ${input.pkg}`,
-        primary: true,
-      },
-      {
-        label: "Full project audit",
-        command: "ai-trust audit package.json",
-      },
-    ])
-  );
+  const ctas: NextStepsCta[] = [
+    {
+      label: "Scan locally",
+      // check scans by default; --scan-if-missing is a no-op.
+      command: `${checkCitation()} ${input.pkg}`,
+      primary: true,
+    },
+  ];
+  const audit = auditCta();
+  if (audit) ctas.push(audit);
+  out.push(...renderNextStepsLines(ctas));
   out.push("");
   return out.join("\n");
 }
@@ -1009,9 +1015,9 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
   }
 
   // Next steps
-  lines.push(divider("Next Steps"));
+  const nextSteps: string[] = [];
   if (result.verdict === "warning" || result.verdict === "blocked") {
-    lines.push(
+    nextSteps.push(
       `  ${chalk.cyan("Remediate:")}         Review findings above before installing`
     );
   }
@@ -1021,15 +1027,22 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
     // pin a vetted version or pick an alternative. Keep `secure --fix` only
     // for local scans (the user's own tree). Stays consistent with the
     // cli-ui remote-aware Verdict line above.
-    lines.push(
+    nextSteps.push(
       remote
         ? `  ${chalk.cyan("Next:")}              Pin a vetted version or choose an alternative — these findings are in the package's own code`
         : `  ${chalk.cyan("Auto-fix:")}          npx hackmyagent secure --fix`
     );
   }
-  lines.push(
-    `  ${chalk.cyan("Full project audit:")} ai-trust audit package.json`
-  );
+  const audit = auditCta();
+  if (audit) {
+    nextSteps.push(`  ${chalk.cyan(`${audit.label}:`)} ${audit.command}`);
+  }
+  // A clean scan in a directory with no dependency file has no next step;
+  // the section is left out rather than printed empty.
+  if (nextSteps.length > 0) {
+    lines.push(divider("Next Steps"));
+    lines.push(...nextSteps);
+  }
 
   lines.push("");
   return lines.join("\n");
