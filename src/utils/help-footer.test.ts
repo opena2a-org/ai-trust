@@ -1,0 +1,51 @@
+import { describe, it, expect } from "vitest";
+import { helpFooter } from "./help-footer.js";
+
+/** The first line under the "Telemetry:" heading. */
+function telemetryLine(footer: string): string {
+  const lines = footer.split("\n");
+  return lines[lines.indexOf("Telemetry:") + 1];
+}
+
+describe("helpFooter", () => {
+  it("says usage telemetry is on, names the install ID and gives the opt-out", () => {
+    expect(telemetryLine(helpFooter(true))).toBe(
+      "  Usage telemetry is on and each event carries a persistent install ID. Disable: OPENA2A_TELEMETRY=off",
+    );
+  });
+
+  it("says usage telemetry is off, and how to turn it on, when it is disabled", () => {
+    expect(telemetryLine(helpFooter(false))).toBe(
+      "  Usage telemetry is off. Enable: unset OPENA2A_TELEMETRY and run ai-trust telemetry on",
+    );
+  });
+
+  it("never reports the state it was not given", () => {
+    expect(helpFooter(true)).not.toMatch(/telemetry is off/i);
+    expect(helpFooter(false)).not.toMatch(/telemetry is on/i);
+  });
+
+  it.each([true, false])("does not call usage telemetry anonymous (enabled=%s)", (enabled) => {
+    expect(helpFooter(enabled)).not.toMatch(/anonymous/i);
+  });
+
+  it("changes only the usage telemetry line between states", () => {
+    const on = helpFooter(true).split("\n");
+    const off = helpFooter(false).split("\n");
+    expect(off).toHaveLength(on.length);
+
+    const differing = on.flatMap((line, i) => (line === off[i] ? [] : [i]));
+    expect(differing).toEqual([on.indexOf("Telemetry:") + 1]);
+  });
+
+  it("keeps the scan contribution disclosure in both states", () => {
+    for (const footer of [helpFooter(true), helpFooter(false)]) {
+      expect(footer).toMatch(/^\nTelemetry:\n/);
+      expect(footer).toMatch(/Local scans may contribute to the OpenA2A Registry/);
+      expect(footer).toMatch(/--no-contribute/);
+      expect(footer).toMatch(/or ai-trust config contribute off \(saved\)$/m);
+      expect(footer).toMatch(/Stop it: --no-deep or ai-trust config contribute off\n$/);
+      expect(footer).not.toMatch(/opena2a config/);
+    }
+  });
+});

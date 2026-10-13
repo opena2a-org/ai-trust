@@ -13,6 +13,7 @@ import { registerCheckCommand } from "./commands/check.js";
 import { registerAuditCommand } from "./commands/audit.js";
 import { registerBatchCommand } from "./commands/batch.js";
 import { registerConfigCommand } from "./commands/config.js";
+import { helpFooter } from "./utils/help-footer.js";
 
 const require = createRequire(import.meta.url);
 const pkg = require("../package.json");
@@ -47,32 +48,17 @@ program
   .option("--json", "output raw JSON", false)
   .option("--no-color", "disable colored output");
 
-// Two-bucket telemetry disclosure: --help names both consent rails, usage
-// telemetry (default on) and scan contribution (opt-in), so users see the
-// boundary without reading the privacy policy.
-program.addHelpText(
-  "after",
-  `
-Telemetry:
-  Anonymous usage telemetry is on. Disable: OPENA2A_TELEMETRY=off
-  Local scans may contribute to the OpenA2A Registry. Disable: --no-contribute (what ai-trust sends for this scan) or ai-trust config contribute off (saved)
-  With contribution saved on, a default scan also sends the bundled scanner's classification
-  telemetry (per-file content hash and verdict); --no-contribute does not stop it.
-  Stop it: --no-deep or ai-trust config contribute off
-`,
-);
-
 registerCheckCommand(program);
 registerAuditCommand(program);
 registerBatchCommand(program);
 registerConfigCommand(program);
 
 (async () => {
-  // Tier-1 anonymous usage telemetry — default ON; opt-out via
+  // Tier-1 usage telemetry — default ON; opt-out via
   // OPENA2A_TELEMETRY=off or `ai-trust telemetry off`. Mirrors the
   // pattern shipped in hackmyagent + opena2a-cli (parity).
-  // Disclosure surfaces: README, --version line, telemetry subcommand,
-  // opena2a.org/telemetry.
+  // Disclosure surfaces: README, --help footer, --version line, telemetry
+  // subcommand, opena2a.org/telemetry.
   // Silent-post-consent rule: once the user has opted in, contribution
   // prints nothing per scan — no banner, no "queued for registry" line;
   // disclosure lives in the consent prompt, --help and the privacy
@@ -80,6 +66,10 @@ registerConfigCommand(program);
   const tele = await import("@opena2a/telemetry");
   const cliUi = await import("@opena2a/cli-ui");
   await tele.init({ tool: TELEMETRY_TOOL, version: VERSION });
+
+  // Registered after init: the footer states the usage telemetry state that
+  // init resolved for this invocation.
+  program.addHelpText("after", helpFooter(tele.status().enabled));
 
   // Stream-split --version (cli-ui 0.5.2): bare `ai-trust x.y.z` to stdout
   // (single parseable line), telemetry disclosure to stderr. Use a manual
@@ -121,7 +111,7 @@ registerConfigCommand(program);
 
   program
     .command("telemetry [action]")
-    .description("Inspect or toggle anonymous usage telemetry: on | off | status")
+    .description("Inspect or toggle usage telemetry: on | off | status")
     .action((action: string | undefined) => {
       console.log(
         cliUi.runTelemetryCommand(action as Parameters<typeof cliUi.runTelemetryCommand>[0], {
