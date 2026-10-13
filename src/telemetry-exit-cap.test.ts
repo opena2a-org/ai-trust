@@ -8,22 +8,56 @@
  * tests use 192.0.2.1 (TEST-NET-1, RFC 5737), which is not routed.
  *
  * `audit` is a tracked command; on a manifest with no dependencies, or on a
- * missing file, it finishes without the registry, so the suite runs offline.
+ * missing file, it finishes without the registry, so those cases run offline.
  * Exercises the built `dist/index.js` end-to-end.
+ *
+ * How the process ended is read from inside it, not from wall time: a probe
+ * preloaded with `--require` reports whether the event loop emptied on its own
+ * (`beforeExit`, which Node does not emit when `process.exit()` ends the
+ * process) and how long the process lived after the command finished.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { tmpdir } from "node:os";
 
 const CLI_PATH = resolve(__dirname, "../dist/index.js");
 const DROPPED_ENDPOINT = "http://192.0.2.1/never";
-// Without the cap the run takes the connect timeout (about 10 s); with it,
-// the 2 s request abort plus process startup.
-const MAX_WALL_MS = 6000;
+// TELEMETRY_EXIT_CAP_MS in index.ts.
+const EXIT_CAP_MS = 2000;
+// Longest the process may live after the command finishes. The cap gives
+// about 2 s; a 5 s cap, or no cap (the connect timeout, about 10 s), is over.
+const MAX_AFTER_COMMAND_MS = 4000;
+// How long the slow reader leaves stdout unread: past the cap.
+const SLOW_READER_MS = EXIT_CAP_MS + 1500;
+
+// Preloaded into the CLI process. The telemetry debug line is written when
+// the command finishes, which starts the clock; `beforeExit` marks an event
+// loop that emptied on its own; `exit` reports the elapsed time.
+const EXIT_PROBE = `
+const fs = require("node:fs");
+let commandDoneAt;
+const write = process.stderr.write.bind(process.stderr);
+process.stderr.write = (chunk, ...rest) => {
+  if (commandDoneAt === undefined && String(chunk).includes("[opena2a:telemetry]")) {
+    commandDoneAt = Date.now();
+  }
+  return write(chunk, ...rest);
+};
+process.on("beforeExit", () => {
+  fs.writeSync(2, "[exit-probe] loop-empty\\n");
+});
+process.on("exit", () => {
+  const after = commandDoneAt === undefined ? -1 : Date.now() - commandDoneAt;
+  fs.writeSync(2, "[exit-probe] afterCommandMs=" + after + "\\n");
+});
+`;
 
 let workDir: string;
+let probePath: string;
 
 beforeAll(() => {
   workDir = mkdtempSync(join(tmpdir(), "ai-trust-exit-cap-"));
@@ -31,52 +65,166 @@ beforeAll(() => {
     join(workDir, "package.json"),
     JSON.stringify({ name: "fixture", version: "1.0.0", dependencies: {} }),
   );
+  probePath = join(workDir, "exit-probe.cjs");
+  writeFileSync(probePath, EXIT_PROBE);
 });
 
 afterAll(() => {
   rmSync(workDir, { recursive: true, force: true });
 });
 
-function runAudit(file: string): { stderr: string; status: number | null; wallMs: number } {
-  const startedAt = Date.now();
-  const res = spawnSync(process.execPath, [CLI_PATH, "audit", file], {
+function cliEnv(telemetry: "on" | "off"): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    NODE_OPTIONS: "",
+    NO_COLOR: "1",
+    OPENA2A_TELEMETRY: telemetry,
+    OPENA2A_TELEMETRY_DEBUG: "print",
+    OPENA2A_TELEMETRY_URL: DROPPED_ENDPOINT,
+    // A fresh config directory, so a persisted opt-out on the host cannot
+    // turn the send off.
+    XDG_CONFIG_HOME: join(workDir, "config"),
+  };
+}
+
+interface AuditRun {
+  stderr: string;
+  status: number | null;
+  /** The event loop emptied on its own; false when `process.exit()` ended the process. */
+  loopEmptied: boolean;
+  /** Time from the telemetry debug line to the exit; -1 when no line was written. */
+  afterCommandMs: number;
+}
+
+function runAudit(file: string, telemetry: "on" | "off" = "on"): AuditRun {
+  const res = spawnSync(process.execPath, ["--require", probePath, CLI_PATH, "audit", file], {
     encoding: "utf8",
     timeout: 30000,
-    env: {
-      ...process.env,
-      NODE_OPTIONS: "",
-      NO_COLOR: "1",
-      OPENA2A_TELEMETRY: "on",
-      OPENA2A_TELEMETRY_DEBUG: "print",
-      OPENA2A_TELEMETRY_URL: DROPPED_ENDPOINT,
-      // A fresh config directory, so a persisted opt-out on the host cannot
-      // turn the send off.
-      XDG_CONFIG_HOME: join(workDir, "config"),
-    },
+    env: cliEnv(telemetry),
   });
-  return { stderr: res.stderr ?? "", status: res.status, wallMs: Date.now() - startedAt };
+  const stderr = res.stderr ?? "";
+  const after = /\[exit-probe\] afterCommandMs=(-?\d+)/.exec(stderr);
+  return {
+    stderr,
+    status: res.status,
+    loopEmptied: stderr.includes("[exit-probe] loop-empty"),
+    afterCommandMs: after ? Number(after[1]) : Number.NaN,
+  };
 }
+
+/**
+ * True when the endpoint gave up before the cap and the process ended on its
+ * own: this host answers 192.0.2.1 at once, the stall never happened, and the
+ * run says nothing about the cap.
+ */
+function stallNotExercised(run: AuditRun): boolean {
+  return run.loopEmptied && run.afterCommandMs < EXIT_CAP_MS;
+}
+
+const NO_STALL_NOTE =
+  "this host fails the connect to 192.0.2.1 before the cap, so the stall the cap bounds did not occur";
 
 describe("exit with an unreachable telemetry endpoint", () => {
   it("dist/index.js exists", () => {
     expect(existsSync(CLI_PATH)).toBe(true);
   });
 
-  it("a tracked command exits within the cap and keeps exit code 0", () => {
+  it("a tracked command exits at the cap and keeps exit code 0", (ctx) => {
     if (!existsSync(CLI_PATH)) return;
-    const { stderr, status, wallMs } = runAudit(join(workDir, "package.json"));
+    const run = runAudit(join(workDir, "package.json"));
     // The event was sent, so the stuck socket was exercised.
-    expect(stderr).toMatch(/\[opena2a:telemetry\] .*"name":"audit"/);
-    expect(status).toBe(0);
-    expect(wallMs).toBeLessThan(MAX_WALL_MS);
+    expect(run.stderr).toMatch(/\[opena2a:telemetry\] .*"name":"audit"/);
+    expect(run.status).toBe(0);
+    if (stallNotExercised(run)) ctx.skip(NO_STALL_NOTE);
+    // The cap ended the process; the stuck socket did not get to.
+    expect(run.loopEmptied).toBe(false);
+    expect(run.afterCommandMs).toBeLessThan(MAX_AFTER_COMMAND_MS);
   }, 40000);
 
-  it("a tracked command that fails exits within the cap and keeps its exit code", () => {
+  it("a tracked command that fails exits at the cap and keeps its exit code", (ctx) => {
     if (!existsSync(CLI_PATH)) return;
-    const { stderr, status, wallMs } = runAudit(join(workDir, "missing.json"));
-    expect(stderr).toMatch(/File not found/);
-    expect(stderr).toMatch(/\[opena2a:telemetry\] .*"name":"audit"/);
-    expect(status).toBe(1);
-    expect(wallMs).toBeLessThan(MAX_WALL_MS);
+    const run = runAudit(join(workDir, "missing.json"));
+    expect(run.stderr).toMatch(/File not found/);
+    expect(run.stderr).toMatch(/\[opena2a:telemetry\] .*"name":"audit"/);
+    expect(run.status).toBe(1);
+    if (stallNotExercised(run)) ctx.skip(NO_STALL_NOTE);
+    expect(run.loopEmptied).toBe(false);
+    expect(run.afterCommandMs).toBeLessThan(MAX_AFTER_COMMAND_MS);
+  }, 40000);
+});
+
+describe("exit with telemetry off", () => {
+  it("a command exits when its work is done, without waiting for the cap", () => {
+    if (!existsSync(CLI_PATH)) return;
+    const run = runAudit(join(workDir, "package.json"), "off");
+    expect(run.status).toBe(0);
+    // No event was sent.
+    expect(run.stderr).not.toContain("[opena2a:telemetry]");
+    // The loop emptied and the process ended on its own. A cap timer that
+    // held the loop would end it through process.exit() instead.
+    expect(run.loopEmptied).toBe(true);
+  }, 40000);
+});
+
+describe("output queued for a slow reader", () => {
+  const PACKAGES = Array.from({ length: 100 }, (_, i) => `slow-reader-pkg-${i}`);
+  // 100 results of 20 kB each: about 2 MB of JSON, far over a pipe's buffer.
+  const PADDING = "x".repeat(20000);
+  let server: Server;
+  let registryUrl: string;
+
+  beforeAll(async () => {
+    server = createServer((req, res) => {
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      req.on("end", () => {
+        const { packages } = JSON.parse(body) as { packages: Array<{ name: string }> };
+        const results = packages.map((p) => ({
+          packageId: "11111111-1111-4111-8111-111111111111",
+          name: p.name,
+          packageType: "mcp_server",
+          trustLevel: 3,
+          trustScore: 0.8,
+          verdict: "passed",
+          scanStatus: "passed",
+          communityScans: 0,
+          padding: PADDING,
+        }));
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ queriedAt: new Date().toISOString(), results, total: results.length }));
+      });
+    });
+    await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+    registryUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+
+  afterAll(async () => {
+    await new Promise((done) => server.close(done));
+  });
+
+  it("is written in full when the reader starts after the cap has passed", async () => {
+    if (!existsSync(CLI_PATH)) return;
+    const { stdout, status } = await new Promise<{ stdout: string; status: number | null }>(
+      (resolveRun, reject) => {
+        const child = spawn(
+          process.execPath,
+          [CLI_PATH, "batch", ...PACKAGES, "--json", "--registry-url", registryUrl],
+          { cwd: workDir, env: cliEnv("off"), stdio: ["ignore", "pipe", "ignore"] },
+        );
+        let out = "";
+        child.stdout.setEncoding("utf8");
+        child.stdout.on("data", (chunk) => (out += chunk));
+        // Leave the pipe unread until the cap has passed, then read it all.
+        child.stdout.pause();
+        setTimeout(() => child.stdout.resume(), SLOW_READER_MS);
+        child.on("error", reject);
+        child.on("close", (code) => resolveRun({ stdout: out, status: code }));
+      },
+    );
+
+    expect(status).toBe(0);
+    expect(stdout.length).toBeGreaterThan(PACKAGES.length * PADDING.length);
+    const parsed = JSON.parse(stdout) as { results: Array<{ name: string }> };
+    expect(parsed.results.map((r) => r.name)).toEqual(PACKAGES);
   }, 40000);
 });

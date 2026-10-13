@@ -14,6 +14,7 @@ import { registerAuditCommand } from "./commands/audit.js";
 import { registerBatchCommand } from "./commands/batch.js";
 import { registerConfigCommand } from "./commands/config.js";
 import { helpFooter } from "./utils/help-footer.js";
+import { scanPingsSettled } from "./telemetry/contribute.js";
 
 const require = createRequire(import.meta.url);
 const pkg = require("../package.json");
@@ -24,7 +25,9 @@ const telemetryStartedAt = new Map<string, number>();
 // The telemetry sender aborts a request after 2 s, but an aborted connect to
 // an address that drops packets (a firewall that drops egress) keeps its
 // socket, and so this process, alive until the socket's own connect timeout,
-// about 10 s. The exit is capped this long after the command finishes.
+// about 10 s. The exit is capped this long after the command finishes. Two
+// things are waited for past the cap: a scan ping still in flight, and output
+// a reader has not taken yet.
 const TELEMETRY_EXIT_CAP_MS = 2000;
 
 // Resolves once everything already written to the stream has been handed to
@@ -144,7 +147,9 @@ registerConfigCommand(program);
     throw err;
   } finally {
     const exitDeadline = Date.now() + TELEMETRY_EXIT_CAP_MS;
-    await tele.flush();
+    // A scan ping still in flight is waited for past the cap: the ping's own
+    // timeout bounds the wait.
+    await Promise.all([tele.flush(), scanPingsSettled()]);
     await Promise.all([drained(process.stdout), drained(process.stderr)]);
     // Unref'd: a process with nothing left to do exits without waiting for it.
     setTimeout(

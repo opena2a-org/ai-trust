@@ -89,3 +89,14 @@ export function parsePackageTarget(target: string): {
   }
   return { name: target, ecosystem: "npm" };
 }
+
+/**
+ * The ecosystem prefix of a target that is a prefix and nothing else (`pip:`
+ * or `npm:`), or undefined. `parsePackageTarget` keeps such a target as a
+ * literal name; `check` uses this to report the missing package name instead
+ * of looking that literal up.
+ */
+export function bareEcosystemPrefix(target: string): "pip:" | "npm:" | undefined {
+  const trimmed = target.trim();
+  return trimmed === "pip:" || trimmed === "npm:" ? trimmed : undefined;
+}

@@ -9,6 +9,7 @@ export {
   queueScanResult,
   flushQueue,
   sendScanPing,
+  scanPingsSettled,
   type ContributionFinding,
   type ContributionPayload,
   type ContributionResult,

@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
-import { resolvePackageName, resolveAndLog, parsePackageTarget } from "./resolve.js";
+import {
+  resolvePackageName,
+  resolveAndLog,
+  parsePackageTarget,
+  bareEcosystemPrefix,
+} from "./resolve.js";
 
 describe("resolvePackageName", () => {
   it("passes through scoped packages unchanged", () => {
@@ -310,5 +315,25 @@ describe("parsePackageTarget (issue #50: pip: prefix handling)", () => {
       name: "@scope/pkg:with:colons",
       ecosystem: "npm",
     });
+  });
+});
+
+describe("bareEcosystemPrefix (#129: a prefix with no package name)", () => {
+  it("names the prefix when nothing follows it", () => {
+    expect(bareEcosystemPrefix("pip:")).toBe("pip:");
+    expect(bareEcosystemPrefix("npm:")).toBe("npm:");
+    expect(bareEcosystemPrefix(" pip: ")).toBe("pip:");
+  });
+
+  it("is undefined when a package name follows the prefix", () => {
+    expect(bareEcosystemPrefix("pip:requests")).toBeUndefined();
+    expect(bareEcosystemPrefix("npm:express")).toBeUndefined();
+  });
+
+  it("is undefined for a plain name and for prefixes check does not strip", () => {
+    expect(bareEcosystemPrefix("pip")).toBeUndefined();
+    expect(bareEcosystemPrefix("express")).toBeUndefined();
+    expect(bareEcosystemPrefix("pypi:")).toBeUndefined();
+    expect(bareEcosystemPrefix("")).toBeUndefined();
   });
 });

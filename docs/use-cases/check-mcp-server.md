@@ -86,7 +86,7 @@ Expected output on stdout (the `Resolved:` note goes to stderr, so stdout stays 
 }
 ```
 
-`trustLevel` uses the 0-4 scale above. `trustScore` is the registry score from 0 to 1 (the text output shows it out of 100). `securityProfile` holds the critical and high finding counts and known CVE identifiers from the registry's last scan; it, `scanStatus` and `lastScannedAt` are omitted when the registry did not return them. Without `--no-scan`, `--json` prints the local scan result instead (`"source": "scan"`, with `score`, `maxScore` and any failed `findings`).
+`trustLevel` uses the 0-4 scale above. `trustScore` is the registry score from 0 to 1 (the text output shows it out of 100). `securityProfile` holds the critical and high finding counts and known CVE identifiers from the registry's last scan; it, `scanStatus` and `lastScannedAt` are omitted when the registry did not return them, and a count the registry did not report is omitted from `securityProfile`. Without `--no-scan`, `--json` prints the local scan result instead (`"source": "scan"`, with `score`, `maxScore` and any failed `findings`).
 
 This output can be parsed by `jq`, piped into other tools, or used in CI gates:
 

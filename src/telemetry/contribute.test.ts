@@ -35,8 +35,12 @@ import {
   submitContribution,
   queueScanResult,
   flushQueue,
+  sendScanPing,
+  scanPingsSettled,
   type ContributionPayload,
 } from "./contribute.js";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import type { HmaFinding } from "../scanner/hma.js";
 import {
   contribute,
@@ -258,6 +262,123 @@ describe("submitContribution (legacy)", () => {
     const result = await submitContribution(payload, "http://localhost:1");
 
     expect(result.success).toBe(false);
+  });
+
+  // #129: the queued event carried verdict "pass" whatever the findings were.
+  function queuedVerdict(findings: HmaFinding[]): Promise<string | undefined> {
+    const payload = buildContributionPayload("test-pkg", findings);
+    return submitContribution(payload, "http://localhost:1").then(
+      () => vi.mocked(queueEvent).mock.calls[0][0].scanSummary?.verdict,
+    );
+  }
+
+  function finding(severity: string, passed: boolean): HmaFinding {
+    return {
+      checkId: "CHECK-001",
+      name: "check",
+      description: "check",
+      category: "test",
+      severity,
+      passed,
+      message: "",
+    } as HmaFinding;
+  }
+
+  it("queues verdict fail when a critical check failed", async () => {
+    expect(await queuedVerdict(makeSampleFindings())).toBe("fail");
+  });
+
+  it("queues verdict warn when a high check failed and no critical one did", async () => {
+    expect(await queuedVerdict([finding("high", false), finding("critical", true)])).toBe(
+      "warn",
+    );
+  });
+
+  it("queues verdict pass when no critical or high check failed", async () => {
+    expect(await queuedVerdict([finding("medium", false), finding("high", true)])).toBe("pass");
+    vi.mocked(queueEvent).mockClear();
+    expect(await queuedVerdict([])).toBe("pass");
+  });
+
+  it("queues the ecosystem the payload was built for", async () => {
+    const payload = buildContributionPayload("test-pkg", makeSampleFindings(), "pypi");
+    expect(payload.ecosystem).toBe("pypi");
+    await submitContribution(payload, "http://localhost:1");
+
+    expect(vi.mocked(queueEvent).mock.calls[0][0].package).toEqual({
+      name: "test-pkg",
+      ecosystem: "pypi",
+    });
+  });
+});
+
+describe("scanPingsSettled (#129)", () => {
+  // A registry that answers a scan ping only after ANSWER_DELAY_MS.
+  const ANSWER_DELAY_MS = 400;
+  let server: Server;
+  let registryUrl: string;
+  let received: Array<Record<string, unknown>>;
+  let answered: number;
+
+  beforeEach(async () => {
+    received = [];
+    answered = 0;
+    server = createServer((req, res) => {
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      req.on("end", () => {
+        received.push({ path: req.url, ...JSON.parse(body) });
+        setTimeout(() => {
+          answered++;
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end("{}");
+        }, ANSWER_DELAY_MS);
+      });
+    });
+    await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+    registryUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+
+  afterEach(async () => {
+    server.closeAllConnections();
+    await new Promise((done) => server.close(done));
+  });
+
+  it("resolves at once when no ping was sent", async () => {
+    const startedAt = Date.now();
+    await scanPingsSettled();
+    expect(Date.now() - startedAt).toBeLessThan(ANSWER_DELAY_MS);
+  });
+
+  it("resolves only after the registry has answered the ping", async () => {
+    sendScanPing("ping-pkg", "safe", 90, registryUrl, "pypi");
+    expect(answered).toBe(0);
+
+    await scanPingsSettled();
+
+    expect(answered).toBe(1);
+    expect(received).toHaveLength(1);
+    expect(received[0].path).toBe("/api/v1/contribute");
+    expect(received[0].contributorToken).toBe("anonymous");
+    const [event] = received[0].events as Array<Record<string, unknown>>;
+    expect(event.type).toBe("scan_ping");
+    expect(event.package).toEqual({ name: "ping-pkg", ecosystem: "pypi" });
+  });
+
+  it("waits for every ping in flight", async () => {
+    sendScanPing("ping-a", "safe", 90, registryUrl);
+    sendScanPing("ping-b", "warning", 40, registryUrl);
+
+    await scanPingsSettled();
+
+    expect(answered).toBe(2);
+  });
+
+  it("resolves, without rejecting, when the registry refuses the connection", async () => {
+    // Port 1 on loopback: nothing listens there.
+    sendScanPing("ping-pkg", "safe", 90, "http://127.0.0.1:1");
+
+    await expect(scanPingsSettled()).resolves.toBeUndefined();
   });
 });
 

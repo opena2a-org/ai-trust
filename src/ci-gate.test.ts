@@ -115,24 +115,24 @@ describe("ci.yml: the fixed-name aggregate `gate`", () => {
   // Guards the whole file against passing vacuously. Every assertion below
   // reads `ci`; if the workflow were missing, empty or unparseable, they would
   // all reduce to comparisons between two undefineds.
-  it("QGF-117.AC4 parses the committed .github/workflows/ci.yml into a workflow with jobs", () => {
+  it("parses the committed .github/workflows/ci.yml into a workflow with jobs", () => {
     expect(existsSync(CI_PATH), `${CI_PATH} does not exist`).toBe(true);
     expect(Object.keys(jobs).length).toBeGreaterThan(0);
     expect(Object.keys(jobs)).toContain("build-and-test");
   });
 
-  it("QGF-117.AC1 declares a job keyed `gate` whose `name` is the literal `gate`", () => {
+  it("declares a job keyed `gate` whose `name` is the literal `gate`", () => {
     expect(Object.keys(jobs)).toContain("gate");
     expect(gate?.name).toBe("gate");
   });
 
-  it("QGF-117.AC1 `gate` needs `build-and-test` and carries `if: always()`", () => {
+  it("`gate` needs `build-and-test` and carries `if: always()`", () => {
     expect(gate, "ci.yml declares no job keyed `gate`").toBeDefined();
     expect(needsOf(gate)).toContain("build-and-test");
     expect(gate?.if).toBe("always()");
   });
 
-  it("QGF-117.AC1 `gate` is the one job whose check-run name never moves with the matrix", () => {
+  it("`gate` is the one job whose check-run name never moves with the matrix", () => {
     expect(gate?.name).toBe("gate");
     expect(String(gate?.name)).not.toContain("matrix.");
     // The cells are the counter-example the aggregate exists for: their name
@@ -140,7 +140,7 @@ describe("ci.yml: the fixed-name aggregate `gate`", () => {
     expect(String(cells?.name)).toContain("matrix.node-version");
   });
 
-  it("QGF-117.AC2 neither `on.push` nor `on.pull_request` carries `paths` or `paths-ignore`", () => {
+  it("neither `on.push` nor `on.pull_request` carries `paths` or `paths-ignore`", () => {
     for (const trigger of ["push", "pull_request"] as const) {
       const spec = ci.on?.[trigger];
       expect(spec, `on.${trigger} is missing`).toBeDefined();
@@ -152,12 +152,12 @@ describe("ci.yml: the fixed-name aggregate `gate`", () => {
     }
   });
 
-  it("QGF-117.AC2 both triggers still carry `branches: [main]`", () => {
+  it("both triggers still carry `branches: [main]`", () => {
     expect(ci.on?.push?.branches).toEqual(["main"]);
     expect(ci.on?.pull_request?.branches).toEqual(["main"]);
   });
 
-  it("QGF-117.AC2 the six path globs govern the cells, not the workflow", () => {
+  it("the six path globs govern the cells, not the workflow", () => {
     expect(cells, "ci.yml declares no job keyed `build-and-test`").toBeDefined();
     // The cells are conditioned on a change-detection job they declare in
     // `needs:`, and the globs are named in their own `if:` — so the filter is
@@ -169,7 +169,7 @@ describe("ci.yml: the fixed-name aggregate `gate`", () => {
     }
   });
 
-  it("QGF-117.AC2 the change-detection job matches exactly the same six globs", () => {
+  it("the change-detection job matches exactly the same six globs", () => {
     // The filter is one thing written in two languages: `case` patterns in the
     // `changes` job and `contains()` calls in the cells' `if:`. A silent
     // disagreement between them would leave the cells skipped on a change that
@@ -181,7 +181,7 @@ describe("ci.yml: the fixed-name aggregate `gate`", () => {
     expect(declared?.[1].trim().split(/\s+/)).toEqual([...PATH_GLOBS]);
   });
 
-  it("QGF-117.AC3 `gate` names all four job results explicitly and none by default", () => {
+  it("`gate` names all four job results explicitly and none by default", () => {
     const steps = gate?.steps ?? [];
     const script = steps.map((step) => String(step.run ?? "")).join("\n");
     expect(script, "`gate` declares no step that runs anything").not.toBe("");
@@ -197,13 +197,13 @@ describe("ci.yml: the fixed-name aggregate `gate`", () => {
     expect(`${script}\n${wiring}`).toContain("needs['build-and-test'].result");
   });
 
-  it("QGF-117.AC3 nothing in ci.yml lets a red cell reach `gate` as anything else", () => {
+  it("nothing in ci.yml lets a red cell reach `gate` as anything else", () => {
     const raw = readFileSync(CI_PATH, "utf8");
     expect(raw).not.toMatch(/continue-on-error/);
     expect(raw).not.toMatch(/if:\s*false\b/);
   });
 
-  it("QGF-117.AC5 the cells keep their runner, their matrix and their four commands", () => {
+  it("the cells keep their runner, their matrix and their four commands", () => {
     expect(cells?.["runs-on"]).toBe("ubuntu-latest");
     expect(cells?.strategy?.matrix?.["node-version"]).toEqual([20, 22]);
 
@@ -221,17 +221,17 @@ describe("ci.yml: the fixed-name aggregate `gate`", () => {
     ]);
   });
 
-  it("QGF-117.AC5 `permissions` still reads exactly `contents: read`", () => {
+  it("`permissions` still reads exactly `contents: read`", () => {
     expect(ci.permissions).toEqual({ contents: "read" });
   });
 
-  it("QGF-117.AC5 `gate` runs no action and asks for no repository contents", () => {
+  it("`gate` runs no action and asks for no repository contents", () => {
     const steps = gate?.steps ?? [];
     expect(steps.length).toBeGreaterThan(0);
     expect(steps.filter((step) => step.uses)).toEqual([]);
   });
 
-  it("QGF-117.AC6 the name `gate` resolves to exactly one job in .github/workflows", () => {
+  it("the name `gate` resolves to exactly one job in .github/workflows", () => {
     const files = readdirSync(WORKFLOWS_DIR).filter((f) => /\.ya?ml$/.test(f));
     expect(files).toContain("ci.yml");
 
@@ -345,7 +345,7 @@ function rowKey(row: { changes: string; cells: string }): string {
 }
 
 describe("ci.yml: the `gate` aggregate's script, executed", () => {
-  it("AIT-04.AC1 `gate` runs exactly one script, fed exactly CHANGES_RESULT and CELLS_RESULT", () => {
+  it("`gate` runs exactly one script, fed exactly CHANGES_RESULT and CELLS_RESULT", () => {
     expect(gateRunSteps, "`gate` must declare exactly one step with a `run:` script").toHaveLength(1);
     const env = gateStep?.env ?? {};
     expect(Object.keys(env).sort()).toEqual(["CELLS_RESULT", "CHANGES_RESULT"]);
@@ -353,7 +353,7 @@ describe("ci.yml: the `gate` aggregate's script, executed", () => {
     expect(env["CELLS_RESULT"]).toContain("needs['build-and-test'].result");
   });
 
-  it("AIT-04.AC1 the truth table is the full product of the five results, each pair once", () => {
+  it("the truth table is the full product of the five results, each pair once", () => {
     expect(GATE_TRUTH_TABLE).toHaveLength(25);
     const keys = new Set(GATE_TRUTH_TABLE.map(rowKey));
     expect(keys.size).toBe(25);
@@ -365,7 +365,7 @@ describe("ci.yml: the `gate` aggregate's script, executed", () => {
   });
 
   for (const row of GATE_TRUTH_TABLE) {
-    it(`AIT-04.AC1 exits ${row.expected} when changes=${row.changes} and build-and-test=${row.cells}`, () => {
+    it(`exits ${row.expected} when changes=${row.changes} and build-and-test=${row.cells}`, () => {
       expect(gateScript, "`gate` declares no step with a `run:` script").not.toBe("");
       expect(runGate(gateScript, row)).toBe(row.expected);
     });
@@ -417,22 +417,22 @@ describe("ci.yml: the `gate` aggregate's script, executed", () => {
     expect(flipped).toHaveLength(7);
   }
 
-  it("AIT-04.AC2 fault A, the `failure)` branch set to status=0, turns exactly 7 rows green", () => {
+  it("fault A, the `failure)` branch set to status=0, turns exactly 7 rows green", () => {
     expectFaultToTurnGreenExactly(plantFault(gateScript, "failure)"), FAULT_A_GREEN);
   });
 
-  it("AIT-04.AC2 fault B, the catch-all `*)` set to status=0, turns exactly 7 rows green", () => {
+  it("fault B, the catch-all `*)` set to status=0, turns exactly 7 rows green", () => {
     expectFaultToTurnGreenExactly(plantFault(gateScript, "*)"), FAULT_B_GREEN);
   });
 
-  it("AIT-04.AC2 a fault whose anchor line is absent fails the case instead of passing vacuously", () => {
+  it("a fault whose anchor line is absent fails the case instead of passing vacuously", () => {
     expect(() => plantFault(gateScript, "some-future-result)")).toThrow(/no line of the gate script reads/);
     expect(() => plantFault("failure)\n\n\n", "failure)")).toThrow(/does not set status=1/);
   });
 });
 
 describe("ci.yml: the change filter's `case` pattern", () => {
-  it("AIT-04.AC3 `$glob)` stays unquoted, with the SC2254 directive and its reason directly above the `case`", () => {
+  it("`$glob)` stays unquoted, with the SC2254 directive and its reason directly above the `case`", () => {
     const filterStep = (jobs["changes"]?.steps ?? []).find((step) => step.id === "filter");
     expect(filterStep, "the `changes` job declares no step with id `filter`").toBeDefined();
     const lines = String(filterStep?.run ?? "")
@@ -464,7 +464,7 @@ describe("ci.yml: the change filter's `case` pattern", () => {
 /**
  * The change filter, executed rather than read.
  *
- * `PATH_GLOBS` is the third copy of the filter, and the two `QGF-117.AC2` cases
+ * `PATH_GLOBS` is the third copy of the filter, and the two six-glob cases
  * above hold the other two — the `changes` job's `globs=` line and the cells'
  * `if:` — to it, entry for entry. That is textual agreement. Whether the
  * `globs=` line actually admits a path is a question only bash can answer: the
@@ -584,7 +584,7 @@ function mutateWorkflow(edit: (raw: string) => string): Workflow {
 }
 
 describe("ci.yml: the change filter covers the files that decide what the cells assert", () => {
-  it("AIT-05.AC1 the `changes` job declares the six globs on one exact `globs=` line, and the file has only one", () => {
+  it("the `changes` job declares the six globs on one exact `globs=` line, and the file has only one", () => {
     expect(globsAssignmentOf(ci)).toBe(
       "globs='src/** package.json package-lock.json tsconfig.json vitest.config.ts .github/workflows/ci.yml'",
     );
@@ -592,24 +592,24 @@ describe("ci.yml: the change filter covers the files that decide what the cells 
     expect(raw.match(/globs='/g) ?? []).toHaveLength(1);
   });
 
-  it("AIT-05.AC2 the cells' `if:` names each of the six globs through its own `contains()` clause, in the same order", () => {
+  it("the cells' `if:` names each of the six globs through its own `contains()` clause, in the same order", () => {
     expect(conditionGlobsOf(ci)).toEqual([...PATH_GLOBS]);
     const raw = readFileSync(CI_PATH, "utf8");
     expect(raw.match(/contains\(needs\.changes\.outputs\.matched, '/g) ?? []).toHaveLength(6);
   });
 
-  it("AIT-05.AC3 `PATH_GLOBS` is the original four followed by the two added globs, and equals the `globs=` line entry for entry", () => {
+  it("`PATH_GLOBS` is the original four followed by the two added globs, and equals the `globs=` line entry for entry", () => {
     expect([...PATH_GLOBS]).toEqual([...ORIGINAL_GLOBS, ...ADDED_GLOBS]);
     expect(declaredGlobsOf(ci)).toEqual([...PATH_GLOBS]);
   });
 
-  it("AIT-05.AC4 under bash, the filter's own matching reads RUN for every positive control and SKIP for the negative control", () => {
+  it("under bash, the filter's own matching reads RUN for every positive control and SKIP for the negative control", () => {
     const assignment = globsAssignmentOf(ci);
     expect(assignment, "the `filter` step declares no single `globs=` line").toBeDefined();
     expectControlsToHold(runFilter(assignment ?? "", PROBE_PATHS));
   });
 
-  it("AIT-05.AC4 under bash, the filter's own matching reads RUN for vitest.config.ts and .github/workflows/ci.yml", () => {
+  it("under bash, the filter's own matching reads RUN for vitest.config.ts and .github/workflows/ci.yml", () => {
     const verdicts = runFilter(globsAssignmentOf(ci) ?? "", PROBE_PATHS);
     expectControlsToHold(verdicts);
     for (const path of ADDED_GLOBS) {
@@ -617,7 +617,7 @@ describe("ci.yml: the change filter covers the files that decide what the cells 
     }
   });
 
-  it("AIT-05.AC4 the instrument is live: the four-glob line the filter used to carry reads SKIP for both added paths", () => {
+  it("the instrument is live: the four-glob line the filter used to carry reads SKIP for both added paths", () => {
     const verdicts = runFilter(`globs='${ORIGINAL_GLOBS.join(" ")}'`, PROBE_PATHS);
     expectControlsToHold(verdicts);
     for (const path of ADDED_GLOBS) {
@@ -625,7 +625,7 @@ describe("ci.yml: the change filter covers the files that decide what the cells 
     }
   });
 
-  it("AIT-05.AC4 `.github/workflows/ci.yml` is a literal, not `.github/workflows/**`: the other workflows still read SKIP", () => {
+  it("`.github/workflows/ci.yml` is a literal, not `.github/workflows/**`: the other workflows still read SKIP", () => {
     const siblings = [".github/workflows/release.yml", ".github/workflows/pr-review.yml", "docs/vitest.config.ts"];
     const verdicts = runFilter(globsAssignmentOf(ci) ?? "", [...PROBE_PATHS, ...siblings]);
     expectControlsToHold(verdicts);
@@ -636,7 +636,7 @@ describe("ci.yml: the change filter covers the files that decide what the cells 
 });
 
 describe("ci.yml: the three copies of the filter cannot disagree silently", () => {
-  it("AIT-05.AC5 a `PATH_GLOBS` reverted to the original four disagrees with both copies in the workflow, by exactly the two added globs", () => {
+  it("a `PATH_GLOBS` reverted to the original four disagrees with both copies in the workflow, by exactly the two added globs", () => {
     // What reverting `PATH_GLOBS` on disk would run into: the equality cases
     // above compare the workflow's two copies against this file's, and both
     // carry the two entries a four-entry list lacks.
@@ -647,7 +647,7 @@ describe("ci.yml: the three copies of the filter cannot disagree silently", () =
     expect(conditionGlobsOf(ci).filter((glob) => !original.has(glob))).toEqual([...ADDED_GLOBS]);
   });
 
-  it("AIT-05.AC5 deleting the two added `contains()` clauses leaves the `globs=` line at six and the `if:` at four, and the equality case catches it", () => {
+  it("deleting the two added `contains()` clauses leaves the `globs=` line at six and the `if:` at four, and the equality case catches it", () => {
     const mutant = mutateWorkflow((raw) =>
       raw
         .split("\n")
@@ -659,7 +659,7 @@ describe("ci.yml: the three copies of the filter cannot disagree silently", () =
     expect(conditionGlobsOf(mutant)).not.toEqual([...PATH_GLOBS]);
   });
 
-  it("AIT-05.AC5 narrowing the `globs=` line back to four leaves the `if:` at six, the equality case catches it, and both added paths read SKIP under bash", () => {
+  it("narrowing the `globs=` line back to four leaves the `if:` at six, the equality case catches it, and both added paths read SKIP under bash", () => {
     const assignment = globsAssignmentOf(ci);
     expect(assignment, "the `filter` step declares no single `globs=` line").toBeDefined();
     const fourGlobs = `globs='${ORIGINAL_GLOBS.join(" ")}'`;

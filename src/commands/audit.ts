@@ -10,6 +10,7 @@ import type { TrustAnswer } from "@opena2a/registry-client";
 import { createRegistryClient } from "../utils/registry-client.js";
 import { parseDependencyFile, detectEcosystem } from "../utils/parser.js";
 import { findAuditFile } from "../utils/audit-file.js";
+import { stripControlCharacters } from "../output/sanitize.js";
 import {
   formatBatchResults,
   formatJson,
@@ -185,7 +186,8 @@ export function registerAuditCommand(program: Command): void {
         if (globalOpts.json) {
           console.log(formatJson({ file, error: message }));
         } else {
-          console.error(`Error: ${message}`);
+          // A registry error can quote the registry's response body.
+          console.error(`Error: ${stripControlCharacters(message)}`);
           if (fileMissing) {
             console.error(
               "  No dependencies were checked. The audit command reads package.json or requirements.txt."
@@ -235,8 +237,11 @@ async function scanMissingPackages(
   const scannedResults: { name: string; scanResult: ScanResult }[] = [];
 
   for (const pkg of notFound) {
+    // The name is the one the registry returned: control characters are
+    // removed before it is printed.
+    const printedName = stripControlCharacters(pkg.name);
     try {
-      console.error(chalk.gray(`  Scanning ${pkg.name}...`));
+      console.error(chalk.gray(`  Scanning ${printedName}...`));
       const scanResult = await scanPackage(pkg.name, {
         deep: scanOpts.deep,
         ecosystem: scanOpts.ecosystem,
@@ -272,7 +277,7 @@ async function scanMissingPackages(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(
-        chalk.yellow(`  Could not scan ${pkg.name}: ${message}`)
+        chalk.yellow(`  Could not scan ${printedName}: ${stripControlCharacters(message)}`)
       );
     }
   }

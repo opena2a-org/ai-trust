@@ -358,18 +358,104 @@ describe("formatCheckResult registry security profile (#105)", () => {
   });
 
   it("omits the Findings and CVEs lines when the registry returned no profile", () => {
-    const output = formatCheckResult(withProfile(undefined));
+    const output = formatCheckResult(withProfile(undefined, { scanStatus: "passed" }));
 
     expect(output).toContain("No known issues");
     expect(output).not.toContain("Findings");
     expect(output).not.toContain("CVEs");
   });
 
-  it("omits the lines when the profile carries no numeric counts", () => {
-    const output = formatCheckResult(withProfile({ knownCves: ["CVE-2025-0001"] }));
+  it("omits the lines when the profile carries nothing readable", () => {
+    const output = formatCheckResult(
+      withProfile({ criticalCount: null, highCount: -1 }, { scanStatus: "passed" }),
+    );
 
+    expect(output).toContain("No known issues");
     expect(output).not.toContain("Findings");
-    expect(output).not.toContain("CVE-2025-0001");
+    expect(output).not.toContain("CVEs");
+  });
+
+  it("lists a known CVE when the profile carries no counts (#129)", () => {
+    const output = formatCheckResult(
+      withProfile({ knownCves: ["CVE-2025-0001"] }, { scanStatus: "passed" }),
+    );
+
+    expect(output).not.toContain("No known issues");
+    expect(output).toContain("Passed, but the registry recorded 1 known CVE");
+    expect(output).toMatch(
+      /Findings\s+critical not reported · high not reported · scan status passed/,
+    );
+    expect(output).toMatch(/CVEs\s+CVE-2025-0001/);
+  });
+
+  it("shows the high count when the critical count is invalid (#129)", () => {
+    const output = formatCheckResult(
+      withProfile({ criticalCount: null, highCount: 2 }, { scanStatus: "passed" }),
+    );
+
+    expect(output).not.toContain("No known issues");
+    expect(output).toContain("Passed, but the registry recorded 2 high findings");
+    expect(output).toMatch(/Findings\s+critical not reported · 2 high · scan status passed/);
+    expect(output).toMatch(/CVEs\s+none recorded/);
+  });
+
+  it("shows the critical count when the high count is invalid (#129)", () => {
+    const output = formatCheckResult(
+      withProfile(
+        { criticalCount: "3", highCount: -1, knownCves: "CVE" },
+        { scanStatus: "passed" },
+      ),
+    );
+
+    expect(output).not.toContain("No known issues");
+    expect(output).toContain(
+      "Passed, but the registry recorded 3 critical findings, plus 1 known CVE",
+    );
+    expect(output).toMatch(/Findings\s+3 critical · high not reported · scan status passed/);
+    expect(output).toMatch(/CVEs\s+CVE\n/);
+  });
+
+  it("keeps 'No known issues' when the one reported count is zero", () => {
+    const output = formatCheckResult(
+      withProfile({ highCount: 0 }, { scanStatus: "passed" }),
+    );
+
+    expect(output).toContain("No known issues");
+    expect(output).toMatch(/Findings\s+critical not reported · 0 high · scan status passed/);
+  });
+
+  it("does not say 'No known issues' when the scan status is warnings and the profile is clean (#129)", () => {
+    const output = formatCheckResult(
+      withProfile({ criticalCount: 0, highCount: 0, knownCves: [] }),
+    );
+
+    expect(output).not.toContain("No known issues");
+    expect(output).toContain("Passed, but the registry's scan reported warnings");
+    expect(output).toMatch(/Findings\s+0 critical · 0 high · scan status warnings/);
+  });
+
+  it("does not say 'No known issues' when the scan status is warnings and no profile came back (#129)", () => {
+    const output = formatCheckResult(withProfile(undefined));
+
+    expect(output).not.toContain("No known issues");
+    expect(output).toContain("Passed, but the registry's scan reported warnings");
+    expect(output).not.toContain("Findings");
+  });
+
+  it("names the recorded findings, not the scan status, when both apply", () => {
+    const output = formatCheckResult(
+      withProfile({ criticalCount: 0, highCount: 1, knownCves: [] }),
+    );
+
+    expect(output).toContain("Passed, but the registry recorded 1 high finding");
+    expect(output).not.toContain("scan reported warnings");
+  });
+
+  it("keeps the registry's warning headline when the scan status is warnings", () => {
+    const output = formatCheckResult(withProfile(undefined, { verdict: "warning" }));
+
+    expect(output).toContain("Warning");
+    expect(output).not.toContain("Passed, but");
   });
 
   it("omits the counts on a failed scan, whose counts are unreliable", () => {
@@ -379,6 +465,98 @@ describe("formatCheckResult registry security profile (#105)", () => {
 
     expect(output).toContain("Scan failed");
     expect(output).not.toContain("Findings");
+  });
+});
+
+describe("control characters in registry strings are removed from text output (#129)", () => {
+  // C0 controls, DEL and C1 controls. The test mocks chalk, so the formatter
+  // adds no escape sequence of its own and any match came from the answer.
+  const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
+  const OSC_TITLE = "\u001b]0;x\u0007";
+
+  function printedLines(output: string): string[] {
+    return output.split("\n");
+  }
+
+  it("strips them from a listed CVE and prints no extra line", () => {
+    const answer = {
+      ...makeTrustAnswer({ name: "ctrl-pkg", verdict: "passed", scanStatus: "passed" }),
+      securityProfile: {
+        criticalCount: 0,
+        highCount: 0,
+        knownCves: [`CVE-${OSC_TITLE}-1\r\nEXTRA LINE`],
+      },
+    } as TrustAnswer;
+    const clean = {
+      ...answer,
+      securityProfile: { criticalCount: 0, highCount: 0, knownCves: ["CVE-2025-0001"] },
+    } as TrustAnswer;
+    const output = formatCheckResult(answer);
+
+    for (const line of printedLines(output)) expect(line).not.toMatch(CONTROL);
+    expect(printedLines(output)).toHaveLength(printedLines(formatCheckResult(clean)).length);
+    expect(output).toMatch(/CVEs\s+CVE-\]0;x-1 EXTRA LINE\n/);
+  });
+
+  it("strips them from the name, package type and scan status of a check result", () => {
+    const answer = {
+      ...makeTrustAnswer({
+        name: `evil${OSC_TITLE}-pkg\r\nSECOND`,
+        packageType: `mcp_server\u001b[2J`,
+        verdict: "passed",
+        scanStatus: "passed\u009b31m",
+      }),
+      securityProfile: { criticalCount: 0, highCount: 0, knownCves: [] },
+    } as TrustAnswer;
+    const output = formatCheckResult(answer);
+
+    for (const line of printedLines(output)) expect(line).not.toMatch(CONTROL);
+    expect(output).toContain("evil]0;x-pkg SECOND");
+    expect(output).toContain("scan status passed31m");
+  });
+
+  it("strips them from the name of a package the registry does not have", () => {
+    const output = formatCheckResult(
+      makeTrustAnswer({ found: false, name: `gone${OSC_TITLE}\r\nSECOND` }),
+    );
+
+    for (const line of printedLines(output)) expect(line).not.toMatch(CONTROL);
+    expect(output).toContain("Package not found: gone]0;x SECOND");
+  });
+
+  it("cuts a listed advisory identifier longer than 40 characters", () => {
+    const long = `CVE-${"9".repeat(60)}`;
+    const answer = {
+      ...makeTrustAnswer({ verdict: "passed", scanStatus: "passed" }),
+      securityProfile: { criticalCount: 0, highCount: 0, knownCves: [long, "CVE-2025-0001"] },
+    } as TrustAnswer;
+    const output = formatCheckResult(answer);
+
+    expect(output).not.toContain(long);
+    expect(output).toMatch(new RegExp(`CVEs\\s+CVE-9{33}\\.\\.\\., CVE-2025-0001\\n`));
+  });
+
+  it("strips them from the name, type and scan status in the batch table and summary", () => {
+    const response: BatchResponse = {
+      results: [
+        makeTrustAnswer({
+          name: `row${OSC_TITLE}\r\nSECOND`,
+          packageType: "mcp_server\u0007",
+          trustLevel: 1,
+          verdict: "warning",
+          scanStatus: "warnings\u001b[1m",
+        }),
+        makeTrustAnswer({ name: `lib\u001b[2J-name`, packageType: "library" }),
+        makeTrustAnswer({ name: `miss\u0007ing`, packageType: "mcp_server", found: false }),
+      ],
+      meta: { total: 3, found: 2, notFound: 1 },
+    };
+    const output = formatBatchResults(response, 3);
+
+    for (const line of printedLines(output)) expect(line).not.toMatch(CONTROL);
+    expect(output).toContain("row]0;x SECOND");
+    expect(output).toContain("lib[2J-name");
+    expect(output).toContain("missing");
   });
 });
 
@@ -443,6 +621,50 @@ describe("formatBatchResults", () => {
     expect(summaryLine).toContain("not scanned");
     expect(summaryLine).toContain("Listed (2/4)");
     expect(output).not.toContain("0/100");
+  });
+
+  it("shows no score for a found package whose scan status is in progress (#129)", () => {
+    for (const scanStatus of ["running", "queued", "in_progress", "Scanning"]) {
+      const response = makeBatchResponse([
+        makeTrustAnswer({
+          name: "running-mcp",
+          trustLevel: 2,
+          trustScore: 0,
+          verdict: "listed",
+          scanStatus,
+        }),
+      ]);
+      const output = formatBatchResults(response, 3);
+      const lines = output.split("\n");
+
+      const tableRow = lines.find((l) => l.includes("running-mcp") && l.includes("LISTED"));
+      expect(tableRow, scanStatus).toMatch(/━{8} --\s+\S/);
+      expect(tableRow, scanStatus).toContain(scanStatus);
+      const summaryLine = lines.find((l) => l.includes("│") && l.includes("running-mcp"));
+      expect(summaryLine, scanStatus).toContain("not scanned");
+      expect(output, scanStatus).not.toContain("0/100");
+    }
+  });
+
+  it("keeps the score for the scan statuses that name a finished scan", () => {
+    for (const scanStatus of ["passed", "warnings", "warning", "complete", "completed", "local"]) {
+      const response = makeBatchResponse([
+        makeTrustAnswer({
+          name: "scanned-pkg",
+          trustLevel: 1,
+          trustScore: 0.42,
+          verdict: "warning",
+          scanStatus,
+        }),
+      ]);
+      const output = formatBatchResults(response, 3);
+
+      const summaryLine = output
+        .split("\n")
+        .find((l) => l.includes("│") && l.includes("scanned-pkg"));
+      expect(summaryLine, scanStatus).toContain("42/100");
+      expect(summaryLine, scanStatus).not.toContain("not scanned");
+    }
   });
 
   it("keeps the score meter for a scanned package below the threshold", () => {
@@ -1201,6 +1423,26 @@ describe("Full project audit next step", () => {
 // translateDownloadError tests moved to @opena2a/check-core — see
 // opena2a/packages/check-core/src/translate-error.test.ts. Both consumers
 // (ai-trust + hackmyagent) now import the single implementation.
+
+describe("formatJson control characters (#129)", () => {
+  it("writes C0 controls, DEL and C1 controls as escapes that parse back unchanged", () => {
+    let all = "";
+    for (let code = 0; code <= 0x1f; code++) all += String.fromCharCode(code);
+    for (let code = 0x7f; code <= 0x9f; code++) all += String.fromCharCode(code);
+    const data = { name: `a${all}b`, nested: [`x\u009b31m`] };
+    const json = formatJson(data);
+
+    // Only the line feeds of the pretty-printed layout remain.
+    expect(json.replace(/\n/g, "")).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/);
+    expect(json).toContain('"x\\u009b31m"');
+    expect(JSON.parse(json)).toEqual(data);
+  });
+
+  it("leaves text without control characters as JSON.stringify writes it", () => {
+    const data = { name: "@scope/pkg", note: "café 日本語 · 79/100", score: 0.79 };
+    expect(formatJson(data)).toBe(JSON.stringify(data, null, 2));
+  });
+});
 
 describe("formatJson", () => {
   it("returns pretty-printed JSON", () => {

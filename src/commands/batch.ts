@@ -6,6 +6,7 @@ import type { Command } from "commander";
 import type { PackageQuery } from "@opena2a/registry-client";
 import { createRegistryClient } from "../utils/registry-client.js";
 import { formatBatchResults, formatJson } from "../output/formatter.js";
+import { stripControlCharacters } from "../output/sanitize.js";
 import { resolveAndLog } from "../utils/resolve.js";
 import { createRequire } from "node:module";
 
@@ -97,7 +98,8 @@ export function registerBatchCommand(program: Command): void {
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          console.error(`Error: ${message}`);
+          // A registry error can quote the registry's response body.
+          console.error(`Error: ${stripControlCharacters(message)}`);
           process.exitCode = 1;
         }
       }

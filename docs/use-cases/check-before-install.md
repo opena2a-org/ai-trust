@@ -34,11 +34,11 @@ Expected output (scores and scan ages come from the registry and change over tim
 The output tells you:
 
 - **Header** -- the package name, its type, and how long ago the registry last scanned it. `(stale)` marks a scan older than 90 days; a fresh local scan gives a current answer.
-- **Verdict line** -- `No known issues`, `Warning — review before installing`, `Blocked by registry`, or `Listed — limited signal` (in the registry, not yet scanned). This is the actionable recommendation. A `passed` verdict reads `No known issues` only when the registry records no critical or high finding and no known CVE; when it records any, the verdict line names them, as above.
+- **Verdict line** -- `No known issues`, `Warning — review before installing`, `Blocked by registry`, or `Listed — limited signal` (in the registry, not yet scanned). This is the actionable recommendation. A `passed` verdict reads `No known issues` only when the registry records no critical or high finding and no known CVE and its scan status is not `warnings`; when it records any, the verdict line names them, as above, and when only the scan status is `warnings` it reads `Passed, but the registry's scan reported warnings`.
 - **Trust** -- the registry trust score out of 100. Packages that have not been scanned show `not scanned` instead of a score.
 - **Level** -- how thoroughly the package has been evaluated, on the scale `Blocked > Warning > Listed > Scanned > Verified`. See [Trust Levels](../commands.md#trust-levels) for the full scale.
 - **Scans** and **Last scan** -- how many community scans the registry holds and when the last one ran.
-- **Findings** -- critical and high finding counts from the registry's last scan, and that scan's status. Medium and low counts are not shown.
+- **Findings** -- critical and high finding counts from the registry's last scan, and that scan's status. Medium and low counts are not shown. A count the registry did not report reads `critical not reported` or `high not reported`.
 - **CVEs** -- known CVE and advisory identifiers the registry records for the package, or `none recorded`.
 
 ### 3. Decide whether to install
@@ -47,11 +47,12 @@ The output tells you:
 |---------|--------|
 | `No known issues` | Install. |
 | `Passed, but the registry recorded ...` | Review the recorded findings or CVEs first. Run `ai-trust check <package>` for a local scan with the findings listed, then decide. |
+| `Passed, but the registry's scan reported warnings` | The registry's scan status is `warnings`. Run `ai-trust check <package>` for a local scan with the findings listed, then decide. |
 | `Listed — limited signal` | No scan data yet. Run `ai-trust check <package>` (without `--no-scan`) to scan it locally before installing. |
 | `Warning — review before installing` | Run `ai-trust check <package>` for a local scan with the findings listed, then decide. |
 | `Blocked by registry` | Do not install. The package has known security issues. Look for an alternative. |
 
-The `verdict` field of `--json` output uses the registry's words on a registry lookup (`--no-scan`): `passed`, `listed`, `warning` or `blocked`. A local scan reports `safe`, `warning` or `blocked`. A registry lookup's `--json` output also carries `scanStatus`, `lastScannedAt` and `securityProfile` (`criticalCount`, `highCount`, `knownCves`), each omitted when the registry did not return it; a local scan's lists each failed finding under `findings`.
+The `verdict` field of `--json` output uses the registry's words on a registry lookup (`--no-scan`): `passed`, `listed`, `warning` or `blocked`. A local scan reports `safe`, `warning` or `blocked`. A registry lookup's `--json` output also carries `scanStatus`, `lastScannedAt` and `securityProfile` (`criticalCount`, `highCount`, `knownCves`), each omitted when the registry did not return it, and each count omitted from `securityProfile` when the registry did not report it; a local scan's lists each failed finding under `findings`.
 
 ## If the package is not in the registry
 
