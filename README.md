@@ -1,7 +1,7 @@
 # ai-trust
 
 [![Status: stable](https://img.shields.io/badge/status-stable-green)](STATUS.md)
-[![npm version](https://img.shields.io/npm/v/ai-trust.svg)](https://www.npmjs.com/package/ai-trust)
+[![npm version](https://img.shields.io/npm/v/ai-trust.svg)](https://github.com/opena2a-org/ai-trust/releases)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![CI](https://github.com/opena2a-org/ai-trust/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/opena2a-org/ai-trust/actions/workflows/ci.yml)
 
