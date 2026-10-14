@@ -688,7 +688,7 @@ function printLibraryWithTrust(
       outOfScope: true,
       scored: false,
       outOfScopeReason: "registry-classified as general-purpose library",
-      nextSteps: [`hackmyagent check ${result.name}`],
+      nextSteps: [`hackmyagent check ${hmaCheckTarget(result.name, ecosystem)}`],
       registryData: result,
     }));
     return;
@@ -703,8 +703,17 @@ function printLibraryWithTrust(
     `  ${chalk.cyan("Out of scope for ai-trust")} ${chalk.dim("\u2014 the registry classifies this as a general-purpose library.")}`
   );
   console.error(`  ${chalk.dim("For a thorough security audit:")}`);
-  console.error(`    ${chalk.cyan(`hackmyagent check ${name}`)}`);
+  console.error(`    ${chalk.cyan(`hackmyagent check ${hmaCheckTarget(name, ecosystem)}`)}`);
   console.error("");
+}
+
+/**
+ * The target to hand `hackmyagent check`. Its help gives the bare name as the
+ * npm form (`hackmyagent check express`) and `pip:<name>` as the PyPI form
+ * (`hackmyagent check pip:requests`), so a PyPI package keeps the prefix.
+ */
+function hmaCheckTarget(name: string, ecosystem: "npm" | "pypi"): string {
+  return ecosystem === "pypi" ? `pip:${name}` : name;
 }
 
 /**
@@ -725,7 +734,7 @@ function printOutOfScopeByName(
       outOfScope: true,
       scored: false,
       outOfScopeReason: "recognized as general-purpose library by name (no registry data)",
-      nextSteps: [`hackmyagent check ${name}`],
+      nextSteps: [`hackmyagent check ${hmaCheckTarget(name, ecosystem)}`],
     }));
   } else {
     console.error("");
@@ -737,7 +746,7 @@ function printOutOfScopeByName(
     );
     console.error("");
     console.error(`  For general security scanning, use HackMyAgent:`);
-    console.error(`    ${chalk.cyan(`hackmyagent check ${name}`)}`);
+    console.error(`    ${chalk.cyan(`hackmyagent check ${hmaCheckTarget(name, ecosystem)}`)}`);
     console.error("");
   }
 }
