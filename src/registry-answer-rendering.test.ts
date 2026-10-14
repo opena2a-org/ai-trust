@@ -10,7 +10,8 @@
  * - a security profile is read one field at a time;
  * - "No known issues" is not the headline over a `warnings` scan status;
  * - a found package whose scan is in progress shows no score in `batch`;
- * - `check pip:` and `check npm:` are usage errors.
+ * - `check pip:` and `check npm:` are usage errors;
+ * - `check pip:<name>` output says pypi, and `check <name> --json` says npm.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { spawn } from "node:child_process";
@@ -72,6 +73,17 @@ const QUERY: Record<string, Record<string, unknown>> = {
   }),
   "warnings-no-profile": answer("warnings-no-profile", { scanStatus: "warnings" }),
   "rich-mcp": answer("rich-mcp", { scanStatus: "completed" }),
+  "pypi-lib": answer("pypi-lib", { packageType: "library", verdict: "listed" }),
+  // Answered with the all-zero id: the client reads it as "not found".
+  "pypi-missing": answer("pypi-missing", {
+    packageId: "00000000-0000-0000-0000-000000000000",
+    packageType: undefined,
+    trustLevel: 0,
+    trustScore: 0,
+    verdict: "",
+    scanStatus: "",
+    communityScans: 0,
+  }),
 };
 
 const BATCH: Record<string, Record<string, unknown>> = {
@@ -471,6 +483,68 @@ describe("registry answers through the built CLI", () => {
       expect(status).toBe(2);
       expect(stdout).toContain("Package not found: not-in-fixture (pypi)");
       expect(requests.slice(before)).toContain("GET /api/v1/trust/query");
+    });
+  });
+
+  describe("the ecosystem a target was checked under (#131)", () => {
+    it("check pip:<name> --no-scan --json says pypi for a registry-classified library", async () => {
+      const { stdout, status } = await runCli(["check", "pip:pypi-lib", "--no-scan", "--json"]);
+
+      expect(status).toBe(0);
+      const json = JSON.parse(stdout);
+      expect(json).toMatchObject({ name: "pypi-lib", ecosystem: "pypi", outOfScope: true });
+      expect(Object.keys(json).slice(0, 2)).toEqual(["name", "ecosystem"]);
+    });
+
+    it("check pip:<name> --no-scan names pypi beside a registry-classified library", async () => {
+      const { stderr } = await runCli(["check", "pip:pypi-lib", "--no-scan"]);
+
+      expect(stderr).toContain("pypi-lib (pypi)  library (registry-classified)");
+    });
+
+    it("check pip:<name> --no-scan --json says pypi for a registry answer", async () => {
+      const { stdout } = await runCli(["check", "pip:cve-clean", "--no-scan", "--json"]);
+
+      const json = JSON.parse(stdout);
+      expect(json).toMatchObject({ name: "cve-clean", ecosystem: "pypi", source: "registry" });
+      expect(Object.keys(json).slice(0, 2)).toEqual(["name", "ecosystem"]);
+    });
+
+    it("check pip:<name> --no-scan names pypi in the header of a registry answer", async () => {
+      const { stdout } = await runCli(["check", "pip:cve-clean", "--no-scan"]);
+
+      const header = stdout.split("\n").find((l) => l.trim().length > 0);
+      expect(header).toMatch(/^ {2}cve-clean \(pypi\) {2}/);
+    });
+
+    it("check pip:<name> --no-scan says pypi when the registry answers with no package", async () => {
+      const { stdout } = await runCli(["check", "pip:pypi-missing", "--no-scan"]);
+
+      expect(stdout).toContain("Package not found: pypi-missing (pypi)");
+    });
+
+    it("check pip:<name> --no-scan --json says pypi for a library known by name only", async () => {
+      const { stdout, status } = await runCli(["check", "pip:chalk", "--no-scan", "--json"]);
+
+      expect(status).toBe(0);
+      const json = JSON.parse(stdout);
+      expect(json).toMatchObject({ name: "chalk", ecosystem: "pypi", found: false, outOfScope: true });
+      expect(Object.keys(json).slice(0, 2)).toEqual(["name", "ecosystem"]);
+    });
+
+    it("check pip:<name> --no-scan names pypi beside a library known by name only", async () => {
+      const { stderr } = await runCli(["check", "pip:chalk", "--no-scan"]);
+
+      expect(stderr).toContain("chalk (pypi)  library (by name");
+    });
+
+    it("check <name> --no-scan --json says npm, and the text header names no ecosystem", async () => {
+      const json = JSON.parse((await runCli(["check", "cve-clean", "--no-scan", "--json"])).stdout);
+      const { stdout } = await runCli(["check", "cve-clean", "--no-scan"]);
+
+      expect(json).toMatchObject({ name: "cve-clean", ecosystem: "npm" });
+      const header = stdout.split("\n").find((l) => l.trim().length > 0);
+      expect(header).toMatch(/^ {2}cve-clean {2}/);
     });
   });
 });
