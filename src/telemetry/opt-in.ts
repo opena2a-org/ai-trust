@@ -198,14 +198,26 @@ export function isContributeEnabled(): boolean | undefined {
   const contribute = readConfig().contribute;
   if (contribute?.enabled === true) return true;
   if (contribute?.enabled !== false) return undefined;
-  // @opena2a/shared writes its defaults (`enabled: false, consentedAt: null`)
-  // whenever it saves the file, and the bundled scanner saves it on every
-  // run, so that pair on its own is not a choice. A choice saved through
-  // ai-trust carries `decidedAt`.
-  if (contribute.consentedAt === null && typeof contribute.decidedAt !== "string") {
-    return undefined;
-  }
+  if (hasUnmarkedOff()) return undefined;
   return false;
+}
+
+/**
+ * True when the config holds `enabled: false, consentedAt: null` with no
+ * `decidedAt`. @opena2a/shared writes that pair as its defaults whenever it
+ * saves the file, and the bundled scanner saves it on every run, so on its
+ * own it is not a choice. A choice saved through ai-trust carries
+ * `decidedAt`, but a "no" saved by ai-trust 0.7.6 does not, and the
+ * dismissal timestamp that "no" leaves is also written when the consent tip
+ * is shown, so the file cannot tell it from no choice.
+ */
+export function hasUnmarkedOff(): boolean {
+  const contribute = readConfig().contribute;
+  return (
+    contribute?.enabled === false &&
+    contribute.consentedAt === null &&
+    typeof contribute.decidedAt !== "string"
+  );
 }
 
 /**

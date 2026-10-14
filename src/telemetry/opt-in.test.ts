@@ -18,6 +18,7 @@ import {
   incrementScanCount,
   saveContributeChoice,
   recordScanAndMaybeShowTip,
+  hasUnmarkedOff,
   _resetBackend,
 } from "./opt-in.js";
 
@@ -130,6 +131,23 @@ describe("isContributeEnabled with the @opena2a/shared backend", () => {
     expect(isContributeEnabled()).toBe(false);
     sharedConfig.incrementScanCount();
     expect(isContributeEnabled()).toBe(false);
+  });
+
+  it("cannot tell a no saved by ai-trust 0.7.6 from no choice, and flags it", () => {
+    // ai-trust 0.7.6 saved a "no" with these two calls and nothing else.
+    const shared = sharedConfig as typeof sharedConfig & {
+      setContributeEnabled(enabled: boolean): void;
+      dismissContributePrompt(): void;
+    };
+    expect(hasUnmarkedOff()).toBe(false);
+    shared.setContributeEnabled(false);
+    shared.dismissContributePrompt();
+    expect(isContributeEnabled()).toBeUndefined();
+    expect(hasUnmarkedOff()).toBe(true);
+
+    saveContributeChoice(false);
+    expect(isContributeEnabled()).toBe(false);
+    expect(hasUnmarkedOff()).toBe(false);
   });
 
   it("keeps a saved on choice", () => {

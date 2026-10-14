@@ -9,6 +9,7 @@
 
 import type { Command } from "commander";
 import {
+  hasUnmarkedOff,
   isContributeEnabled,
   saveContributeChoice,
 } from "../telemetry/index.js";
@@ -69,6 +70,9 @@ export function registerConfigCommand(program: Command): void {
             ? "Disable: ai-trust config contribute off"
             : "Enable: ai-trust config contribute on"
         );
+        if (choice === undefined && hasUnmarkedOff()) {
+          console.log("Answered no in an earlier ai-trust version? Record it: ai-trust config contribute off");
+        }
       }
     });
 }
