@@ -326,8 +326,9 @@ describe("registry answers through the built CLI", () => {
         join(scratch, "missing.json"),
         JSON.stringify({ name: "fixture", version: "1.0.0", dependencies: { "missing-ctrl": "1.0.0" } }),
       );
-      // npm reads the fixture server, which has no such package, so the scan
-      // of the missing package ends at the download.
+      // The answer's name is not one the dependency file lists, so audit
+      // reports it and downloads nothing. npm is pointed at the fixture
+      // server, which has no such package, in case a download is attempted.
       const { stdout, stderr } = await runCli(
         ["audit", "missing.json", "--scan-missing", "--no-contribute"],
         {
@@ -339,8 +340,10 @@ describe("registry answers through the built CLI", () => {
 
       expect(stdout).not.toMatch(CONTROL);
       expect(stderr).not.toMatch(CONTROL);
-      expect(stderr).toContain("  Scanning miss]0;x-ing SECOND LINE...");
-      expect(stderr).toContain("  Could not scan miss]0;x-ing SECOND LINE: ");
+      expect(stderr).toContain(
+        "  Not scanning miss]0;x-ing SECOND LINE: the registry answered with a name the dependency file does not list.",
+      );
+      expect(stderr).not.toContain("  Scanning miss");
     }, 60000);
 
     it("check --no-scan, batch and audit print a registry error without them", async () => {

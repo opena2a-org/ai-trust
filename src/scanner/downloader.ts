@@ -21,6 +21,17 @@ const PYPI_JSON_API = "https://pypi.org/pypi";
 /** PEP 508 project name. Anything else is refused before a request is made. */
 const PYPI_NAME_PATTERN = /^([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9])$/;
 
+/**
+ * An npm registry package name: an optional `@scope/` and a name of letters,
+ * digits, `.`, `_` and `-`. Anything else is refused before `npm pack` runs.
+ * `npm pack` also accepts specs that are not registry names, such as a git
+ * URL, whose `prepare` script it runs while packing.
+ */
+const NPM_NAME_PATTERN = /^(?:@[A-Za-z0-9-][A-Za-z0-9._-]*\/)?[A-Za-z0-9-][A-Za-z0-9._-]*$/;
+
+/** `npm pack` reads a name ending `.tgz`, `.tar` or `.tar.gz` as a local file. */
+const NPM_TARBALL_SUFFIX = /\.(?:tgz|tar|tar\.gz)$/i;
+
 /** One file of a release, as listed in the `urls` array of the PyPI JSON API. */
 export interface PypiReleaseFile {
   filename: string;
@@ -56,6 +67,12 @@ export async function downloadPackage(
  * Uses `npm pack --pack-destination` to fetch the tarball, then extracts it.
  */
 async function downloadNpmPackage(name: string): Promise<DownloadResult> {
+  if (!NPM_NAME_PATTERN.test(name) || NPM_TARBALL_SUFFIX.test(name)) {
+    throw new Error(
+      `Failed to download "${name}": "${name}" is not a valid npm package name.`
+    );
+  }
+
   const tempDir = await mkdtemp(join(tmpdir(), "ai-trust-scan-"));
 
   try {
@@ -64,7 +81,7 @@ async function downloadNpmPackage(name: string): Promise<DownloadResult> {
     // as a package instead of being read as an npm option.
     const { stdout } = await execFileAsync(
       "npm",
-      ["pack", "--pack-destination", tempDir, "--", name],
+      ["pack", "--ignore-scripts", "--pack-destination", tempDir, "--", name],
       { timeout: 60_000 }
     );
 
