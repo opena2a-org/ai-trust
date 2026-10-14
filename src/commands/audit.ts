@@ -114,7 +114,11 @@ export function registerAuditCommand(program: Command): void {
         // trust table with their registry trust data and the downstream
         // formatter groups them into the "out of scope" footer.
         const notFound = response.results.filter((r) => !r.found);
-        const scanOpts = { deep: opts.deep ?? true, ecosystem };
+        const scanOpts = {
+          deep: opts.deep ?? true,
+          ecosystem,
+          manifestNames: packages.map((p) => p.name),
+        };
         if (notFound.length > 0 && opts.scanMissing) {
           await scanMissingPackages(
             notFound,
@@ -213,14 +217,36 @@ function missingFileNextCommand(file: string): string {
 }
 
 /**
+ * The dependency-file name a registry answer refers to, or undefined when
+ * the file lists no such package. Names are compared ignoring case for npm,
+ * and after PEP 503 normalization for PyPI.
+ */
+function manifestNameFor(
+  answerName: string,
+  manifestNames: readonly string[],
+  ecosystem: "npm" | "pypi" = "npm"
+): string | undefined {
+  const key = (s: string): string =>
+    ecosystem === "pypi" ? s.toLowerCase().replace(/[-_.]+/g, "-") : s.toLowerCase();
+  if (manifestNames.includes(answerName)) return answerName;
+  return manifestNames.find((m) => key(m) === key(answerName));
+}
+
+/**
  * Scan packages not found in registry and update the results array in-place.
+ * Each download uses the name from the dependency file, never the name the
+ * registry sent back.
  */
 async function scanMissingPackages(
   notFound: TrustAnswer[],
   allResults: TrustAnswer[],
   opts: AuditOptions,
   registryUrl: string,
-  scanOpts: { deep: boolean; ecosystem?: "npm" | "pypi" } = { deep: true }
+  scanOpts: {
+    deep: boolean;
+    ecosystem?: "npm" | "pypi";
+    manifestNames: readonly string[];
+  }
 ): Promise<void> {
   const available = await isHmaAvailable();
   if (!available) {
@@ -238,12 +264,21 @@ async function scanMissingPackages(
   const scannedResults: { name: string; scanResult: ScanResult }[] = [];
 
   for (const pkg of notFound) {
-    // The name is the one the registry returned: control characters are
-    // removed before it is printed.
-    const printedName = stripControlCharacters(pkg.name);
+    const target = manifestNameFor(pkg.name, scanOpts.manifestNames, scanOpts.ecosystem);
+    if (target === undefined) {
+      // The name is the one the registry returned: control characters are
+      // removed before it is printed.
+      console.error(
+        chalk.yellow(
+          `  Not scanning ${stripControlCharacters(pkg.name)}: the registry answered with a name the dependency file does not list.`
+        )
+      );
+      continue;
+    }
+    const printedName = stripControlCharacters(target);
     try {
       console.error(chalk.gray(`  Scanning ${printedName}...`));
-      const scanResult = await scanPackage(pkg.name, {
+      const scanResult = await scanPackage(target, {
         deep: scanOpts.deep,
         ecosystem: scanOpts.ecosystem,
       });
@@ -261,14 +296,14 @@ async function scanMissingPackages(
         };
       }
 
-      scannedResults.push({ name: pkg.name, scanResult });
+      scannedResults.push({ name: target, scanResult });
 
       // Anonymous scan ping. Shares the SAME contribution consent as the
       // full contribution flow below -- see resolveContributeChoice's
       // doc comment for why --no-contribute must be able to stop it.
       if (resolveContributeChoice(opts.contribute)) {
         sendScanPing(
-          pkg.name,
+          target,
           scanResult.verdict,
           Math.round(scanResult.trustScore * 100),
           registryUrl,

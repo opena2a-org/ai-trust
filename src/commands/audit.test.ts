@@ -513,6 +513,71 @@ describe("audit command", () => {
     expect(queueScanResult).toHaveBeenCalledWith("py-pkg", expect.any(Array), 0, "pypi", "0.9.1");
   });
 
+  it("does not download a name the registry answered with when the dependency file does not list it", async () => {
+    vi.mocked(parseDependencyFile).mockResolvedValue([{ name: "plain-dep" }]);
+    vi.mocked(RegistryClient).mockImplementation(
+      function () {
+        return {
+          batchQuery: vi.fn().mockResolvedValue({
+            results: [{ name: "git+file:///tmp/not-a-package", found: false }],
+            meta: { total: 1, found: 0, notFound: 1 },
+          }),
+          publishScan: vi.fn(),
+        } as any;
+      }
+    );
+    vi.mocked(isHmaAvailable).mockResolvedValue(true);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "audit", "package.json", "--scan-missing", "--no-contribute",
+    ]);
+
+    expect(scanPackage).not.toHaveBeenCalled();
+    const stderr = consoleErrSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stderr).toContain(
+      "Not scanning git+file:///tmp/not-a-package: the registry answered with a name the dependency file does not list."
+    );
+  });
+
+  it("downloads the dependency file's spelling of a name the registry answered with in another form", async () => {
+    vi.mocked(parseDependencyFile).mockResolvedValue([{ name: "Py_Pkg", ecosystem: "pypi" }]);
+    vi.mocked(detectEcosystem).mockReturnValueOnce("pypi");
+    vi.mocked(RegistryClient).mockImplementation(
+      function () {
+        return {
+          batchQuery: vi.fn().mockResolvedValue({
+            results: [{ name: "py-pkg", found: false }],
+            meta: { total: 1, found: 0, notFound: 1 },
+          }),
+          publishScan: vi.fn(),
+        } as any;
+      }
+    );
+    vi.mocked(isHmaAvailable).mockResolvedValue(true);
+    vi.mocked(scanPackage).mockResolvedValue({
+      packageName: "Py_Pkg",
+      scan: {
+        score: 90,
+        maxScore: 100,
+        findings: [],
+        projectType: "library",
+        timestamp: "2026-04-12T00:00:00Z",
+      },
+      trustScore: 0.9,
+      trustLevel: 3,
+      verdict: "safe",
+    });
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "audit", "requirements.txt", "--scan-missing", "--no-contribute",
+    ]);
+
+    expect(scanPackage).toHaveBeenCalledOnce();
+    expect(scanPackage).toHaveBeenCalledWith("Py_Pkg", expect.objectContaining({ ecosystem: "pypi" }));
+  });
+
   describe("share prompt on a terminal", () => {
     let savedIsTTY: boolean | undefined;
     const mockPublishScan = vi.fn();

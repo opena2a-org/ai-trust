@@ -226,4 +226,31 @@ describe("downloadPackage (npm)", () => {
     expect(args.filter((a) => a === "--version")).toHaveLength(1);
     expect(readdirSync(scanTmp)).toEqual([]);
   });
+
+  it("refuses a spec that is not a registry package name before npm runs", async () => {
+    for (const name of [
+      "git+file:///tmp/not-a-package",
+      "https://example.test/pkg.tgz",
+      "some-user/some-repo",
+      "./local-dir",
+      "/tmp/local-dir",
+      "some-name.tgz",
+      "pkg@1.0.0",
+      "",
+    ]) {
+      await expect(downloadPackage(name, "npm")).rejects.toThrow("is not a valid npm package name");
+    }
+    expect(existsSync(npmArgs)).toBe(false);
+    expect(readdirSync(scanTmp)).toEqual([]);
+  });
+
+  it("passes scoped and unscoped registry names to npm pack with lifecycle scripts off", async () => {
+    for (const name of ["@scope/pkg-name", "Legacy.Name_1"]) {
+      await expect(downloadPackage(name, "npm")).rejects.toThrow(`Package "${name}" not found on npm.`);
+      const args = readFileSync(npmArgs, "utf8").trimEnd().split("\n");
+      expect(args[0]).toBe("pack");
+      expect(args).toContain("--ignore-scripts");
+      expect(args.slice(-2)).toEqual(["--", name]);
+    }
+  });
 });
