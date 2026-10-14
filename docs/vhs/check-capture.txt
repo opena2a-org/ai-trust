@@ -1,0 +1,40 @@
+$ npx ai-trust check @modelcontextprotocol/server-filesystem --no-scan
+
+  @modelcontextprotocol/server-filesystem  mcp server · scanned 225 days ago (stale)
+  No known issues
+
+  Trust     ━━━━━━━━━━━━━━━━━━━━ 79/100
+  Level     Scanned  Blocked > Warning > Listed > Scanned > Verified
+  Scans     3 community scans
+  Last scan 225 days ago (stale)
+
+  ── Next Steps ──────────────────────────────────────────────
+  → Fresh scan  ai-trust check @modelcontextprotocol/server-filesystem
+  • Full project audit  ai-trust audit package.json
+
+[exit 0]
+
+$ npx ai-trust audit package.json
+
+  5 AI packages audited · 5 libraries out of scope
+
+  PACKAGE                             TYPE          VERDICT   TRUST       SCORE           SCAN      
+  ──────────────────────────────────────────────────────────────────────────────────────────────────
+  @modelcontextprotocol/sdk           mcp_server    SAFE      Scanned     ━━━━━━━━ 71  warnings  
+  @modelcontextprotocol/server-fi...  mcp_server    SAFE      Scanned     ━━━━━━━━ 79  warnings  
+  @modelcontextprotocol/server-me...  mcp_server    SAFE      Scanned     ━━━━━━━━ 79  warnings  
+  @modelcontextprotocol/server-gi...  mcp_server    LISTED    Listed      ━━━━━━━━ --  -         
+  mcp-server-kubernetes               mcp_server    LISTED    Listed      ━━━━━━━━ --  -         
+
+  All 5 AI packages meet minimum trust level 2.
+
+  ── Out of scope (libraries) ────────────────────────────────
+  ai-trust is for AI packages. For general security, use HackMyAgent.
+  chalk, commander, express, typescript, vitest
+
+  Blocked > Warning > Listed > Scanned > Verified
+
+  ── Next Steps ──────────────────────────────────────────────
+  Library security:  npx hackmyagent secure .
+
+[exit 0]

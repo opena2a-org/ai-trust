@@ -1,0 +1,63 @@
+{
+  "tape": "docs/vhs/check.tape",
+  "tapeSha256": "8fbea1754c3a2b7031c5e05017c745f907f8b453ec58893a28f8e8e0527ea2bf",
+  "scriptSha256": "8fbea1754c3a2b7031c5e05017c745f907f8b453ec58893a28f8e8e0527ea2bf",
+  "commands": [
+    "npx ai-trust check @modelcontextprotocol/server-filesystem --no-scan",
+    "npx ai-trust audit package.json"
+  ],
+  "tool": "ai-trust",
+  "version": "0.7.6",
+  "npmIntegrity": "sha512-ngLGYSebe5mlqDl9kOhvy4WjpFvwcESTO1ReTAyPfADo074gUZpXwXu+6+s0KwRTED6pYwhkrIT4FJJdSpWliw==",
+  "ranAtUtc": "2026-10-13T17:33:00Z",
+  "registryHost": "api.oa2a.org",
+  "fixture": "docs/demo, the sample project",
+  "fixtureSha": "48a64fda9a868f7c46671895f891ace6d94ec8aaa584bf5f4cced7bed8345e5e",
+  "fixtureUncommittedChanges": 0,
+  "fixturePath": "/work/demo",
+  "hostname": "laptop",
+  "columns": 120,
+  "rows": 40,
+  "framerate": 10,
+  "gifsicle": "-O3 --lossy=40 --batch",
+  "gifFrames": 52,
+  "gifFullScreenFrames": 0,
+  "renderedPixelSize": {
+    "width": 1150,
+    "height": 774
+  },
+  "outputs": {
+    "gif": {
+      "path": "docs/vhs/check.gif",
+      "bytes": 102180,
+      "sha256": "ad7af90a693600757ca520c29d51bda97bd93a649c13513b18cd900aab646504"
+    },
+    "mp4": {
+      "path": "docs/vhs/out/check.mp4",
+      "bytes": 199343,
+      "sha256": "2bdc62d6e863ade69a1b41092a0464d46dcd01ff4a17e19cea3bd8b0a3b86e86",
+      "committed": false
+    },
+    "frames": [],
+    "capture": "docs/vhs/check-capture.txt"
+  },
+  "durationSeconds": 21.2,
+  "wallClockSeconds": 32.1,
+  "meteredCostUsd": 0,
+  "exitCodes": [
+    0,
+    0
+  ],
+  "vhsPatchSha256": "c4b812056b2e16f046ea705f617906c30136ff20f19de5bf2f8bf5e3b38035a0",
+  "edits": [
+    "setup not shown"
+  ],
+  "environment": {
+    "container": "docs/vhs/docker/Dockerfile (Node 22.20.0, ai-trust installed globally with --ignore-scripts)",
+    "vhs": {
+      "version": "v0.12.0+render-context-patch",
+      "patch": "docs/vhs/docker/vhs-0.12.0-render-context.patch"
+    },
+    "telemetry": "off (OPENA2A_TELEMETRY=off in the container)"
+  }
+}
