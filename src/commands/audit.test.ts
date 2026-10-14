@@ -565,6 +565,28 @@ describe("audit command", () => {
       expect(mockPublishScan).toHaveBeenCalledOnce();
     });
 
+    it("does not ask again once the user has answered no, and shares nothing (#139)", async () => {
+      vi.mocked(isContributeEnabled).mockReturnValue(false);
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "audit", "package.json", "--scan-missing"]);
+
+      expect(confirm).not.toHaveBeenCalled();
+      expect(saveContributeChoice).not.toHaveBeenCalled();
+      expect(queueScanResult).not.toHaveBeenCalled();
+      expect(mockPublishScan).not.toHaveBeenCalled();
+      expect(sendScanPing).not.toHaveBeenCalled();
+    });
+
+    it("calls shared results pseudonymous, not anonymized, because each carries a per-device token (#139)", async () => {
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "audit", "package.json", "--scan-missing"]);
+
+      const stderr = consoleErrSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(stderr).toContain("pseudonymous");
+      expect(stderr).not.toMatch(/anonymi[sz]ed|anonymous/i);
+    });
+
     it("--no-contribute neither asks nor shares, and saves no choice (#96)", async () => {
       const program = createProgram();
       await program.parseAsync([
