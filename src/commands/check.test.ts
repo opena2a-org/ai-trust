@@ -23,8 +23,10 @@ vi.mock("@opena2a/registry-client", async (importOriginal) => {
   };
 });
 
-// Mock formatter
-vi.mock("../output/formatter.js", () => ({
+// Mock formatter (ecosystemSuffix is the real helper: it only builds a label)
+vi.mock("../output/formatter.js", async (importOriginal) => ({
+  ecosystemSuffix: (await importOriginal<typeof import("../output/formatter.js")>())
+    .ecosystemSuffix,
   formatCheckResult: vi.fn(() => "formatted-check-result"),
   formatScanResult: vi.fn(() => "formatted-scan-result"),
   formatJson: vi.fn((data: unknown) => JSON.stringify(data)),

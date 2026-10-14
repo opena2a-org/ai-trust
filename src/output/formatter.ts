@@ -310,13 +310,25 @@ function renderNextStepsLines(ctas: NextStepsCta[]): string[] {
   });
 }
 
-export function formatCheckResult(registryAnswer: TrustAnswer): string {
+/**
+ * Text after a package name that says which ecosystem a `pip:<name>` target
+ * was checked under, in the not-found block's form (`requests (pypi)`).
+ * npm, the ecosystem of a name without a prefix, adds nothing.
+ */
+export function ecosystemSuffix(ecosystem: "npm" | "pypi"): string {
+  return ecosystem === "pypi" ? " (pypi)" : "";
+}
+
+export function formatCheckResult(
+  registryAnswer: TrustAnswer,
+  ecosystem: "npm" | "pypi" = "npm",
+): string {
   // Registry strings are remote data: control characters are removed first.
   const answer = sanitizeRegistryValue(registryAnswer);
   if (!answer.found) {
     return formatNotFound({
       pkg: answer.name,
-      ecosystem: "npm",
+      ecosystem,
     });
   }
 
@@ -342,7 +354,9 @@ export function formatCheckResult(registryAnswer: TrustAnswer): string {
   const scanAge = formatScanAge(answer.lastScannedAt);
   if (scanAge) meta.push(`scanned ${scanAge}`);
   const headerMeta = meta.length > 0 ? `  ${chalk.dim(meta.join(" \u00b7 "))}` : "";
-  out.push(`  ${chalk.bold.white(block.header.name)}${headerMeta}`);
+  out.push(
+    `  ${chalk.bold.white(block.header.name)}${ecosystemSuffix(ecosystem)}${headerMeta}`,
+  );
 
   // Verdict
   const vc = verdictColor(answer.verdict);

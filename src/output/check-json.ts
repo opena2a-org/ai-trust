@@ -35,6 +35,13 @@ export interface CheckJsonFinding {
 export interface CheckJsonResult {
   /** Package name as resolved by the check pipeline. */
   name: string;
+  /**
+   * Ecosystem the package was checked under: "pypi" for a `pip:<name>`
+   * target, "npm" otherwise. It comes from the target, not from the
+   * registry's answer (`TrustAnswer` has no ecosystem field). Omitted for
+   * `--scan-path`, which scans a directory rather than a package.
+   */
+  ecosystem?: "npm" | "pypi";
   /** Where the result came from: registry lookup vs. local HMA scan. */
   source: "registry" | "scan";
   /** True when the registry had data / the scan produced a result. */
@@ -92,9 +99,13 @@ function mapFinding(f: {
 }
 
 /** Build the JSON result from a registry `TrustAnswer`. */
-export function buildCheckJsonFromAnswer(answer: TrustAnswer): CheckJsonResult {
+export function buildCheckJsonFromAnswer(
+  answer: TrustAnswer,
+  ecosystem?: "npm" | "pypi",
+): CheckJsonResult {
   const out: CheckJsonResult = {
     name: answer.name,
+    ...(ecosystem !== undefined ? { ecosystem } : {}),
     source: "registry",
     found: answer.found,
   };
@@ -112,9 +123,13 @@ export function buildCheckJsonFromAnswer(answer: TrustAnswer): CheckJsonResult {
 }
 
 /** Build the JSON result from a local `ScanResult`. */
-export function buildCheckJsonFromScan(scan: ScanResult): CheckJsonResult {
+export function buildCheckJsonFromScan(
+  scan: ScanResult,
+  ecosystem?: "npm" | "pypi",
+): CheckJsonResult {
   const out: CheckJsonResult = {
     name: scan.packageName,
+    ...(ecosystem !== undefined ? { ecosystem } : {}),
     source: "scan",
     // A scan always produced a result for this package.
     found: true,
@@ -132,9 +147,11 @@ export function buildCheckJsonFromScan(scan: ScanResult): CheckJsonResult {
 
 /** Convenience union builder. */
 export function buildCheckJson(
-  input: { kind: "registry"; answer: TrustAnswer } | { kind: "scan"; scan: ScanResult },
+  input:
+    | { kind: "registry"; answer: TrustAnswer; ecosystem?: "npm" | "pypi" }
+    | { kind: "scan"; scan: ScanResult; ecosystem?: "npm" | "pypi" },
 ): CheckJsonResult {
   return input.kind === "registry"
-    ? buildCheckJsonFromAnswer(input.answer)
-    : buildCheckJsonFromScan(input.scan);
+    ? buildCheckJsonFromAnswer(input.answer, input.ecosystem)
+    : buildCheckJsonFromScan(input.scan, input.ecosystem);
 }

@@ -13,6 +13,7 @@ import { PackageNotFoundError, firstPartySignerFromEnv } from "@opena2a/registry
 import type { RegistryClient, TrustAnswer } from "@opena2a/registry-client";
 import { createRegistryClient } from "../utils/registry-client.js";
 import {
+  ecosystemSuffix,
   formatCheckResult,
   formatScanResult,
   formatJson,
@@ -220,7 +221,7 @@ export function registerCheckCommand(program: Command): void {
           if (tier === "unrelated") {
             // Registry-confirmed library. Show the trust data alongside an
             // out-of-scope note so the user still sees everything we know.
-            printLibraryWithTrust(result, globalOpts.json);
+            printLibraryWithTrust(result, globalOpts.json, ecosystem);
             // Out of scope is informational (exit 0) UNLESS the registry has
             // actually flagged this library as blocked/warning — policy
             // signals always propagate regardless of scope.
@@ -230,9 +231,9 @@ export function registerCheckCommand(program: Command): void {
             return;
           }
           if (globalOpts.json) {
-            console.log(formatJson(buildCheckJson({ kind: "registry", answer: result })));
+            console.log(formatJson(buildCheckJson({ kind: "registry", answer: result, ecosystem })));
           } else {
-            console.log(formatCheckResult(result));
+            console.log(formatCheckResult(result, ecosystem));
           }
           if (
             result.found &&
@@ -248,7 +249,7 @@ export function registerCheckCommand(program: Command): void {
             // Otherwise fall through to the standard "not found" handler.
             const nameTier = classify({ name }).tier;
             if (nameTier === "unrelated") {
-              printOutOfScopeByName(name, globalOpts.json);
+              printOutOfScopeByName(name, globalOpts.json, ecosystem);
               return; // exit 0
             }
             handleNoScanNotFound(name, ecosystem, globalOpts);
@@ -283,7 +284,7 @@ export function registerCheckCommand(program: Command): void {
         const registryResult = await client.checkTrust(name, opts.type);
         const tier = classify({ name, packageType: registryResult.packageType }).tier;
         if (tier === "unrelated") {
-          printLibraryWithTrust(registryResult, globalOpts.json);
+          printLibraryWithTrust(registryResult, globalOpts.json, ecosystem);
           // Policy signals propagate even for out-of-scope libraries.
           if (isPolicyFailure(registryResult.verdict)) {
             process.exitCode = 2;
@@ -470,7 +471,7 @@ async function handleScanFlow(
   // Output scan results. This path scanned a downloaded package (npm pack /
   // PyPI archive), not the user's own tree → remote verdict (no `secure --fix`).
   if (globalOpts.json) {
-    console.log(formatJson(buildCheckJson({ kind: "scan", scan: scanResult })));
+    console.log(formatJson(buildCheckJson({ kind: "scan", scan: scanResult, ecosystem })));
   } else {
     console.log(formatScanResult(scanResult, { remote: true }));
   }
@@ -666,7 +667,11 @@ function isPolicyFailure(verdict?: string): boolean {
  * score is unreliable" line on errored library scans (AI-TRUST-1).
  * The full trust read for libraries lives in `hackmyagent check`.
  */
-function printLibraryWithTrust(result: TrustAnswer, asJson: boolean): void {
+function printLibraryWithTrust(
+  result: TrustAnswer,
+  asJson: boolean,
+  ecosystem: "npm" | "pypi",
+): void {
   if (asJson) {
     // Out-of-scope JSON must AGREE with the human output, which shows no trust
     // block for libraries (v0.3 spec). Previously this spread `...result`, so
@@ -677,6 +682,7 @@ function printLibraryWithTrust(result: TrustAnswer, asJson: boolean): void {
     // for reference, but explicitly not an ai-trust verdict). Release-test P2.
     console.log(formatJson({
       name: result.name,
+      ecosystem,
       packageType: result.packageType,
       found: result.found,
       outOfScope: true,
@@ -691,7 +697,7 @@ function printLibraryWithTrust(result: TrustAnswer, asJson: boolean): void {
   const name = stripControlCharacters(result.name);
   console.error("");
   console.error(
-    `  ${chalk.bold.white(name)}  ${chalk.dim("library (registry-classified)")}`
+    `  ${chalk.bold.white(name)}${ecosystemSuffix(ecosystem)}  ${chalk.dim("library (registry-classified)")}`
   );
   console.error(
     `  ${chalk.cyan("Out of scope for ai-trust")} ${chalk.dim("\u2014 the registry classifies this as a general-purpose library.")}`
@@ -706,10 +712,15 @@ function printLibraryWithTrust(result: TrustAnswer, asJson: boolean): void {
  * but whose name matches our library allowlist. Explicitly notes the lack of
  * registry confirmation so the user knows we haven't verified anything.
  */
-function printOutOfScopeByName(name: string, asJson: boolean): void {
+function printOutOfScopeByName(
+  name: string,
+  asJson: boolean,
+  ecosystem: "npm" | "pypi",
+): void {
   if (asJson) {
     console.log(formatJson({
       name,
+      ecosystem,
       found: false,
       outOfScope: true,
       scored: false,
@@ -719,7 +730,7 @@ function printOutOfScopeByName(name: string, asJson: boolean): void {
   } else {
     console.error("");
     console.error(
-      `  ${chalk.bold.white(name)}  ${chalk.dim("library (by name — no registry data)")}`
+      `  ${chalk.bold.white(name)}${ecosystemSuffix(ecosystem)}  ${chalk.dim("library (by name — no registry data)")}`
     );
     console.error(
       `  ${chalk.cyan("Out of scope for ai-trust")} ${chalk.dim("\u2014 ai-trust is for AI packages (MCP servers, agents, skills, AI tools, LLMs).")}`

@@ -329,3 +329,43 @@ describe("buildCheckJson (union)", () => {
     expect(JSON.parse(serialized)).toEqual(json);
   });
 });
+
+describe("ecosystem (#131)", () => {
+  const answer = {
+    name: "requests",
+    packageType: "library",
+    trustLevel: 2,
+    trustScore: 0.67,
+    verdict: "listed",
+    found: true,
+  } as TrustAnswer;
+  const scan: ScanResult = {
+    packageName: "requests",
+    scan: {
+      score: 100,
+      maxScore: 100,
+      findings: [],
+      timestamp: "2026-06-08T00:00:00Z",
+    },
+    trustScore: 1,
+    trustLevel: 3,
+    verdict: "safe",
+  };
+
+  it("a registry answer carries the ecosystem the target was checked under, after the name", () => {
+    const json = buildCheckJson({ kind: "registry", answer, ecosystem: "pypi" });
+    expect(json.ecosystem).toBe("pypi");
+    expect(Object.keys(json).slice(0, 3)).toEqual(["name", "ecosystem", "source"]);
+  });
+
+  it("a scan result carries the ecosystem the target was checked under, after the name", () => {
+    const json = buildCheckJson({ kind: "scan", scan, ecosystem: "pypi" });
+    expect(json.ecosystem).toBe("pypi");
+    expect(Object.keys(json).slice(0, 3)).toEqual(["name", "ecosystem", "source"]);
+  });
+
+  it("is omitted when no ecosystem is given (--scan-path)", () => {
+    expect(buildCheckJson({ kind: "scan", scan })).not.toHaveProperty("ecosystem");
+    expect(buildCheckJson({ kind: "registry", answer })).not.toHaveProperty("ecosystem");
+  });
+});
