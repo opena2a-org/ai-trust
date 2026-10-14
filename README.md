@@ -76,16 +76,16 @@ opena2a review                              # full security dashboard
 
 ## Telemetry
 
-Usage telemetry is on by default. After each command, ai-trust sends the tool name and version, the command name, success, duration, platform, Node.js major version and a persistent install ID to the OpenA2A Registry (`api.oa2a.org`), and no package name, argument, file path or content.
+Usage telemetry is on by default. After each command, ai-trust sends the tool name and version, the command name, success, duration, platform and Node.js major version to the OpenA2A Registry (`api.oa2a.org`), and no package name, argument, file path or content.
 
-The install ID is a hash derived from this machine's ID, kept in `~/.config/opena2a/telemetry.json`. Policy: [opena2a.org/telemetry](https://opena2a.org/telemetry).
+Each event carries an install ID that identifies the machine, so the data is personal data. It is a persistent hash derived from this machine's ID, kept in `~/.config/opena2a/telemetry.json`. Policy: [opena2a.org/telemetry](https://opena2a.org/telemetry).
 
 ```bash
 ai-trust telemetry off            # or set OPENA2A_TELEMETRY=off for one run
 ai-trust telemetry status         # the current state and install ID
 ```
 
-Sharing scan results is opt-in: `ai-trust config contribute on`, or `--contribute` for one scan. A shared scan sends the same registry the package name, version and ecosystem, score, verdict and per-check results with a pseudonymous contributor token, and no file paths or source code. `check` never asks; `audit` on a terminal asks after scanning packages the registry does not have.
+Sharing scan results is opt-in: `ai-trust config contribute on`, or `--contribute` for one scan; `audit` on a terminal asks. A shared scan sends the same registry the package name, version and ecosystem, score, verdict and per-check results with a pseudonymous contributor token, and no file paths or source code.
 
 With contribution saved on, the bundled scanner also sends a SHA-256 hash and the classification of each file it classifies; `--no-deep` stops that, `--no-contribute` does not. The choice is saved in `~/.opena2a/config.json` and shared by OpenA2A tools; `ai-trust config contribute off` turns it off. The [contribution guide](docs/use-cases/contribute-scans.md) lists every field.
 
