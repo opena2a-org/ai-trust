@@ -1,6 +1,6 @@
 # Command reference
 
-Every `ai-trust` command and option, the trust levels and the exit codes. The [README](../README.md) covers install and the first run.
+The `check`, `audit` and `batch` commands, their main options, the trust levels and the exit codes. The [README](../README.md) covers install and the first run.
 
 ## Scope: AI packages only
 
