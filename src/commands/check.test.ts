@@ -545,6 +545,79 @@ describe("check command", () => {
       );
     });
 
+    // The npm downloader refuses a name that is not an npm registry package
+    // name before npm runs. For the git-style shorthand `<owner>/<repo>` that
+    // refusal took the place of npm's `code 128`, which `check` translated
+    // into the not-found block with a "did you mean @owner/repo" hint and
+    // exit 2; the refusal must give the same result. These tests go through
+    // the real translateDownloadError from @opena2a/check-core.
+    describe("downloader refusal of a name that is not an npm package name", () => {
+      const refusal = (name: string) =>
+        new Error(
+          `Failed to download "${name}": "${name}" is not a valid npm package name.`
+        );
+
+      beforeEach(() => {
+        vi.mocked(RegistryClient).mockImplementation(
+          function () {
+            return {
+              checkTrust: vi
+                .fn()
+                .mockRejectedValue(new PackageNotFoundError("anthropic/code-review")),
+              batchQuery: vi.fn(),
+              publishScan: vi.fn(),
+            } as any;
+          }
+        );
+        vi.mocked(isHmaAvailable).mockResolvedValue(true);
+      });
+
+      it("check <owner>/<repo> keeps the not-found block, the @owner/repo suggestion and exit 2", async () => {
+        vi.mocked(scanPackage).mockRejectedValue(refusal("anthropic/code-review"));
+
+        const program = createProgram();
+        await program.parseAsync(["node", "test", "check", "anthropic/code-review"]);
+
+        expect(process.exitCode).toBe(2);
+        expect(formatNotFound).toHaveBeenCalledWith(
+          expect.objectContaining({
+            pkg: "anthropic/code-review",
+            ecosystem: "npm",
+            errorHint: expect.stringContaining('did you mean "@anthropic/code-review"'),
+            suggestions: ["@anthropic/code-review"],
+          })
+        );
+        expect(consoleErrSpy).not.toHaveBeenCalledWith(
+          expect.stringContaining("is not a valid npm package name")
+        );
+      });
+
+      it("check <owner>/<repo> --json carries errorHint and suggestions and exits 2", async () => {
+        vi.mocked(scanPackage).mockRejectedValue(refusal("anthropic/code-review"));
+
+        const program = createProgram();
+        await program.parseAsync(["node", "test", "check", "anthropic/code-review", "--json"]);
+
+        expect(process.exitCode).toBe(2);
+        const out = JSON.parse(consoleSpy.mock.calls[0][0] as string);
+        expect(out.suggestions).toEqual(["@anthropic/code-review"]);
+        expect(out.errorHint).toContain('did you mean "@anthropic/code-review"');
+      });
+
+      it("check <name>@<version> is an invalid npm package name: plain error, exit 1", async () => {
+        vi.mocked(scanPackage).mockRejectedValue(refusal("no-such-pkg@1.0.0"));
+
+        const program = createProgram();
+        await program.parseAsync(["node", "test", "check", "no-such-pkg@1.0.0"]);
+
+        expect(process.exitCode).toBe(1);
+        expect(formatNotFound).not.toHaveBeenCalled();
+        expect(consoleErrSpy).toHaveBeenCalledWith(
+          'Error: Failed to download "no-such-pkg@1.0.0": "no-such-pkg@1.0.0" is not a valid npm package name.'
+        );
+      });
+    });
+
     it("--rescan shows deprecation notice but still scans", async () => {
       vi.mocked(isHmaAvailable).mockResolvedValue(true);
       vi.mocked(scanPackage).mockResolvedValue({
