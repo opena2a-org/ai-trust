@@ -18,8 +18,21 @@ const USAGE_TELEMETRY_ON =
 
 // The variable only ever forces telemetry off and wins over the saved choice,
 // so turning it back on takes both steps.
-const USAGE_TELEMETRY_OFF =
-  "Usage telemetry is off. Enable: unset OPENA2A_TELEMETRY and run ai-trust telemetry on";
+const ENABLE_STEPS = "unset OPENA2A_TELEMETRY and run ai-trust telemetry on";
+const USAGE_TELEMETRY_OFF = `Usage telemetry is off. Enable: ${ENABLE_STEPS}`;
+
+// The toggle hint the shared `telemetry status` renderer prints when usage
+// telemetry is off. Its OPENA2A_TELEMETRY=on half cannot turn telemetry on.
+const RENDERER_ENABLE_HINT = "'ai-trust telemetry on'  or  OPENA2A_TELEMETRY=on";
+
+/**
+ * Output of the `telemetry` subcommand with the renderer's off-state toggle
+ * hint replaced by the steps the help footer gives. Other output is returned
+ * unchanged.
+ */
+export function withEnableSteps(telemetryOutput: string): string {
+  return telemetryOutput.replace(RENDERER_ENABLE_HINT, ENABLE_STEPS);
+}
 
 export function helpFooter(usageTelemetryEnabled: boolean): string {
   return `

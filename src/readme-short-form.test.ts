@@ -6,7 +6,7 @@
  * These checks hold that form: the word, section and paragraph budgets; no
  * version numbers or dates in the README (the capture sidecar records them);
  * AIM named in full where it first appears; a Telemetry section that does not call the telemetry anonymous and whose
- * commands run; links and anchors that resolve, and no external link to a
+ * commands run; use-case guides that do not call contributed scans anonymous; links and anchors that resolve, and no external link to a
  * host a link checker cannot fetch; each reference section at
  * its path under docs/; and a quick-start sample that is a verbatim slice of
  * the recorded capture.
@@ -180,6 +180,26 @@ describe("README: telemetry disclosure", () => {
       expect(run.stderr, `ai-trust ${command}`).not.toMatch(/unknown|error/i);
     }
   }, 60000);
+});
+
+describe("use-case guides: contributed scans", () => {
+  // Each contribution carries a per-device contributor token
+  // (docs/use-cases/contribute-scans.md), so the guides hold the README's
+  // wording rule. Inline code is left out: it quotes the literal value the
+  // scan ping sends.
+  const GUIDES = [
+    "docs/USE-CASES.md",
+    ...readdirSync(join(ROOT, "docs/use-cases"))
+      .filter((f) => f.endsWith(".md"))
+      .map((f) => `docs/use-cases/${f}`),
+  ];
+
+  it.each(GUIDES)("%s does not call the data anonymous", (doc) => {
+    const prose = read(doc)
+      .split("\n")
+      .filter((l) => ANONYMOUS_CLASS.test(l.replace(/`[^`]*`/g, "")));
+    expect(prose).toEqual([]);
+  });
 });
 
 describe("README: links", () => {

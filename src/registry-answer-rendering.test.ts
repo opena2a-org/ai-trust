@@ -10,6 +10,7 @@
  * - a security profile is read one field at a time;
  * - "No known issues" is not the headline over a `warnings` scan status;
  * - a found package whose scan is in progress shows no score in `batch`;
+ * - a trust score off the 0-1 scale shows no score in `batch` and `audit`;
  * - `check pip:` and `check npm:` are usage errors;
  * - `check pip:<name>` output says pypi, and `check <name> --json` says npm.
  */
@@ -110,6 +111,10 @@ const BATCH: Record<string, Record<string, unknown>> = {
     verdict: "warning",
     scanStatus: "warnings\u001b[1m",
   }),
+  // Trust scores off the 0-1 scale.
+  "score-55": answer("score-55", { trustScore: 55, scanStatus: "completed" }),
+  "score-negative": answer("score-negative", { trustScore: -0.5, scanStatus: "completed" }),
+  "score-text": answer("score-text", { trustScore: "high", scanStatus: "completed" }),
 };
 
 const NARRATIVE = {
@@ -448,6 +453,47 @@ describe("registry answers through the built CLI", () => {
       expect(stdout).toMatch(/^ {2}running-mcp\s+mcp_server\s+LISTED\s+Listed\s+━{8} -- {2}running\s*$/m);
       expect(stdout).toMatch(/^ {2}│ running-mcp {2}not scanned {2}Listed \(2\/4\)$/m);
       expect(stdout).not.toContain("0/100");
+    });
+  });
+
+  describe("a trust score off the 0-1 scale", () => {
+    const OFF_SCALE = ["score-55", "score-negative", "score-text"];
+
+    it("batch and audit print the table with no score for it", async () => {
+      writeFileSync(
+        join(scratch, "off-scale.json"),
+        JSON.stringify({
+          name: "fixture",
+          version: "1.0.0",
+          dependencies: Object.fromEntries(OFF_SCALE.map((name) => [name, "1.0.0"])),
+        }),
+      );
+      for (const args of [["batch", ...OFF_SCALE], ["audit", "off-scale.json"]]) {
+        const { stdout, stderr, status } = await runCli(args);
+
+        expect(stderr, args.join(" ")).not.toContain("Invalid count value");
+        expect(status, args.join(" ")).toBe(0);
+        for (const name of OFF_SCALE) {
+          expect(stdout, `${args.join(" ")}: ${name}`).toMatch(
+            new RegExp(`^ {2}${name}\\s+mcp_server\\s+SAFE\\s+Scanned\\s+━{8} -- {2}completed\\s*$`, "m"),
+          );
+        }
+        expect(stdout, args.join(" ")).not.toMatch(/5500|-50|NaN/);
+      }
+    });
+
+    it("the below-threshold summary says the score is unavailable", async () => {
+      const { stdout, status } = await runCli(["batch", "score-55", "--min-trust", "4"]);
+
+      expect(status).toBe(2);
+      expect(stdout).toMatch(/^ {2}│ score-55 {2}score unavailable {2}Scanned \(3\/4\)$/m);
+    });
+
+    it("batch --json carries the score as the registry sent it", async () => {
+      const { stdout, status } = await runCli(["batch", "score-55", "--json"]);
+
+      expect(status).toBe(0);
+      expect(JSON.parse(stdout).results[0].trustScore).toBe(55);
     });
   });
 

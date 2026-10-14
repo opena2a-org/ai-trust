@@ -77,6 +77,18 @@ function formatScore(trustScore: number, scanStatus?: string): string {
   return `${Math.round(trustScore * 100)}/100`;
 }
 
+/**
+ * The 0-1 trust score as a whole number out of 100, or undefined when the
+ * value is not a finite number from 0 to 1. The meters cannot draw a value
+ * off that scale (a negative fill throws), and the table does not guess what
+ * scale such a value was meant on.
+ */
+function scorePercent(trustScore: unknown): number | undefined {
+  if (typeof trustScore !== "number" || !Number.isFinite(trustScore)) return undefined;
+  if (trustScore < 0 || trustScore > 1) return undefined;
+  return Math.round(trustScore * 100);
+}
+
 function isScanErrorStatus(scanStatus?: string): boolean {
   const status = normalizeScanStatus(scanStatus);
   return status === "error" || status === "failed";
@@ -597,14 +609,15 @@ export function formatBatchResults(
     const colorVerdict = verdictColor(result.verdict);
     const colorTrust = trustLevelColor(result.trustLevel);
     const scoreDisplay = formatScore(result.trustScore, result.scanStatus);
-    const scoreVal = Math.round(result.trustScore * 100);
+    const scoreVal = scorePercent(result.trustScore);
     const isScanError = isScanErrorStatus(result.scanStatus);
 
-    // Score column: mini meter for scanned, text for error/unscanned
+    // Score column: mini meter for scanned, text for error/unscanned, and
+    // "--" for a score off the 0-1 scale.
     let scoreCell: string;
     if (isScanError) {
       scoreCell = chalk.red.bold("Error") + "         ";
-    } else if (scoreDisplay === "Not scanned") {
+    } else if (scoreDisplay === "Not scanned" || scoreVal === undefined) {
       scoreCell = chalk.dim("\u2501".repeat(MINI_METER_WIDTH)) + " " + chalk.dim("--");
     } else {
       scoreCell = miniMeter(scoreVal);
@@ -649,13 +662,16 @@ export function formatBatchResults(
     );
     for (const pkg of belowThreshold) {
       const tlc = trustLevelColor(pkg.trustLevel);
-      const pkgScore = Math.round(pkg.trustScore * 100);
-      // Same condition that renders "--" in the table: no scan, no number.
+      const pkgScore = scorePercent(pkg.trustScore);
+      // Same conditions that render "--" in the table: no scan, or a score
+      // off the 0-1 scale, gives no number.
       let scoreSection: string;
       if (isScanErrorStatus(pkg.scanStatus)) {
         scoreSection = chalk.red.bold("Error") + chalk.dim(" \u2014 rescan for accurate score");
       } else if (formatScore(pkg.trustScore, pkg.scanStatus) === "Not scanned") {
         scoreSection = chalk.dim("not scanned");
+      } else if (pkgScore === undefined) {
+        scoreSection = chalk.dim("score unavailable");
       } else {
         scoreSection = scoreMeter(pkgScore);
       }
