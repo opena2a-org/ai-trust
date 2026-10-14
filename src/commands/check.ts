@@ -412,6 +412,29 @@ async function handleNotFound(
   await handleScanFlow(name, ecosystem, client, globalOpts, { ...opts, _firstScan: true }, "Scanning...");
 }
 
+/** A git-style shorthand, `<owner>/<repo>` with no `@scope`. */
+const GIT_STYLE_NAME = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+
+/** The downloader's refusal of a name that is not an npm registry package name. */
+const NPM_NAME_REFUSAL = /is not a valid npm package name/;
+
+/**
+ * The npm downloader refuses a name that is not an npm registry package
+ * name before `npm pack` runs, so a git-style `<owner>/<repo>` no longer
+ * reaches npm's git fallback and its `code 128`. The refusal is translated
+ * into the same not-found block, with the `@<owner>/<repo>` suggestion,
+ * that translateDownloadError gives for that `code 128`, so
+ * `check <owner>/<repo>` keeps its released result and exit code 2.
+ */
+function translateNameRefusal(
+  name: string,
+  message: string
+): ReturnType<typeof translateDownloadError> {
+  if (!NPM_NAME_REFUSAL.test(message)) return undefined;
+  if (name.startsWith("@") || !GIT_STYLE_NAME.test(name)) return undefined;
+  return translateDownloadError(name, "code 128");
+}
+
 async function handleScanFlow(
   name: string,
   ecosystem: "npm" | "pypi",
@@ -432,7 +455,8 @@ async function handleScanFlow(
     // Translate recognized downloader errors into a not-found block so users
     // see the same UX they get for a clean registry miss instead of a raw
     // `code 128` git exit code (F3 from the check-command-divergence brief).
-    const translated = translateDownloadError(name, message);
+    const translated =
+      translateDownloadError(name, message) ?? translateNameRefusal(name, message);
     if (translated !== undefined) {
       if (globalOpts.json) {
         console.log(formatJson(buildNotFoundOutput({
