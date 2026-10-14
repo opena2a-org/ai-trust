@@ -19,6 +19,7 @@ import { isHmaAvailable, reinstallCommand, scanPackage } from "../scanner/index.
 import type { ScanResult } from "../scanner/index.js";
 import { confirm } from "../utils/prompt.js";
 import {
+  isContributeEnabled,
   resolveContributeChoice,
   queueScanResult,
   flushQueue,
@@ -312,6 +313,9 @@ async function handleAuditContribution(
   // These are first scans of missing packages — proactively encourage sharing
   if (!alreadyEnabled) {
     if (process.stdin.isTTY) {
+      // A saved "no" already answers this prompt: share nothing, ask nothing.
+      if (isContributeEnabled() === false) return;
+
       const { confirm } = await import("../utils/prompt.js");
       console.error("");
       console.error(
@@ -321,7 +325,7 @@ async function handleAuditContribution(
       );
       console.error(
         chalk.gray(
-          "  Sharing anonymized results helps other developers make informed decisions."
+          "  Sharing pseudonymous results helps other developers make informed decisions."
         )
       );
       console.error("");
