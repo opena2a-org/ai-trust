@@ -12,3 +12,4 @@ dist/
 *.pfx
 secrets.json
 credentials.json
+docs/vhs/out/
