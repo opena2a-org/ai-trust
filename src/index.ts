@@ -13,7 +13,7 @@ import { registerCheckCommand } from "./commands/check.js";
 import { registerAuditCommand } from "./commands/audit.js";
 import { registerBatchCommand } from "./commands/batch.js";
 import { registerConfigCommand } from "./commands/config.js";
-import { helpFooter } from "./utils/help-footer.js";
+import { helpFooter, withEnableSteps } from "./utils/help-footer.js";
 import { scanPingsSettled } from "./telemetry/contribute.js";
 
 const require = createRequire(import.meta.url);
@@ -117,11 +117,13 @@ registerConfigCommand(program);
     .description("Inspect or toggle usage telemetry: on | off | status")
     .action((action: string | undefined) => {
       console.log(
-        cliUi.runTelemetryCommand(action as Parameters<typeof cliUi.runTelemetryCommand>[0], {
-          tool: TELEMETRY_TOOL,
-          getStatus: tele.status,
-          setOptOut: tele.setOptOut,
-        }),
+        withEnableSteps(
+          cliUi.runTelemetryCommand(action as Parameters<typeof cliUi.runTelemetryCommand>[0], {
+            tool: TELEMETRY_TOOL,
+            getStatus: tele.status,
+            setOptOut: tele.setOptOut,
+          }),
+        ),
       );
       // An unrecognized action prints "Unknown action …" but must also exit
       // non-zero so scripts and CI can detect the usage error (release-test P3).

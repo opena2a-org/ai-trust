@@ -135,6 +135,41 @@ describe("--help telemetry line follows the resolved state", { timeout: 60000 },
   });
 });
 
+describe("`telemetry status` gives steps that turn usage telemetry back on", { timeout: 60000 }, () => {
+  const ENABLE = "  toggle: unset OPENA2A_TELEMETRY and run ai-trust telemetry on";
+
+  it("after `telemetry off` is saved, and OPENA2A_TELEMETRY=on leaves it off", () => {
+    if (!existsSync(CLI_PATH)) return;
+    const configHome = mkdtempSync(join(tmpdir(), "ai-trust-telemetry-status-"));
+    try {
+      expect(run(["telemetry", "off"], { configHome }).status).toBe(0);
+
+      const { stdout, status } = run(["telemetry", "status"], { configHome, telemetry: "on" });
+      expect(status).toBe(0);
+      expect(stdout).toMatch(/^ {2}state: +off$/m);
+      expect(stdout.split("\n")).toContain(ENABLE);
+      expect(stdout).not.toContain("OPENA2A_TELEMETRY=on");
+    } finally {
+      rmSync(configHome, { recursive: true, force: true });
+    }
+  });
+
+  it("under OPENA2A_TELEMETRY=off", () => {
+    if (!existsSync(CLI_PATH)) return;
+    const { stdout, status } = run(["telemetry", "status"], { telemetry: "off" });
+    expect(status).toBe(0);
+    expect(stdout.split("\n")).toContain(ENABLE);
+    expect(stdout).not.toContain("OPENA2A_TELEMETRY=on");
+  });
+
+  it("and still names the variable that turns it off while it is on", () => {
+    if (!existsSync(CLI_PATH)) return;
+    const { stdout } = run(["telemetry", "status"]);
+    expect(stdout).toMatch(/^ {2}state: +on$/m);
+    expect(stdout).toContain("toggle: 'ai-trust telemetry off'  or  OPENA2A_TELEMETRY=off");
+  });
+});
+
 describe("usage telemetry is not called anonymous", { timeout: 60000 }, () => {
   it.each([
     { variable: "unset", telemetry: undefined },

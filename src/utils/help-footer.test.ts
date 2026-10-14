@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { helpFooter } from "./help-footer.js";
+import { helpFooter, withEnableSteps } from "./help-footer.js";
 
 /** The first line under the "Telemetry:" heading. */
 function telemetryLine(footer: string): string {
@@ -47,5 +47,19 @@ describe("helpFooter", () => {
       expect(footer).toMatch(/Stop it: --no-deep or ai-trust config contribute off\n$/);
       expect(footer).not.toMatch(/opena2a config/);
     }
+  });
+});
+
+describe("withEnableSteps", () => {
+  it("replaces the OPENA2A_TELEMETRY=on hint with the steps the help footer gives", () => {
+    const status = "ai-trust telemetry\n  state:       off\n\n  toggle: 'ai-trust telemetry on'  or  OPENA2A_TELEMETRY=on";
+    expect(withEnableSteps(status)).toBe(
+      "ai-trust telemetry\n  state:       off\n\n  toggle: unset OPENA2A_TELEMETRY and run ai-trust telemetry on",
+    );
+  });
+
+  it("leaves the hint for turning telemetry off unchanged", () => {
+    const status = "  toggle: 'ai-trust telemetry off'  or  OPENA2A_TELEMETRY=off";
+    expect(withEnableSteps(status)).toBe(status);
   });
 });
