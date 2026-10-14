@@ -1091,6 +1091,96 @@ describe("check command", () => {
 
       expect(formatCheckResult).not.toHaveBeenCalled();
     });
+
+    describe("the hackmyagent hint keeps the pip: prefix of a PyPI target (#132)", () => {
+      function stderrText(): string {
+        return consoleErrSpy.mock.calls
+          .map((args) => args.join(" "))
+          .join("\n")
+          .replace(/\x1b\[[0-9;]*m/g, "");
+      }
+
+      function mockRegistry(checkTrust: ReturnType<typeof vi.fn>): void {
+        vi.mocked(RegistryClient).mockImplementation(
+          function () {
+            return {
+              checkTrust,
+              batchQuery: vi.fn(),
+              publishScan: vi.fn(),
+            } as any;
+          }
+        );
+      }
+
+      const registryLibrary = (name: string) =>
+        vi.fn().mockResolvedValue({
+          name,
+          found: true,
+          verdict: "listed",
+          trustLevel: 2,
+          trustScore: 0.67,
+          packageType: "library",
+        });
+
+      it("registry-classified library (--no-scan) cites hackmyagent check pip:<name>", async () => {
+        mockRegistry(registryLibrary("requests"));
+
+        const program = createProgram();
+        await program.parseAsync(["node", "test", "check", "pip:requests", "--no-scan"]);
+
+        expect(stderrText()).toMatch(/^ {4}hackmyagent check pip:requests$/m);
+        expect(process.exitCode).toBeUndefined();
+      });
+
+      it("registry-classified library (--no-scan --json) lists hackmyagent check pip:<name>", async () => {
+        mockRegistry(registryLibrary("requests"));
+
+        const program = createProgram();
+        await program.parseAsync(["node", "test", "--json", "check", "pip:requests", "--no-scan"]);
+
+        const out = JSON.parse(consoleSpy.mock.calls[0][0] as string);
+        expect(out.nextSteps).toEqual(["hackmyagent check pip:requests"]);
+      });
+
+      it("registry-classified library on the default scan path cites hackmyagent check pip:<name>", async () => {
+        mockRegistry(registryLibrary("requests"));
+
+        const program = createProgram();
+        await program.parseAsync(["node", "test", "check", "pip:requests"]);
+
+        expect(scanPackage).not.toHaveBeenCalled();
+        expect(stderrText()).toMatch(/^ {4}hackmyagent check pip:requests$/m);
+      });
+
+      it("library by name with no registry data (--no-scan) cites hackmyagent check pip:<name>", async () => {
+        mockRegistry(vi.fn().mockRejectedValue(new PackageNotFoundError("not in registry")));
+
+        const program = createProgram();
+        await program.parseAsync(["node", "test", "check", "pip:requests", "--no-scan"]);
+
+        expect(stderrText()).toMatch(/^ {4}hackmyagent check pip:requests$/m);
+        expect(process.exitCode).toBeUndefined();
+      });
+
+      it("library by name with no registry data (--no-scan --json) lists hackmyagent check pip:<name>", async () => {
+        mockRegistry(vi.fn().mockRejectedValue(new PackageNotFoundError("not in registry")));
+
+        const program = createProgram();
+        await program.parseAsync(["node", "test", "--json", "check", "pip:requests", "--no-scan"]);
+
+        const out = JSON.parse(consoleSpy.mock.calls[0][0] as string);
+        expect(out.nextSteps).toEqual(["hackmyagent check pip:requests"]);
+      });
+
+      it("an npm target still cites the bare name", async () => {
+        mockRegistry(registryLibrary("express"));
+
+        const program = createProgram();
+        await program.parseAsync(["node", "test", "check", "express", "--no-scan"]);
+
+        expect(stderrText()).toMatch(/^ {4}hackmyagent check express$/m);
+      });
+    });
   });
 
   describe("AI_TRUST_CLI_PREFIX self-citations (#191)", () => {
