@@ -132,6 +132,45 @@ describe("config contribute command", () => {
     expect(stdout()).toContain("Community contribution: disabled");
   });
 
+  it("status says how to record a no that an earlier ai-trust saved", async () => {
+    // What ai-trust 0.7.6 saves for a "no" to "Share this scan with the
+    // community?": the same pair the bundled scanner saves, plus a dismissal.
+    const earlierNo = {
+      version: 1,
+      contribute: { enabled: false, consentedAt: null, consentVersion: "1.0" },
+      telemetry: { scanCount: 2, contributePromptDismissedAt: "2026-06-20T10:00:00.000Z" },
+    };
+    fs.writeFileSync(path.join(tempHome, "config.json"), JSON.stringify(earlierNo));
+    const hint = "Answered no in an earlier ai-trust version? Record it: ai-trust config contribute off";
+
+    await run(["config", "contribute", "status"]);
+    expect(stdout()).toContain("Community contribution: not set");
+    expect(stdout()).toContain(hint);
+    logSpy.mockClear();
+    await run(["--json", "config", "contribute", "status"]);
+    expect(JSON.parse(stdout())).toEqual({ contribute: null });
+
+    logSpy.mockClear();
+    await run(["config", "contribute", "off"]);
+    expect(stdout()).not.toContain(hint);
+    logSpy.mockClear();
+    await run(["config", "contribute", "status"]);
+    expect(stdout()).toContain("Community contribution: disabled");
+    expect(stdout()).not.toContain(hint);
+  });
+
+  it("status gives no earlier-version hint without an unmarked off", async () => {
+    const hint = "Answered no in an earlier ai-trust version?";
+    await run(["config", "contribute", "status"]);
+    expect(stdout()).not.toContain(hint);
+
+    await run(["config", "contribute", "on"]);
+    logSpy.mockClear();
+    await run(["config", "contribute", "status"]);
+    expect(stdout()).toContain("Community contribution: enabled");
+    expect(stdout()).not.toContain(hint);
+  });
+
   it("rejects an unknown action with exit code 1 and writes nothing", async () => {
     await run(["config", "contribute", "maybe"]);
     expect(process.exitCode).toBe(1);
