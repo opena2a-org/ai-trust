@@ -6,7 +6,7 @@
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import Module, { createRequire } from "node:module";
-import { homedir } from "node:os";
+import { devNull, homedir } from "node:os";
 import { basename, dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -254,18 +254,23 @@ export function reinstallCommand(fromDir: string = MODULE_DIR): string {
  * truthy but not the boolean true, the scan therefore runs with OPENA2A_HOME
  * set to ~/.opena2a, the directory both tools read when it is unset.
  *
- * It does not while HMA's legacy config, ~/.hackmyagent/config.json, holds
+ * Not while HMA's legacy config, ~/.hackmyagent/config.json, holds
  * `"contribute": true`. A `secure` run, even with `--no-contribute`, moves
- * that opt-in into ~/.opena2a/config.json as the boolean true unless HMA's
- * own reading of the saved choice is already on. With OPENA2A_HOME set, that
- * reading of such a value is off, so the scan would replace the saved value
- * with true; without it, the reading is on and the saved value stays.
+ * that opt-in into OPENA2A_HOME/config.json as the boolean true, and removes
+ * it from the legacy file, unless HMA's own reading of the saved choice is
+ * already on. With OPENA2A_HOME at ~/.opena2a, that reading of such a value
+ * is off, so the scan would replace the saved value with true. In that case
+ * OPENA2A_HOME is a path under the null device instead: HMA reads no saved
+ * choice there, so its reading is off, and the move fails at its first write,
+ * before it changes the legacy file. The NanoMind model HMA loads is found
+ * through the home directory, not OPENA2A_HOME.
  */
 export function hmaEnv(): NodeJS.ProcessEnv {
-  if (process.env.OPENA2A_HOME || !hasTruthyNonBooleanChoice() || hasLegacyHmaOptIn()) {
+  if (process.env.OPENA2A_HOME || !hasTruthyNonBooleanChoice()) {
     return process.env;
   }
-  return { ...process.env, OPENA2A_HOME: join(homedir(), ".opena2a") };
+  const home = hasLegacyHmaOptIn() ? join(devNull, "opena2a") : join(homedir(), ".opena2a");
+  return { ...process.env, OPENA2A_HOME: home };
 }
 
 /** True when HMA's legacy config, ~/.hackmyagent/config.json, holds `"contribute": true`. */
@@ -310,8 +315,7 @@ export async function runHmaScan(
   // queues its own scan_result, so `--no-contribute` would not stop it.
   // The flag does not cover HMA's NanoMind classification telemetry, which a
   // deep scan still sends whenever the saved choice is on; hmaEnv() covers a
-  // saved value HMA would read as on where ai-trust reads no choice, except
-  // while HMA's legacy config holds an opt-in.
+  // saved value HMA would read as on where ai-trust reads no choice.
   const env = hmaEnv();
   const args = [...hma.prefixArgs, "secure", "--format", "json", "--no-contribute"];
   if (deep) {

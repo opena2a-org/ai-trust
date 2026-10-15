@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
+import { devNull, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 // Mock child_process
@@ -349,8 +349,9 @@ describe("runHmaScan scanner environment", () => {
     },
   );
 
+  // HMA can neither read a saved choice under the null device nor write one there (#150).
   it.each(["false", "true", 1])(
-    "leaves OPENA2A_HOME unset when the saved enabled is %j and ~/.hackmyagent/config.json holds \"contribute\": true",
+    "runs HMA with OPENA2A_HOME under the null device when the saved enabled is %j and ~/.hackmyagent/config.json holds \"contribute\": true",
     async (value) => {
       saveChoice(join(tempHome, ".opena2a"), value);
       saveLegacyChoice(true);
@@ -358,10 +359,17 @@ describe("runHmaScan scanner environment", () => {
 
       await runHmaScan("/tmp/test-pkg");
 
-      expect(secureEnv()).toBeDefined();
-      expect(secureEnv()?.OPENA2A_HOME).toBeUndefined();
+      const env = secureEnv();
+      expect(env?.OPENA2A_HOME).toBe(join(devNull, "opena2a"));
+      expect(env?.HOME).toBe(tempHome);
     },
   );
+
+  it("leaves OPENA2A_HOME unset when the saved enabled is true and ~/.hackmyagent/config.json holds \"contribute\": true", () => {
+    saveChoice(join(tempHome, ".opena2a"), true);
+    saveLegacyChoice(true);
+    expect(hmaEnv().OPENA2A_HOME).toBeUndefined();
+  });
 
   it("sets OPENA2A_HOME when ~/.hackmyagent/config.json holds \"contribute\": false", () => {
     saveChoice(join(tempHome, ".opena2a"), "false");
@@ -414,6 +422,36 @@ describe("runHmaScan scanner environment", () => {
       saveChoice(join(tempHome, ".opena2a"), true);
       expect(await queuedStats(hmaEnv())).toBe("1");
     });
+
+    // A `secure` run classifies files during the scan and then calls HMA's
+    // legacy move; the queue size is read before and after that move (#150).
+    it.each(["false", "true", 1])(
+      "queues no classification telemetry for a saved enabled of %j when ~/.hackmyagent/config.json holds \"contribute\": true",
+      async (value) => {
+        saveChoice(join(tempHome, ".opena2a"), value);
+        saveLegacyChoice(true);
+        const { execFileSync } =
+          await vi.importActual<typeof import("node:child_process")>("node:child_process");
+        const optInModule = join(dirname(telemetryModule), "opt-in.js");
+        const script =
+          `const t = require(${JSON.stringify(telemetryModule)});` +
+          `const o = require(${JSON.stringify(optInModule)});` +
+          `t.queueClassificationStat("skill", "x", "benign", 0.9, "test");` +
+          `const before = t.getTelemetryQueueSize();` +
+          `o.migrateLegacyContributeChoice();` +
+          `t.queueClassificationStat("skill", "y", "benign", 0.9, "test");` +
+          `process.stdout.write(before + "," + t.getTelemetryQueueSize());`;
+        const queued = execFileSync(process.execPath, ["-e", script], {
+          env: hmaEnv(),
+          encoding: "utf8",
+        });
+
+        expect(queued).toBe("0,0");
+        const read = (dir: string) => JSON.parse(readFileSync(join(tempHome, dir, "config.json"), "utf8"));
+        expect(read(".opena2a").contribute.enabled).toBe(value);
+        expect(read(".hackmyagent").contribute).toBe(true);
+      },
+    );
 
     // A `secure` run moves `"contribute": true` from ~/.hackmyagent/config.json
     // into ~/.opena2a/config.json unless HMA reads the saved choice as on.
