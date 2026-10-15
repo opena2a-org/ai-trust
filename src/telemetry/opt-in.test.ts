@@ -19,6 +19,7 @@ import {
   saveContributeChoice,
   recordScanAndMaybeShowTip,
   hasUnmarkedOff,
+  resolveContributeChoice,
   _resetBackend,
 } from "./opt-in.js";
 
@@ -124,6 +125,16 @@ describe("isContributeEnabled with the @opena2a/shared backend", () => {
     expect(homeConfig().contribute).toMatchObject({ enabled: false, consentedAt: null });
     expect(isContributeEnabled()).toBeUndefined();
   });
+
+  it.each(["false", "true", 1])(
+    "does not read a saved enabled of %j, which is not the boolean true, as consent (#141)",
+    (value) => {
+      fs.mkdirSync(path.join(tempHome, ".opena2a"), { recursive: true });
+      writeConfig(path.join(tempHome, ".opena2a"), { contribute: { enabled: value } });
+      expect(isContributeEnabled()).toBeUndefined();
+      expect(resolveContributeChoice(undefined)).toBe(false);
+    },
+  );
 
   it("keeps a saved off choice through later saves by another tool", () => {
     sharedConfig.incrementScanCount();
@@ -330,6 +341,15 @@ describe("recordScanAndMaybeShowTip", () => {
     expect(tip).toBeTruthy();
     expect(tip).toContain("Tip:");
     expect(tip).toContain("npx ai-trust check --contribute");
+  });
+
+  it("calls shared results pseudonymous, not anonymized (#141)", () => {
+    // A contribution carries a per-device contributor token.
+    recordScanAndMaybeShowTip(); // scan 1
+    recordScanAndMaybeShowTip(); // scan 2
+    const tip = recordScanAndMaybeShowTip(); // scan 3
+    expect(tip).toContain("Share pseudonymous results");
+    expect(tip).not.toMatch(/anonym/i);
   });
 
   it("returns null after tip is shown (cooldown)", () => {

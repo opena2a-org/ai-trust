@@ -75,6 +75,13 @@ const QUERY: Record<string, Record<string, unknown>> = {
   "warnings-no-profile": answer("warnings-no-profile", { scanStatus: "warnings" }),
   "rich-mcp": answer("rich-mcp", { scanStatus: "completed" }),
   "pypi-lib": answer("pypi-lib", { packageType: "library", verdict: "listed" }),
+  // Trust scores off the 0-1 scale, as in BATCH.
+  "score-55": answer("score-55", { trustScore: 55, scanStatus: "completed" }),
+  "score-negative": answer("score-negative", { trustScore: -0.5, scanStatus: "completed" }),
+  "score-text": answer("score-text", { trustScore: "high", scanStatus: "completed" }),
+  // Names with shell syntax in them, answered for a plain query name.
+  "shell-lib": answer("shell-lib; echo injected", { packageType: "library", verdict: "listed" }),
+  "shell-mcp": answer("shell-mcp; echo injected"),
   // Answered with the all-zero id: the client reads it as "not found".
   "pypi-missing": answer("pypi-missing", {
     packageId: "00000000-0000-0000-0000-000000000000",
@@ -272,7 +279,8 @@ describe("registry answers through the built CLI", () => {
       expect(stdout).not.toMatch(CONTROL);
       expect(stderr).not.toMatch(CONTROL);
       expect(stderr).toContain("lib]0;x-ctrl SECOND LINE  library (registry-classified)");
-      expect(stderr).toContain("hackmyagent check lib]0;x-ctrl SECOND LINE");
+      // Quoted for the shell: the name has a ";" and spaces in it (#141).
+      expect(stderr).toContain("hackmyagent check 'lib]0;x-ctrl SECOND LINE'");
     });
 
     it("check mcp:<name> prints the registry's narrative without them", async () => {
@@ -497,6 +505,64 @@ describe("registry answers through the built CLI", () => {
 
       expect(status).toBe(0);
       expect(JSON.parse(stdout).results[0].trustScore).toBe(55);
+    });
+
+    it("check --no-scan prints -- for it, as batch and audit do (#141)", async () => {
+      for (const name of OFF_SCALE) {
+        const { stdout, stderr, status } = await runCli(["check", name, "--no-scan"]);
+
+        expect(stderr, name).not.toContain("Invalid count value");
+        expect(status, name).toBe(0);
+        expect(stdout, name).toMatch(
+          /^ {2}Trust +-- \(the registry's score is not a number from 0 to 1\)$/m,
+        );
+        expect(stdout, name).not.toMatch(/\/100|NaN/);
+      }
+    });
+  });
+
+  describe("a registry answer with the all-zero package id (#141)", () => {
+    it("check --no-scan prints the same not-found block and exit code 2 as a 404", async () => {
+      const zero = await runCli(["check", "pypi-missing", "--no-scan"]);
+      const miss = await runCli(["check", "not-in-fixture", "--no-scan"]);
+
+      expect(miss.status).toBe(2);
+      expect(zero.status).toBe(2);
+      expect(zero.stdout).toBe(miss.stdout.replaceAll("not-in-fixture", "pypi-missing"));
+    });
+
+    it("check --no-scan --json prints the not-found output and exits 2", async () => {
+      const { stdout, status } = await runCli(["check", "pypi-missing", "--no-scan", "--json"]);
+
+      expect(status).toBe(2);
+      expect(JSON.parse(stdout)).toMatchObject({
+        name: "pypi-missing",
+        found: false,
+        error: 'Package "pypi-missing" not found in the OpenA2A Registry.',
+      });
+    });
+  });
+
+  describe("a registry name with shell syntax in a suggested command (#141)", () => {
+    it("check pip:<name> --no-scan quotes it in the hackmyagent check command", async () => {
+      const { stderr } = await runCli(["check", "pip:shell-lib", "--no-scan"]);
+
+      expect(stderr.split("\n")).toContain("    hackmyagent check 'pip:shell-lib; echo injected'");
+    });
+
+    it("check pip:<name> --no-scan --json quotes it in nextSteps", async () => {
+      const { stdout } = await runCli(["check", "pip:shell-lib", "--no-scan", "--json"]);
+
+      expect(JSON.parse(stdout).nextSteps).toEqual([
+        "hackmyagent check 'pip:shell-lib; echo injected'",
+      ]);
+    });
+
+    it("check --no-scan quotes it in the Next Steps check command", async () => {
+      const { stdout } = await runCli(["check", "shell-mcp", "--no-scan"]);
+
+      expect(stdout).toContain("ai-trust check 'shell-mcp; echo injected'");
+      expect(stdout).not.toMatch(/check shell-mcp; echo/);
     });
   });
 

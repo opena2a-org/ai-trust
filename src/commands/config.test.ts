@@ -133,8 +133,8 @@ describe("config contribute command", () => {
   });
 
   it("status says how to record a no that an earlier ai-trust saved", async () => {
-    // What ai-trust 0.7.6 saves for a "no" to "Share this scan with the
-    // community?": the same pair the bundled scanner saves, plus a dismissal.
+    // What ai-trust 0.7.6 saves for a "no" to audit's "Share these scans with
+    // the community?": the same pair the bundled scanner saves, plus a dismissal.
     const earlierNo = {
       version: 1,
       contribute: { enabled: false, consentedAt: null, consentVersion: "1.0" },

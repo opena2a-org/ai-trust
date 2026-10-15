@@ -1,7 +1,7 @@
 /**
  * Contribution Consent and Scan Counting
  *
- * Manages the user's consent to share anonymized scan findings
+ * Manages the user's consent to share pseudonymous scan findings
  * with the OpenA2A Registry. Uses a delayed consent tip shown
  * after the 3rd scan (non-interactive, no blocking prompts).
  *
@@ -193,7 +193,9 @@ export function isContributeEnabled(): boolean | undefined {
   // If the user hasn't configured yet, return undefined (not false).
   // The local backend returns true only if explicitly enabled;
   // check the raw config to distinguish "not configured" from "opted out".
-  if (enabled) return true;
+  // The @opena2a/shared backend returns the saved value as it is, so only
+  // the boolean true is consent: a string such as "false" is not.
+  if (enabled === true) return true;
   // Check if there's an explicit choice saved
   const contribute = readConfig().contribute;
   if (contribute?.enabled === true) return true;
@@ -291,7 +293,7 @@ export function recordScanAndMaybeShowTip(): string | null {
   return [
     "",
     "  Tip: Your scans help build community trust data for MCP servers and AI agents.",
-    "  Share anonymized results so other developers can make informed security decisions.",
+    "  Share pseudonymous results so other developers can make informed security decisions.",
     "  Enable: npx ai-trust check --contribute  (or: ai-trust config contribute on)",
     "",
   ].join("\n");

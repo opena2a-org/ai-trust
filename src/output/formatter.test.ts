@@ -1280,6 +1280,18 @@ describe("formatScanResult", () => {
     expect(output).toContain("42 static");
     expect(output).not.toContain("1 static");
   });
+
+  it("names pypi in the header of a downloaded pip:<name> package (#141)", () => {
+    const header = (opts: Parameters<typeof formatScanResult>[1]) =>
+      formatScanResult(makeScanResult(), opts)
+        .replace(/\x1b\[[0-9;]*m/g, "")
+        .split("\n")
+        .find((l) => l.trim().length > 0);
+
+    expect(header({ remote: true, ecosystem: "pypi" })).toBe("  test-pkg (pypi)  downloaded package");
+    expect(header({ remote: true, ecosystem: "npm" })).toBe("  test-pkg  downloaded package");
+    expect(header({ remote: true })).toBe("  test-pkg  downloaded package");
+  });
 });
 
 describe("formatNotFound", () => {
