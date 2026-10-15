@@ -371,6 +371,32 @@ describe("runHmaScan scanner environment", () => {
     expect(hmaEnv().OPENA2A_HOME).toBeUndefined();
   });
 
+  it("marks a no saved by ai-trust 0.7.6 before the scanner raises the scan count (#133)", async () => {
+    const configPath = join(tempHome, ".opena2a", "config.json");
+    mkdirSync(dirname(configPath), { recursive: true });
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        contribute: { enabled: false, consentedAt: null, consentVersion: "1.0" },
+        telemetry: { scanCount: 2, contributePromptDismissedAt: "2026-06-20T10:00:00.000Z" },
+      }),
+    );
+    let savedWhenScanned: unknown;
+    vi.mocked(execFile as any).mockImplementation(async (_cmd: string, args: string[]) => {
+      if (args.includes("secure")) {
+        savedWhenScanned = JSON.parse(readFileSync(configPath, "utf8")).contribute;
+      }
+      return { stdout: scanJson, stderr: "" };
+    });
+
+    await runHmaScan("/tmp/test-pkg");
+
+    expect(savedWhenScanned).toMatchObject({
+      enabled: false,
+      decidedAt: "2026-06-20T10:00:00.000Z",
+    });
+  });
+
   it("sets OPENA2A_HOME when ~/.hackmyagent/config.json holds \"contribute\": false", () => {
     saveChoice(join(tempHome, ".opena2a"), "false");
     saveLegacyChoice(false);
