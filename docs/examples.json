@@ -1,0 +1,59 @@
+{
+  "_about": "Each line of a shell block in README.md, CONTRIBUTING.md and docs/ (not docs/testing/) that runs ai-trust. src/docs-examples.test.ts runs every \"run\" command with the built CLI against a local registry serving docs/demo/registry-fixture.json, in a fresh HOME, and fails unless it exits with \"exit\". The fixture answers \"not found\" for a package it has no answer for; \"note\" says where that sets the exit code. \"cwd\" is where it runs (an empty directory when absent). Each \"noexec\" line is not run, for the reason given. A cited line missing here, or an entry no doc cites, fails the test.",
+  "run": {
+    "npx ai-trust check @modelcontextprotocol/server-filesystem --no-scan": { "exit": 0 },
+    "ai-trust check server-filesystem --no-scan": { "exit": 0 },
+    "npx ai-trust check server-filesystem --no-scan": { "exit": 0 },
+    "npx ai-trust check server-filesystem --no-scan --json": { "exit": 0 },
+    "node dist/index.js check @modelcontextprotocol/server-filesystem --no-scan": { "exit": 0 },
+    "ai-trust audit package.json": { "cwd": "docs/demo", "exit": 0 },
+    "ai-trust audit package.json --json": { "cwd": "docs/demo", "exit": 0 },
+    "ai-trust audit package.json --min-trust 3": { "cwd": "docs/demo", "exit": 2 },
+    "npx ai-trust audit package.json --min-trust 3": { "cwd": "docs/demo", "exit": 2 },
+    "ai-trust audit package.json --scan-missing --contribute": {
+      "cwd": "docs/demo",
+      "exit": 0,
+      "note": "The fixture has an answer for every dependency of docs/demo, so nothing is scanned."
+    },
+    "ai-trust batch @modelcontextprotocol/server-filesystem @modelcontextprotocol/server-postgres": {
+      "exit": 2,
+      "note": "The fixture has no answer for @modelcontextprotocol/server-postgres, so it is not found."
+    },
+    "ai-trust batch my-server-a my-server-b --type mcp_server": {
+      "exit": 2,
+      "note": "Placeholder names: the fixture has no answer for either, so both are not found."
+    },
+    "ai-trust batch react vue express lodash chalk": {
+      "exit": 2,
+      "note": "The fixture has answers for express and chalk only, so react, vue and lodash are not found."
+    },
+    "ai-trust telemetry off": { "exit": 0 },
+    "ai-trust telemetry status": { "exit": 0 },
+    "ai-trust config contribute on": { "exit": 0 },
+    "ai-trust config contribute status": { "exit": 0 },
+    "ai-trust config contribute off": { "exit": 0 }
+  },
+  "noexec": {
+    "npx ai-trust check @modelcontextprotocol/server-filesystem": "Without --no-scan, check downloads the package from npm and scans it. The --no-scan form is in \"run\".",
+    "ai-trust check @modelcontextprotocol/server-filesystem": "Without --no-scan, check downloads the package from npm and scans it. The --no-scan form is in \"run\".",
+    "ai-trust check server-filesystem": "Without --no-scan, check downloads the package from npm and scans it. The --no-scan form is in \"run\".",
+    "ai-trust check server-filesystem --json": "Without --no-scan, check downloads the package from npm and scans it. \"npx ai-trust check server-filesystem --no-scan --json\" is in \"run\".",
+    "ai-trust check server-filesystem --no-color": "Without --no-scan, check downloads the package from npm and scans it.",
+    "ai-trust check server-filesystem --registry-url http://localhost:8080": "Names a registry the reader runs on localhost:8080, and without --no-scan, check downloads the package from npm and scans it.",
+    "ai-trust check @modelcontextprotocol/server-postgres --json": "Without --no-scan, check downloads the package from npm and scans it.",
+    "ai-trust check server-github": "Without --no-scan, check downloads the package from npm and scans it.",
+    "ai-trust check mcp/server-memory": "Without --no-scan, check downloads the package from npm and scans it.",
+    "ai-trust check mcp-server-kubernetes": "Without --no-scan, check downloads the package from npm and scans it.",
+    "ai-trust check @supabase/mcp-server-supabase": "Without --no-scan, check downloads the package from npm and scans it.",
+    "ai-trust check @cloudflare/mcp-server-cloudflare": "Without --no-scan, check downloads the package from npm and scans it.",
+    "ai-trust check @modelcontextprotocol/server-filesystem --contribute": "Downloads the package from npm, scans it and shares the result with the public registry.",
+    "ai-trust check my-custom-agent --type a2a_agent": "my-custom-agent is a placeholder for the reader's own package name.",
+    "ai-trust check mcp-server-xyz --contribute": "mcp-server-xyz is a placeholder for the reader's own package name.",
+    "npx ai-trust check unknown-package": "unknown-package is a placeholder for a package the registry does not have.",
+    "ai-trust check some-package --contribute": "some-package is a placeholder for the reader's own package name.",
+    "ai-trust check some-package": "some-package is a placeholder for the reader's own package name.",
+    "ai-trust check /path/to/local --scan-path /path/to/local": "/path/to/local is a placeholder for the reader's own directory.",
+    "ai-trust audit requirements.txt": "docs/demo, the sample project, has a package.json and no requirements.txt.",
+    "TRUST=$(npx ai-trust check server-filesystem --no-scan --json | jq '.trustLevel')": "A line of a shell script that also needs jq. The ai-trust command in it, \"npx ai-trust check server-filesystem --no-scan --json\", is in \"run\"."
+  }
+}
