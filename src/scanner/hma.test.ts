@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -292,6 +292,12 @@ describe("runHmaScan scanner environment", () => {
     writeFileSync(join(dir, "config.json"), JSON.stringify({ contribute: { enabled } }));
   }
 
+  /** HMA's legacy config, whose `"contribute": true` a `secure` run moves into ~/.opena2a. */
+  function saveLegacyChoice(contribute: unknown): void {
+    mkdirSync(join(tempHome, ".hackmyagent"), { recursive: true });
+    writeFileSync(join(tempHome, ".hackmyagent", "config.json"), JSON.stringify({ contribute }));
+  }
+
   /** The environment of the `secure` invocation. */
   function secureEnv(): NodeJS.ProcessEnv | undefined {
     const call = vi
@@ -343,6 +349,33 @@ describe("runHmaScan scanner environment", () => {
     },
   );
 
+  it.each(["false", "true", 1])(
+    "leaves OPENA2A_HOME unset when the saved enabled is %j and ~/.hackmyagent/config.json holds \"contribute\": true",
+    async (value) => {
+      saveChoice(join(tempHome, ".opena2a"), value);
+      saveLegacyChoice(true);
+      vi.mocked(execFile as any).mockResolvedValue({ stdout: scanJson, stderr: "" });
+
+      await runHmaScan("/tmp/test-pkg");
+
+      expect(secureEnv()).toBeDefined();
+      expect(secureEnv()?.OPENA2A_HOME).toBeUndefined();
+    },
+  );
+
+  it("sets OPENA2A_HOME when ~/.hackmyagent/config.json holds \"contribute\": false", () => {
+    saveChoice(join(tempHome, ".opena2a"), "false");
+    saveLegacyChoice(false);
+    expect(hmaEnv().OPENA2A_HOME).toBe(join(tempHome, ".opena2a"));
+  });
+
+  it("sets OPENA2A_HOME when ~/.hackmyagent/config.json does not parse", () => {
+    saveChoice(join(tempHome, ".opena2a"), "false");
+    mkdirSync(join(tempHome, ".hackmyagent"), { recursive: true });
+    writeFileSync(join(tempHome, ".hackmyagent", "config.json"), "{\"contribute\": true");
+    expect(hmaEnv().OPENA2A_HOME).toBe(join(tempHome, ".opena2a"));
+  });
+
   it("leaves OPENA2A_HOME unset when no config file exists", () => {
     expect(hmaEnv().OPENA2A_HOME).toBeUndefined();
   });
@@ -381,5 +414,36 @@ describe("runHmaScan scanner environment", () => {
       saveChoice(join(tempHome, ".opena2a"), true);
       expect(await queuedStats(hmaEnv())).toBe("1");
     });
+
+    // A `secure` run moves `"contribute": true` from ~/.hackmyagent/config.json
+    // into ~/.opena2a/config.json unless HMA reads the saved choice as on.
+    it.each(["false", "true"])(
+      "a scan leaves a saved enabled of %j in place when ~/.hackmyagent/config.json holds \"contribute\": true",
+      async (value) => {
+        const actual =
+          await vi.importActual<typeof import("node:child_process")>("node:child_process");
+        const { promisify } = await vi.importActual<typeof import("node:util")>("node:util");
+        vi.mocked(execFile as any).mockImplementation(promisify(actual.execFile));
+        saveChoice(join(tempHome, ".opena2a"), value);
+        saveLegacyChoice(true);
+        const pkg = join(tempHome, "pkg");
+        mkdirSync(pkg);
+        writeFileSync(join(pkg, "index.js"), "module.exports = 1;\n");
+        // Keep the scanner's anonymous usage telemetry off for this run.
+        const savedTelemetry = process.env.OPENA2A_TELEMETRY;
+        process.env.OPENA2A_TELEMETRY = "off";
+        try {
+          await runHmaScan(pkg, { deep: false });
+        } finally {
+          if (savedTelemetry === undefined) delete process.env.OPENA2A_TELEMETRY;
+          else process.env.OPENA2A_TELEMETRY = savedTelemetry;
+        }
+
+        const read = (dir: string) => JSON.parse(readFileSync(join(tempHome, dir, "config.json"), "utf8"));
+        expect(read(".opena2a").contribute.enabled).toBe(value);
+        expect(read(".hackmyagent").contribute).toBe(true);
+      },
+      60000,
+    );
   });
 });

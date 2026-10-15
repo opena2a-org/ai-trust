@@ -253,10 +253,32 @@ export function reinstallCommand(fromDir: string = MODULE_DIR): string {
  * and takes only the boolean true as consent. For a saved value that is
  * truthy but not the boolean true, the scan therefore runs with OPENA2A_HOME
  * set to ~/.opena2a, the directory both tools read when it is unset.
+ *
+ * It does not while HMA's legacy config, ~/.hackmyagent/config.json, holds
+ * `"contribute": true`. A `secure` run, even with `--no-contribute`, moves
+ * that opt-in into ~/.opena2a/config.json as the boolean true unless HMA's
+ * own reading of the saved choice is already on. With OPENA2A_HOME set, that
+ * reading of such a value is off, so the scan would replace the saved value
+ * with true; without it, the reading is on and the saved value stays.
  */
 export function hmaEnv(): NodeJS.ProcessEnv {
-  if (process.env.OPENA2A_HOME || !hasTruthyNonBooleanChoice()) return process.env;
+  if (process.env.OPENA2A_HOME || !hasTruthyNonBooleanChoice() || hasLegacyHmaOptIn()) {
+    return process.env;
+  }
   return { ...process.env, OPENA2A_HOME: join(homedir(), ".opena2a") };
+}
+
+/** True when HMA's legacy config, ~/.hackmyagent/config.json, holds `"contribute": true`. */
+function hasLegacyHmaOptIn(): boolean {
+  try {
+    const legacy: unknown = JSON.parse(
+      readFileSync(join(homedir(), ".hackmyagent", "config.json"), "utf8"),
+    );
+    return (legacy as { contribute?: unknown } | null)?.contribute === true;
+  } catch {
+    // No legacy config, or one HMA cannot parse either: there is nothing to move.
+    return false;
+  }
 }
 
 /**
@@ -288,7 +310,8 @@ export async function runHmaScan(
   // queues its own scan_result, so `--no-contribute` would not stop it.
   // The flag does not cover HMA's NanoMind classification telemetry, which a
   // deep scan still sends whenever the saved choice is on; hmaEnv() covers a
-  // saved value HMA would read as on where ai-trust reads no choice.
+  // saved value HMA would read as on where ai-trust reads no choice, except
+  // while HMA's legacy config holds an opt-in.
   const env = hmaEnv();
   const args = [...hma.prefixArgs, "secure", "--format", "json", "--no-contribute"];
   if (deep) {
