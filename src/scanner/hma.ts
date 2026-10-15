@@ -6,9 +6,11 @@
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import Module, { createRequire } from "node:module";
+import { homedir } from "node:os";
 import { basename, dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { hasTruthyNonBooleanChoice } from "../telemetry/opt-in.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -242,6 +244,22 @@ export function reinstallCommand(fromDir: string = MODULE_DIR): string {
 }
 
 /**
+ * The environment for the HMA scan subprocess. HMA gates its NanoMind
+ * classification telemetry on its own reading of the saved contribution
+ * choice, and `--no-contribute` does not change that reading. Without
+ * OPENA2A_HOME, HMA takes the value @opena2a/shared returns, the saved value
+ * as it is, so a string such as "false" passes that gate where ai-trust
+ * reads no choice. With OPENA2A_HOME set, HMA reads the config file itself
+ * and takes only the boolean true as consent. For a saved value that is
+ * truthy but not the boolean true, the scan therefore runs with OPENA2A_HOME
+ * set to ~/.opena2a, the directory both tools read when it is unset.
+ */
+export function hmaEnv(): NodeJS.ProcessEnv {
+  if (process.env.OPENA2A_HOME || !hasTruthyNonBooleanChoice()) return process.env;
+  return { ...process.env, OPENA2A_HOME: join(homedir(), ".opena2a") };
+}
+
+/**
  * Run HMA security scan against a directory.
  *
  * @returns Parsed scan results
@@ -269,7 +287,9 @@ export async function runHmaScan(
   // Without the flag the HMA subprocess reads ~/.opena2a/config.json and
   // queues its own scan_result, so `--no-contribute` would not stop it.
   // The flag does not cover HMA's NanoMind classification telemetry, which a
-  // deep scan still sends whenever the saved choice is on.
+  // deep scan still sends whenever the saved choice is on; hmaEnv() covers a
+  // saved value HMA would read as on where ai-trust reads no choice.
+  const env = hmaEnv();
   const args = [...hma.prefixArgs, "secure", "--format", "json", "--no-contribute"];
   if (deep) {
     args.push("--deep");
@@ -285,7 +305,7 @@ export async function runHmaScan(
   let attemptArgs = args;
   for (;;) {
     try {
-      return await runHmaWithArgs(hma.cmd, attemptArgs, deep);
+      return await runHmaWithArgs(hma.cmd, attemptArgs, deep, env);
     } catch (err: unknown) {
       // If an optional flag caused "unknown option", retry without it (older HMA version)
       const rejected = OPTIONAL_HMA_FLAGS.find(
@@ -314,12 +334,13 @@ async function runHmaWithArgs(
   cmd: string,
   args: string[],
   deep: boolean,
+  env: NodeJS.ProcessEnv,
 ): Promise<HmaScanResult> {
   try {
     const { stdout } = await execFileAsync(
       cmd,
       args,
-      { timeout: deep ? 180_000 : 120_000 }
+      { timeout: deep ? 180_000 : 120_000, env }
     );
 
     return parseHmaOutput(stdout);
