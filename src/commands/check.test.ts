@@ -412,6 +412,98 @@ describe("check command", () => {
     });
   });
 
+  describe("a <name>@<version> target is looked up in the registry by its name", () => {
+    function stderrText(): string {
+      return consoleErrSpy.mock.calls
+        .map((args) => args.join(" "))
+        .join("\n")
+        .replace(/\x1b\[[0-9;]*m/g, "");
+    }
+
+    it("--no-scan asks about the package and notes that the answer is not for the version", async () => {
+      const mockCheckTrust = vi.fn().mockResolvedValue({
+        name: "my-pkg",
+        found: true,
+        verdict: "safe",
+        trustLevel: 3,
+        packageType: "mcp_server",
+      });
+      vi.mocked(RegistryClient).mockImplementation(
+        function () {
+          return {
+            checkTrust: mockCheckTrust,
+            batchQuery: vi.fn(),
+            publishScan: vi.fn(),
+          } as any;
+        }
+      );
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "check", "my-pkg@1.2.3", "--no-scan"]);
+
+      expect(mockCheckTrust).toHaveBeenCalledWith("my-pkg", undefined);
+      expect(stderrText()).toContain(
+        "Note: the registry's answer is for the package my-pkg, not for version 1.2.3."
+      );
+      expect(formatCheckResult).toHaveBeenCalled();
+      expect(process.exitCode).toBeUndefined();
+    });
+
+    it("the default check asks about the package, and a registry library is not scanned", async () => {
+      const mockCheckTrust = vi.fn().mockResolvedValue({
+        name: "express",
+        found: true,
+        verdict: "safe",
+        trustLevel: 3,
+        packageType: "library",
+      });
+      vi.mocked(RegistryClient).mockImplementation(
+        function () {
+          return {
+            checkTrust: mockCheckTrust,
+            batchQuery: vi.fn(),
+            publishScan: vi.fn(),
+          } as any;
+        }
+      );
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "check", "express@4.18.0"]);
+
+      expect(mockCheckTrust).toHaveBeenCalledWith("express", undefined);
+      expect(stderrText()).toContain(
+        "Note: the registry's answer is for the package express, not for version 4.18.0."
+      );
+      expect(scanPackage).not.toHaveBeenCalled();
+      expect(process.exitCode).toBeUndefined();
+    });
+
+    it("a registry miss names the target as typed and prints no note", async () => {
+      const mockCheckTrust = vi
+        .fn()
+        .mockRejectedValue(new PackageNotFoundError("@scope/my-pkg"));
+      vi.mocked(RegistryClient).mockImplementation(
+        function () {
+          return {
+            checkTrust: mockCheckTrust,
+            batchQuery: vi.fn(),
+            publishScan: vi.fn(),
+          } as any;
+        }
+      );
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "check", "@scope/my-pkg@2.0.0", "--no-scan"]);
+
+      expect(mockCheckTrust).toHaveBeenCalledWith("@scope/my-pkg", undefined);
+      expect(formatNotFound).toHaveBeenCalledWith(
+        expect.objectContaining({ pkg: "@scope/my-pkg@2.0.0", ecosystem: "npm" })
+      );
+      expect(stderrText()).not.toContain("Note:");
+      expect(process.exitCode).toBe(2);
+    });
+  });
+
   describe("default (local scan)", () => {
     it("triggers local HMA scan by default", async () => {
       vi.mocked(isHmaAvailable).mockResolvedValue(true);

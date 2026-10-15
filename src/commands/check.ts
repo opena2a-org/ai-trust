@@ -205,11 +205,14 @@ export function registerCheckCommand(program: Command): void {
       // --no-scan: registry lookup only (fast mode)
       if (opts.scan === false) {
         try {
-          const result = await client.checkTrust(name, opts.type);
+          // The registry looks a package up by its name: a `<name>@<version>`
+          // target is looked up as `<name>`.
+          const result = await client.checkTrust(pkg.name, opts.type);
           // The registry can answer a miss with the all-zero package id
           // instead of a 404; the client reads that as found: false. Both are
           // the same miss, with the same output and exit code.
           if (!result.found) throw new PackageNotFoundError(name);
+          notePackageAnswer(pkg);
           // Classify using the registry's packageType (authoritative) before
           // falling back to the name-only allowlist.
           const tier = classify({ name, packageType: result.packageType }).tier;
@@ -269,9 +272,10 @@ export function registerCheckCommand(program: Command): void {
       // @types/* entry the registry hasn't catalogued yet) must still be
       // scanned. Only registry-confirmed libraries skip the scan.
       try {
-        const registryResult = await client.checkTrust(name, opts.type);
+        const registryResult = await client.checkTrust(pkg.name, opts.type);
         const tier = classify({ name, packageType: registryResult.packageType }).tier;
         if (tier === "unrelated") {
+          notePackageAnswer(pkg);
           printLibraryWithTrust(registryResult, globalOpts.json, ecosystem);
           // Policy signals propagate even for out-of-scope libraries.
           finish(verdictOutcome(registryResult.verdict));
@@ -567,6 +571,20 @@ function verdictOutcome(verdict?: string): CheckOutcome {
     verdict === "warnings" ||
     verdict === "failed";
   return policyFailure ? "policy-signal" : "ok";
+}
+
+/**
+ * The registry is asked about a `<name>@<version>` target by its name alone,
+ * so the answer shown for it is the package's, not that version's. Say so on
+ * stderr before the answer.
+ */
+function notePackageAnswer(target: PackageTarget): void {
+  if (target.kind !== "npm" || target.version === undefined) return;
+  const name = stripControlCharacters(target.name);
+  const version = stripControlCharacters(target.version);
+  console.error(
+    chalk.dim(`  Note: the registry's answer is for the package ${name}, not for version ${version}.`)
+  );
 }
 
 /**
