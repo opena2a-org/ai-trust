@@ -50,9 +50,14 @@ export function resolvePackageName(name: string): string {
 export function resolveAndLog(name: string): string {
   const resolved = resolvePackageName(name);
   if (resolved !== name) {
-    console.error(`Resolved: ${name} -> ${resolved}`);
+    logResolved(name, resolved);
   }
   return resolved;
+}
+
+/** Note on stderr that an MCP shorthand was expanded. */
+export function logResolved(name: string, resolved: string): void {
+  console.error(`Resolved: ${name} -> ${resolved}`);
 }
 
 /**
