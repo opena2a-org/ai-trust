@@ -20,13 +20,15 @@ import {
   formatNotFound,
 } from "../output/formatter.js";
 import { buildNotFoundOutput, translateDownloadError } from "@opena2a/check-core";
-import { resolveAndLog, parsePackageTarget, bareEcosystemPrefix } from "../utils/resolve.js";
+import { logResolved } from "../utils/resolve.js";
 import { stripControlCharacters } from "../output/sanitize.js";
 import { isHmaAvailable, reinstallCommand, scanPackage, scanLocalPath } from "../scanner/index.js";
 import type { ScanResult } from "../scanner/index.js";
 import { confirm } from "../utils/prompt.js";
 import { shareScans } from "../telemetry/index.js";
-import { checkSkillOrMcp, parseRichTarget } from "../check/skill-mcp-check.js";
+import { checkSkillOrMcp } from "../check/skill-mcp-check.js";
+import { classifyCheckTarget } from "../check/target.js";
+import type { InvalidTarget, PackageTarget } from "../check/target.js";
 import { checkCitation } from "../utils/cli-prefix.js";
 import { shellArg } from "../utils/shell-arg.js";
 import { buildCheckJson } from "../output/check-json.js";
@@ -130,18 +132,21 @@ export function registerCheckCommand(program: Command): void {
         return;
       }
 
+      // The target is read once; every step below reads the result.
+      const target = classifyCheckTarget(rawName);
+
       // Rich-block dispatch (skill: / mcp: prefix). Mirrors HMA's
       // src/check/ module for parity F12 / F13. When the registry
       // has a fresh narrative, render the rich block and exit.
       // Otherwise fall through to the existing classifier flow.
-      const parsed = parseRichTarget(rawName);
-      if (parsed) {
+      let pkg: PackageTarget | InvalidTarget;
+      if (target.kind === "skill" || target.kind === "mcp") {
         const richClient = createRegistryClient({
           baseUrl: globalOpts.registryUrl,
           userAgent: `ai-trust/${AI_TRUST_VERSION}`,
         });
         const result = await checkSkillOrMcp({
-          parsed,
+          parsed: { artifactType: target.kind, name: target.name },
           registryUrl: globalOpts.registryUrl,
           client: richClient,
           userAgent: `ai-trust/${AI_TRUST_VERSION}`,
@@ -165,33 +170,28 @@ export function registerCheckCommand(program: Command): void {
           }
           return;
         }
-        // No narrative → falls through; classifier picks up parsed.name
-        // as a normal lookup target. Replace the name so downstream
-        // logic (no-scan, scan paths) operates on the unprefixed name.
-        rawName = parsed.name;
+        // No narrative: the name after the prefix is checked as a package
+        // target (no-scan, scan paths).
+        pkg = target.fallback;
+      } else {
+        pkg = target;
       }
 
       // `pip:` or `npm:` with nothing after it names no package: a usage
       // error, not a lookup of a package called "pip:".
-      const barePrefix = bareEcosystemPrefix(rawName);
-      if (barePrefix) {
+      if (pkg.kind === "invalid") {
         console.error(
-          `Error: No package name after "${barePrefix}". Usage: ${checkCitation()} ${barePrefix}<package>`
+          `Error: No package name after "${pkg.prefix}". Usage: ${checkCitation()} ${pkg.prefix}<package>`
         );
-        process.exitCode = 1;
+        finish("usage-error");
         return;
       }
 
-      // Strip ecosystem prefix (pip: / npm:) before MCP-shorthand resolution.
-      // Closes #50: prior to this, `check pip:<pkg>` kept the prefix in the
-      // output `name` and reported `ecosystem: "npm"`. Now ecosystem flows
-      // through to every not-found / scan-path output site.
-      const { name: stripped, ecosystem } = parsePackageTarget(rawName);
-      rawName = stripped;
-
-      // MCP shorthand (`server-*` -> `@modelcontextprotocol/server-*`) names
-      // npm packages; a pip: target is used as given.
-      const name = ecosystem === "npm" ? resolveAndLog(rawName) : rawName;
+      // The ecosystem from a pip: / npm: prefix flows through to every
+      // not-found / scan-path output site (#50). An MCP shorthand
+      // (`server-*` -> `@modelcontextprotocol/server-*`) is noted when expanded.
+      if (pkg.kind === "npm" && pkg.shorthand) logResolved(pkg.shorthand, pkg.spec);
+      const { spec: name, ecosystem } = pkg;
       const client = createRegistryClient({
         baseUrl: globalOpts.registryUrl,
         userAgent: `ai-trust/${AI_TRUST_VERSION}`,
@@ -220,9 +220,7 @@ export function registerCheckCommand(program: Command): void {
             // Out of scope is informational (exit 0) UNLESS the registry has
             // actually flagged this library as blocked/warning — policy
             // signals always propagate regardless of scope.
-            if (isPolicyFailure(result.verdict)) {
-              process.exitCode = 2;
-            }
+            finish(verdictOutcome(result.verdict));
             return;
           }
           if (globalOpts.json) {
@@ -230,12 +228,7 @@ export function registerCheckCommand(program: Command): void {
           } else {
             console.log(formatCheckResult(result, ecosystem));
           }
-          if (
-            result.found &&
-            (result.verdict === "blocked" || result.verdict === "warning" || result.verdict === "warnings" || result.verdict === "failed")
-          ) {
-            process.exitCode = 2;
-          }
+          finish(verdictOutcome(result.verdict));
         } catch (err) {
           if (err instanceof PackageNotFoundError) {
             // Registry has no data. The name-only allowlist covers exact
@@ -244,10 +237,10 @@ export function registerCheckCommand(program: Command): void {
             // Otherwise fall through to the standard "not found" handler.
             const nameTier = classify({ name }).tier;
             if (nameTier === "unrelated") {
-              printOutOfScopeByName(name, globalOpts.json, ecosystem);
+              printOutOfScopeByName(pkg, globalOpts.json);
               return; // exit 0
             }
-            handleNoScanNotFound(name, ecosystem, globalOpts);
+            handleNoScanNotFound(pkg, globalOpts);
           } else {
             const message = err instanceof Error ? err.message : String(err);
             if (globalOpts.json) {
@@ -260,7 +253,7 @@ export function registerCheckCommand(program: Command): void {
               // A registry error can quote the registry's response body.
               console.error(`Error: ${stripControlCharacters(message)}`);
             }
-            process.exitCode = 1;
+            finish("error");
           }
         }
         return;
@@ -281,9 +274,7 @@ export function registerCheckCommand(program: Command): void {
         if (tier === "unrelated") {
           printLibraryWithTrust(registryResult, globalOpts.json, ecosystem);
           // Policy signals propagate even for out-of-scope libraries.
-          if (isPolicyFailure(registryResult.verdict)) {
-            process.exitCode = 2;
-          }
+          finish(verdictOutcome(registryResult.verdict));
           return;
         }
         // native / adjacent / unknown — fall through to scan
@@ -304,8 +295,7 @@ export function registerCheckCommand(program: Command): void {
       }
 
       await handleScanFlow(
-        name,
-        ecosystem,
+        pkg,
         client,
         globalOpts,
         opts,
@@ -344,21 +334,20 @@ Examples:
 
 // NOTE: handleNotFound is currently unreferenced (the action handler routes
 // directly to handleNoScanNotFound / handleScanFlow). Kept for now in case
-// a future interactive-not-found flow wants to consume it; the ecosystem
-// param threads pip:/npm: prefix awareness through if it does.
+// a future interactive-not-found flow wants to consume it; the target
+// carries the pip:/npm: ecosystem through if it does.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function handleNotFound(
-  name: string,
-  ecosystem: "npm" | "pypi",
+  target: PackageTarget,
   client: RegistryClient,
   globalOpts: { registryUrl: string; json: boolean },
   opts: CheckOptions
 ): Promise<void> {
+  const { spec: name, ecosystem } = target;
   // Non-interactive mode with --scan-if-missing
   if (opts.scanIfMissing) {
     await handleScanFlow(
-      name,
-      ecosystem,
+      target,
       client,
       globalOpts,
       opts,
@@ -387,7 +376,7 @@ async function handleNotFound(
       console.error("  Or scan your full project:");
       console.error("    npx hackmyagent secure .");
     }
-    process.exitCode = 2;
+    finish("not-found");
     return;
   }
 
@@ -400,44 +389,46 @@ async function handleNotFound(
 
   const shouldScan = await confirm("No trust data yet. Scan it now?", true);
   if (!shouldScan) {
-    process.exitCode = 2;
+    finish("not-found");
     return;
   }
 
-  await handleScanFlow(name, ecosystem, client, globalOpts, opts, "Scanning...");
+  await handleScanFlow(target, client, globalOpts, opts, "Scanning...");
 }
-
-/** A git-style shorthand, `<owner>/<repo>` with no `@scope`. */
-const GIT_STYLE_NAME = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
 /** The downloader's refusal of a name that is not an npm registry package name. */
 const NPM_NAME_REFUSAL = /is not a valid npm package name/;
 
 /**
- * The npm downloader refuses a name that is not an npm registry package
- * name before `npm pack` runs, so a git-style `<owner>/<repo>` no longer
- * reaches npm's git fallback and its `code 128`. The refusal is translated
- * into the same not-found block, with the `@<owner>/<repo>` suggestion,
- * that translateDownloadError gives for that `code 128`, so
- * `check <owner>/<repo>` keeps its released result and exit code 2.
+ * The not-found hint for a failed download, or undefined when the failure
+ * is not one translateDownloadError recognizes. The npm downloader refuses a
+ * name that is not an npm registry package name before `npm pack` runs, so a
+ * git-style `<owner>/<repo>` no longer reaches npm's git fallback and its
+ * `code 128`. That refusal gets the not-found block, with the
+ * `@<owner>/<repo>` suggestion, that translateDownloadError gives for that
+ * `code 128`, so `check <owner>/<repo>` keeps its released result and exit
+ * code 2.
  */
-function translateNameRefusal(
-  name: string,
+function downloadMiss(
+  target: PackageTarget,
   message: string
 ): ReturnType<typeof translateDownloadError> {
-  if (!NPM_NAME_REFUSAL.test(message)) return undefined;
-  if (name.startsWith("@") || !GIT_STYLE_NAME.test(name)) return undefined;
-  return translateDownloadError(name, "code 128");
+  const translated = translateDownloadError(target.spec, message);
+  if (translated !== undefined) return translated;
+  if (target.kind === "git" && NPM_NAME_REFUSAL.test(message)) {
+    return translateDownloadError(target.spec, "code 128");
+  }
+  return undefined;
 }
 
 async function handleScanFlow(
-  name: string,
-  ecosystem: "npm" | "pypi",
+  target: PackageTarget,
   client: RegistryClient,
   globalOpts: { registryUrl: string; json: boolean },
   opts: CheckOptions,
   statusMessage: string
 ): Promise<void> {
+  const { spec: name, ecosystem } = target;
   if (!(await checkHmaReady())) return;
 
   console.error(chalk.gray(statusMessage));
@@ -450,8 +441,7 @@ async function handleScanFlow(
     // Translate recognized downloader errors into a not-found block so users
     // see the same UX they get for a clean registry miss instead of a raw
     // `code 128` git exit code (F3 from the check-command-divergence brief).
-    const translated =
-      translateDownloadError(name, message) ?? translateNameRefusal(name, message);
+    const translated = downloadMiss(target, message);
     if (translated !== undefined) {
       if (globalOpts.json) {
         console.log(formatJson(buildNotFoundOutput({
@@ -471,7 +461,7 @@ async function handleScanFlow(
           })
         );
       }
-      process.exitCode = 2;
+      finish("not-found");
       return;
     }
     if (globalOpts.json) {
@@ -483,7 +473,7 @@ async function handleScanFlow(
     } else {
       console.error(`Error: ${message}`);
     }
-    process.exitCode = 1;
+    finish("error");
     return;
   }
 
@@ -496,9 +486,7 @@ async function handleScanFlow(
   }
 
   // Set exit code based on verdict (2 = policy signal, matching audit/batch)
-  if (scanResult.verdict === "blocked" || scanResult.verdict === "warning") {
-    process.exitCode = 2;
-  }
+  finish(verdictOutcome(scanResult.verdict));
 
   // The scan ping and the community contribution: whether to share is
   // decided by decideContribution, with the same inputs as `audit`.
@@ -511,10 +499,10 @@ async function handleScanFlow(
 }
 
 function handleNoScanNotFound(
-  name: string,
-  ecosystem: "npm" | "pypi",
+  target: PackageTarget,
   globalOpts: { registryUrl: string; json: boolean }
 ): void {
+  const { spec: name, ecosystem } = target;
   if (globalOpts.json) {
     console.log(formatJson(buildNotFoundOutput({
       name,
@@ -530,7 +518,7 @@ function handleNoScanNotFound(
     // Shared cli-ui renderNotFoundBlock output (F2 from the check-command-divergence brief).
     console.log(formatNotFound({ pkg: name, ecosystem }));
   }
-  process.exitCode = 2;
+  finish("not-found");
 }
 
 async function checkHmaReady(): Promise<boolean> {
@@ -540,24 +528,45 @@ async function checkHmaReady(): Promise<boolean> {
       "HMA (HackMyAgent) is required for scanning. ai-trust runs the hackmyagent version it pins as a dependency, and that copy could not be run. Reinstall it:"
     );
     console.error(`  ${reinstallCommand()}`);
-    process.exitCode = 1;
+    finish("error");
     return false;
   }
   return true;
 }
 
+/** How a check ended, and the exit code of each outcome. */
+const EXIT_CODES = {
+  // An answer or scan with no policy signal.
+  ok: 0,
+  // The registry or the scan says blocked or warning.
+  "policy-signal": 2,
+  // No registry data with --no-scan, or no package to download.
+  "not-found": 2,
+  // The target names no package.
+  "usage-error": 1,
+  // The registry lookup or the download failed, or the scanner cannot run.
+  error: 1,
+} as const;
+type CheckOutcome = keyof typeof EXIT_CODES;
+
+/** Set the exit code for an outcome. 0 leaves the exit code as it is. */
+function finish(outcome: CheckOutcome): void {
+  const code = EXIT_CODES[outcome];
+  if (code !== 0) process.exitCode = code;
+}
+
 /**
- * True when a registry verdict represents a policy failure worth surfacing
- * via exit code 2. A registry-flagged blocked/warning library should still
- * fail CI even though the package itself is out of ai-trust's scope.
+ * The outcome of a registry or scan verdict: a policy signal for blocked or
+ * warning. A registry-flagged blocked/warning library should still fail CI
+ * even though the package itself is out of ai-trust's scope.
  */
-function isPolicyFailure(verdict?: string): boolean {
-  return (
+function verdictOutcome(verdict?: string): CheckOutcome {
+  const policyFailure =
     verdict === "blocked" ||
     verdict === "warning" ||
     verdict === "warnings" ||
-    verdict === "failed"
-  );
+    verdict === "failed";
+  return policyFailure ? "policy-signal" : "ok";
 }
 
 /**
@@ -623,11 +632,8 @@ function hmaCheckTarget(name: string, ecosystem: "npm" | "pypi"): string {
  * but whose name matches our library allowlist. Explicitly notes the lack of
  * registry confirmation so the user knows we haven't verified anything.
  */
-function printOutOfScopeByName(
-  name: string,
-  asJson: boolean,
-  ecosystem: "npm" | "pypi",
-): void {
+function printOutOfScopeByName(target: PackageTarget, asJson: boolean): void {
+  const { spec: name, ecosystem } = target;
   if (asJson) {
     console.log(formatJson({
       name,
