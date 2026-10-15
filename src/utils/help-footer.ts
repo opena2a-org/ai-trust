@@ -53,8 +53,5 @@ export function helpFooter(usageTelemetryEnabled: boolean): string {
 Telemetry:
   ${usageTelemetryEnabled ? USAGE_TELEMETRY_ON : USAGE_TELEMETRY_OFF}
   Local scans may contribute to the OpenA2A Registry. Disable: --no-contribute (what ai-trust sends for this scan) or ai-trust config contribute off (saved)
-  With contribution saved on, a default scan also sends the bundled scanner's classification
-  telemetry (per-file content hash and verdict); --no-contribute does not stop it.
-  Stop it: --no-deep or ai-trust config contribute off
 `;
 }
