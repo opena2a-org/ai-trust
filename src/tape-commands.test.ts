@@ -7,7 +7,9 @@
  * subcommand or the root command registers, gives each flag shown with
  * `<value>` a value (a whole number in the range when the flag's description
  * states one, as `(0-4)`), and passes as many arguments as the subcommand
- * takes. The check asks the built CLI itself, through
+ * takes. It parses in commander's two passes: the root command first takes
+ * its own flags from wherever they stand, then the subcommand parses the
+ * rest. The check asks the built CLI itself, through
  * `node dist/index.js <subcommand> --help`, so a tape cannot show a command a
  * reader would fail to run. Hidden lines are setup (a `cd` into the copy of the
  * sample project) and are not checked.
@@ -109,35 +111,20 @@ function arity(usage: string): { min: number; max: number } {
   };
 }
 
-function problemsIn(command: string, rootFlags: Map<string, FlagSpec>): string[] {
-  const m = command.match(/^(?:npx\s+)?ai-trust(?:\s+(.*))?$/);
-  if (!m) return ["not an ai-trust command"];
-  const tokens = (m[1] ?? "").split(/\s+/).filter((t) => t.length > 0);
-  // A first token that is not a flag is the subcommand; `ai-trust --version` has none.
-  const sub = tokens.length > 0 && !tokens[0].startsWith("-") ? tokens.shift() : undefined;
-  let flags = rootFlags;
-  let usage = "Usage: ai-trust [options]";
-  if (sub !== undefined) {
-    const subHelp = help([sub]);
-    usage = subHelp.stdout.split("\n")[0] ?? "";
-    if (subHelp.status !== 0 || !usage.startsWith(`Usage: ai-trust ${sub} `)) {
-      return [`unregistered subcommand ${sub}`];
-    }
-    flags = new Map([...rootFlags, ...registeredFlags(subHelp.stdout)]);
-  }
-  const problems: string[] = [];
-  let operands = 0;
+/**
+ * Takes the flags `flags` registers out of `tokens`, each with its value,
+ * adding a problem for a value that is missing or out of range, and returns
+ * the tokens left over, in order.
+ */
+function takeFlags(tokens: string[], flags: Map<string, FlagSpec>, problems: string[]): string[] {
+  const left: string[] = [];
   for (let i = 0; i < tokens.length; i++) {
-    if (!tokens[i].startsWith("-")) {
-      operands++;
-      continue;
-    }
     const eq = tokens[i].indexOf("=");
     const flag = eq === -1 ? tokens[i] : tokens[i].slice(0, eq);
     let value = eq === -1 ? undefined : tokens[i].slice(eq + 1);
-    const spec = flags.get(flag);
+    const spec = tokens[i].startsWith("-") ? flags.get(flag) : undefined;
     if (spec === undefined) {
-      problems.push(`unregistered flag ${flag}`);
+      left.push(tokens[i]);
       continue;
     }
     // As commander parses: a required value is the next token whatever it is,
@@ -157,6 +144,40 @@ function problemsIn(command: string, rootFlags: Map<string, FlagSpec>): string[]
         problems.push(`flag ${flag} value "${value}" is not a whole number from ${min} to ${max}, as its help states`);
       }
     }
+  }
+  return left;
+}
+
+function problemsIn(command: string, rootFlags: Map<string, FlagSpec>): string[] {
+  const m = command.match(/^(?:npx\s+)?ai-trust(?:\s+(.*))?$/);
+  if (!m) return ["not an ai-trust command"];
+  const problems: string[] = [];
+  // Commander parses in two passes. The root program first takes its own flags,
+  // with their values, from anywhere in the arguments; help it leaves to the
+  // subcommand. So in `check --type --json <name>`, --type takes <name>.
+  const ownRootFlags = new Map([...rootFlags].filter(([name]) => name !== "-h" && name !== "--help"));
+  const tokens = takeFlags(
+    (m[1] ?? "").split(/\s+/).filter((t) => t.length > 0),
+    ownRootFlags,
+    problems,
+  );
+  // A first token left that is not a flag is the subcommand; `ai-trust --version` has none.
+  const sub = tokens.length > 0 && !tokens[0].startsWith("-") ? tokens.shift() : undefined;
+  let flags = rootFlags;
+  let usage = "Usage: ai-trust [options]";
+  if (sub !== undefined) {
+    const subHelp = help([sub]);
+    usage = subHelp.stdout.split("\n")[0] ?? "";
+    if (subHelp.status !== 0 || !usage.startsWith(`Usage: ai-trust ${sub} `)) {
+      return [`unregistered subcommand ${sub}`];
+    }
+    flags = registeredFlags(subHelp.stdout);
+  }
+  // The second pass: the subcommand parses what is left.
+  let operands = 0;
+  for (const token of takeFlags(tokens, flags, problems)) {
+    if (token.startsWith("-")) problems.push(`unregistered flag ${token.split("=")[0]}`);
+    else operands++;
   }
   const { min, max } = arity(usage);
   if (operands < min || operands > max) {
@@ -211,5 +232,24 @@ describe("tapes type only registered ai-trust commands and flags", () => {
     ]);
     expect(problemsIn("npx ai-trust audit package.json --min-trust 3", rootFlags)).toEqual([]);
     expect(problemsIn("npx ai-trust audit --min-trust=0 package.json", rootFlags)).toEqual([]);
+  }, 60000);
+
+  it("parses root options first, wherever they stand, as the CLI does", () => {
+    const rootFlags = registeredFlags(help([]).stdout);
+    // The CLI exits 1 on these two: the root takes --json and --no-color, so
+    // --type takes the package name in the first and no value in the second.
+    expect(
+      problemsIn("npx ai-trust check --type --json @modelcontextprotocol/server-filesystem --no-scan", rootFlags),
+    ).toEqual(['0 argument(s), "Usage: ai-trust check [options] <name>" takes 1']);
+    expect(problemsIn("npx ai-trust check @modelcontextprotocol/server-filesystem --type --no-color", rootFlags)).toEqual([
+      "flag --type takes a value and none follows",
+    ]);
+    // The CLI runs check on this one: root options may come before the subcommand.
+    expect(
+      problemsIn(
+        "npx ai-trust --registry-url http://127.0.0.1:9 --json check @modelcontextprotocol/server-filesystem --no-scan",
+        rootFlags,
+      ),
+    ).toEqual([]);
   }, 60000);
 });
