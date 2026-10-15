@@ -194,9 +194,13 @@ export function registerCheckCommand(program: Command): void {
       // (`server-*` -> `@modelcontextprotocol/server-*`) is noted when expanded.
       if (pkg.kind === "npm" && pkg.shorthand) logResolved(pkg.shorthand, pkg.spec);
       const { spec: name, ecosystem } = pkg;
+      // A pip: target's registry lookup, and the exit code it sets, are for
+      // the PyPI package (#131). An npm target is looked up by name alone,
+      // as `audit` sends the entries of a package.json.
       const client = createRegistryClient({
         baseUrl: globalOpts.registryUrl,
         userAgent: `ai-trust/${AI_TRUST_VERSION}`,
+        ...(ecosystem === "pypi" ? { ecosystem } : {}),
       });
 
       // --rescan is deprecated — local scan is now the default

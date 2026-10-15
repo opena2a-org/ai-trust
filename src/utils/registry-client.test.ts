@@ -257,3 +257,96 @@ describe("AIT-01 registry-client timeout hardening", () => {
     );
   });
 });
+
+describe("a client created with an ecosystem adds it to the trust query (#131)", () => {
+  function urlOf(fetchMock: ReturnType<typeof vi.fn>, call: number): URL {
+    return new URL(String(fetchMock.mock.calls[call][0]));
+  }
+
+  it("checkTrust sends ecosystem=pypi beside the name, type and profile parameters", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(trustAnswerBody("requests")));
+    const client = createRegistryClient({
+      baseUrl: BASE_URL,
+      userAgent: USER_AGENT,
+      ecosystem: "pypi",
+      fetch: fetchMock as unknown as typeof fetch,
+      retryBackoffMs: 0,
+    });
+
+    const result = await client.checkTrust("requests", "library");
+    expect(result.found).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const url = urlOf(fetchMock, 0);
+    expect(`${url.origin}${url.pathname}`).toBe(`${BASE_URL}/api/v1/trust/query`);
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      name: "requests",
+      type: "library",
+      includeProfile: "true",
+      includeDeps: "true",
+      ecosystem: "pypi",
+    });
+  });
+
+  it("a client created without an ecosystem sends the trust query with none", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(trustAnswerBody("requests")));
+    const client = buildClient(fetchMock);
+
+    await client.checkTrust("requests");
+    expect(urlOf(fetchMock, 0).searchParams.has("ecosystem")).toBe(false);
+  });
+
+  it("the retry after a timeout sends the ecosystem again", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(abortError())
+      .mockImplementationOnce(async () => jsonResponse(trustAnswerBody("requests")));
+    const client = createRegistryClient({
+      baseUrl: BASE_URL,
+      userAgent: USER_AGENT,
+      ecosystem: "pypi",
+      fetch: fetchMock as unknown as typeof fetch,
+      retryBackoffMs: 0,
+    });
+
+    await client.checkTrust("requests");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(urlOf(fetchMock, 0).searchParams.get("ecosystem")).toBe("pypi");
+    expect(urlOf(fetchMock, 1).searchParams.get("ecosystem")).toBe("pypi");
+  });
+
+  it("batchQuery and publishScan are sent as the dependency builds them", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(async () =>
+        jsonResponse({ results: [trustAnswerBody("requests")], total: 1 }),
+      )
+      .mockImplementationOnce(async () => jsonResponse({ accepted: true }));
+    const client = createRegistryClient({
+      baseUrl: BASE_URL,
+      userAgent: USER_AGENT,
+      ecosystem: "pypi",
+      fetch: fetchMock as unknown as typeof fetch,
+      retryBackoffMs: 0,
+    });
+
+    // A batch package carries its own ecosystem; the client's is not added.
+    await client.batchQuery([{ name: "requests" }]);
+    expect(String(fetchMock.mock.calls[0][0])).toBe(`${BASE_URL}/api/v1/trust/batch`);
+    const batchInit = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(batchInit.body))).toEqual({ packages: [{ name: "requests" }] });
+
+    const submission = {
+      name: "requests",
+      score: 90,
+      maxScore: 100,
+      findings: [],
+      tool: "ai-trust",
+      toolVersion: "test",
+      scanTimestamp: "2026-10-15T00:00:00Z",
+    };
+    await client.publishScan(submission);
+    expect(String(fetchMock.mock.calls[1][0])).toBe(`${BASE_URL}/api/v1/trust/publish`);
+    const publishInit = fetchMock.mock.calls[1][1] as RequestInit;
+    expect(JSON.parse(String(publishInit.body))).toEqual(submission);
+  });
+});

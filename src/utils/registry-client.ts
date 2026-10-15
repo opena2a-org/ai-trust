@@ -22,6 +22,10 @@
  * Only idempotent lookups (`checkTrust`, `batchQuery`) retry.
  * `publishScan` is a write — retrying it after a timeout could publish
  * the same scan twice, so it keeps single-attempt semantics.
+ *
+ * The dependency's `checkTrust(name, type)` sends no ecosystem. A client
+ * created with an `ecosystem` adds it to each trust query, so a
+ * `pip:<name>` target is asked about as a PyPI package (#131).
  */
 
 import { RegistryClient } from "@opena2a/registry-client";
@@ -35,9 +39,19 @@ export const REGISTRY_RETRY_BACKOFF_MS = 500;
 /** Idempotent lookup methods that get the single retry. Writes never retry. */
 const RETRYABLE_METHODS = ["checkTrust", "batchQuery"] as const;
 
+/** The path `checkTrust` sends its query to. */
+const TRUST_QUERY_PATH = "/api/v1/trust/query";
+
 export interface CreateRegistryClientOptions {
   baseUrl: string;
   userAgent: string;
+  /**
+   * The ecosystem of the package this client looks up, added to each
+   * trust query as `ecosystem=<value>`. Batch and publish requests are
+   * sent as the dependency builds them (`batchQuery` takes an ecosystem
+   * per package). Unset: the trust query carries no ecosystem.
+   */
+  ecosystem?: "npm" | "pypi";
   /** Injectable transport for tests; defaults to the runtime's global fetch. */
   fetch?: typeof fetch;
   /** Backoff before the single retry (default 500 ms). Tests pass 0 to stay fast. */
@@ -57,11 +71,35 @@ function isTransientRegistryError(err: unknown): boolean {
   return code === "timeout" || code === "network";
 }
 
+/**
+ * A transport that adds `ecosystem` to the trust query's URL and passes
+ * every other request through unchanged.
+ */
+function withTrustQueryEcosystem(
+  fetchImpl: typeof fetch,
+  ecosystem: string,
+): typeof fetch {
+  return (input, init) => {
+    if (typeof input === "string") {
+      const url = new URL(input);
+      if (url.pathname.endsWith(TRUST_QUERY_PATH)) {
+        url.searchParams.set("ecosystem", ecosystem);
+        return fetchImpl(url.toString(), init);
+      }
+    }
+    return fetchImpl(input, init);
+  };
+}
+
 export function createRegistryClient(
   options: CreateRegistryClientOptions,
 ): RegistryClient {
-  const { baseUrl, userAgent, fetch: fetchImpl } = options;
+  const { baseUrl, userAgent, ecosystem } = options;
   const retryBackoffMs = options.retryBackoffMs ?? REGISTRY_RETRY_BACKOFF_MS;
+  const fetchImpl =
+    ecosystem !== undefined
+      ? withTrustQueryEcosystem(options.fetch ?? globalThis.fetch, ecosystem)
+      : options.fetch;
 
   const client = new RegistryClient({
     baseUrl,
