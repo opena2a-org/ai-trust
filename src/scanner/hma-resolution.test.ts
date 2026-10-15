@@ -34,7 +34,9 @@ import { reinstallCommand } from "./hma.js";
 
 const execFileAsync = promisify(execFile);
 
-const HMA_SOURCE = join(dirname(fileURLToPath(import.meta.url)), "hma.ts");
+const SRC_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
+/** hma.ts and the ai-trust module it imports, relative to src/. */
+const HMA_SOURCES = ["scanner/hma.ts", "telemetry/opt-in.ts"];
 
 let root: string;
 
@@ -85,20 +87,23 @@ function installAiTrust(consumer: string): string {
 
 /** Compile hma.ts into `<pkgDir>/dist/scanner/hma.js` of an ai-trust package at `pkgDir`. */
 function compileAiTrust(pkgDir: string): string {
-  mkdirSync(join(pkgDir, "dist", "scanner"), { recursive: true });
+  mkdirSync(pkgDir, { recursive: true });
   writeFileSync(
     join(pkgDir, "package.json"),
     JSON.stringify({ name: "ai-trust", version: "0.0.0-test", type: "module" }),
   );
-  const { outputText } = ts.transpileModule(readFileSync(HMA_SOURCE, "utf8"), {
-    compilerOptions: {
-      module: ts.ModuleKind.ESNext,
-      target: ts.ScriptTarget.ES2022,
-    },
-  });
-  const modulePath = join(pkgDir, "dist", "scanner", "hma.js");
-  writeFileSync(modulePath, outputText);
-  return modulePath;
+  for (const source of HMA_SOURCES) {
+    const { outputText } = ts.transpileModule(readFileSync(join(SRC_DIR, source), "utf8"), {
+      compilerOptions: {
+        module: ts.ModuleKind.ESNext,
+        target: ts.ScriptTarget.ES2022,
+      },
+    });
+    const outPath = join(pkgDir, "dist", source.replace(/\.ts$/, ".js"));
+    mkdirSync(dirname(outPath), { recursive: true });
+    writeFileSync(outPath, outputText);
+  }
+  return join(pkgDir, "dist", "scanner", "hma.js");
 }
 
 /** A `hackmyagent` executable on PATH that is not the pinned dependency. */

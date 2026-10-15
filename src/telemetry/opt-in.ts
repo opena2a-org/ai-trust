@@ -223,6 +223,17 @@ export function hasUnmarkedOff(): boolean {
 }
 
 /**
+ * True when the config holds a contribution value that is truthy but not
+ * the boolean true, such as the string "false". ai-trust reads that value
+ * as no choice, while @opena2a/shared returns it as it is, so a caller that
+ * tests the returned value for truth reads it as consent.
+ */
+export function hasTruthyNonBooleanChoice(): boolean {
+  const enabled: unknown = readConfig().contribute?.enabled;
+  return Boolean(enabled) && enabled !== true;
+}
+
+/**
  * Check whether we should show the contribution tip.
  *
  * Returns true after the 3rd scan if the user hasn't opted in,

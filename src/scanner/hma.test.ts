@@ -2,7 +2,11 @@
  * Tests for HMA subprocess runner.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 
 // Mock child_process
 vi.mock("node:child_process", () => ({
@@ -18,7 +22,7 @@ vi.mock("node:util", async (importOriginal) => {
 });
 
 import { execFile } from "node:child_process";
-import { isHmaAvailable, runHmaScan } from "./hma.js";
+import { hmaEnv, isHmaAvailable, runHmaScan } from "./hma.js";
 
 describe("isHmaAvailable", () => {
   beforeEach(() => {
@@ -270,5 +274,112 @@ describe("runHmaScan contribution", () => {
     expect(calls).toHaveLength(2);
     expect(calls[1]).not.toContain("--analm");
     expect(calls[1]).toContain("--no-contribute");
+  });
+});
+
+// HMA gates its NanoMind classification telemetry on its own reading of the
+// saved contribution choice. Through @opena2a/shared that reading is the
+// saved value as it is, so a string such as "false" passed the gate while
+// ai-trust read the same file as no choice (#147).
+describe("runHmaScan scanner environment", () => {
+  const scanJson = JSON.stringify({ score: 100, maxScore: 100, findings: [] });
+  let tempHome: string;
+  let savedHome: string | undefined;
+  let savedOpena2aHome: string | undefined;
+
+  function saveChoice(dir: string, enabled: unknown): void {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "config.json"), JSON.stringify({ contribute: { enabled } }));
+  }
+
+  /** The environment of the `secure` invocation. */
+  function secureEnv(): NodeJS.ProcessEnv | undefined {
+    const call = vi
+      .mocked(execFile as any)
+      .mock.calls.find((c: unknown[]) => (c[1] as string[]).includes("secure"));
+    return (call?.[2] as { env?: NodeJS.ProcessEnv } | undefined)?.env;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    tempHome = mkdtempSync(join(tmpdir(), "ai-trust-hma-env-"));
+    savedHome = process.env.HOME;
+    savedOpena2aHome = process.env.OPENA2A_HOME;
+    process.env.HOME = tempHome;
+    delete process.env.OPENA2A_HOME;
+  });
+
+  afterEach(() => {
+    process.env.HOME = savedHome;
+    if (savedOpena2aHome === undefined) delete process.env.OPENA2A_HOME;
+    else process.env.OPENA2A_HOME = savedOpena2aHome;
+    rmSync(tempHome, { recursive: true, force: true });
+  });
+
+  it.each(["false", "true", 1])(
+    "runs HMA with OPENA2A_HOME set to ~/.opena2a when the saved enabled is %j",
+    async (value) => {
+      saveChoice(join(tempHome, ".opena2a"), value);
+      vi.mocked(execFile as any).mockResolvedValue({ stdout: scanJson, stderr: "" });
+
+      await runHmaScan("/tmp/test-pkg");
+
+      const env = secureEnv();
+      expect(env?.OPENA2A_HOME).toBe(join(tempHome, ".opena2a"));
+      expect(env?.HOME).toBe(tempHome);
+    },
+  );
+
+  it.each([true, false, 0, null])(
+    "leaves OPENA2A_HOME unset when the saved enabled is %j",
+    async (value) => {
+      saveChoice(join(tempHome, ".opena2a"), value);
+      vi.mocked(execFile as any).mockResolvedValue({ stdout: scanJson, stderr: "" });
+
+      await runHmaScan("/tmp/test-pkg");
+
+      expect(secureEnv()).toBeDefined();
+      expect(secureEnv()?.OPENA2A_HOME).toBeUndefined();
+    },
+  );
+
+  it("leaves OPENA2A_HOME unset when no config file exists", () => {
+    expect(hmaEnv().OPENA2A_HOME).toBeUndefined();
+  });
+
+  it("keeps an OPENA2A_HOME that is already set", () => {
+    const custom = join(tempHome, "custom");
+    saveChoice(custom, "false");
+    process.env.OPENA2A_HOME = custom;
+    expect(hmaEnv().OPENA2A_HOME).toBe(custom);
+  });
+
+  describe("with the pinned hackmyagent", () => {
+    const telemetryModule = join(
+      dirname(createRequire(import.meta.url).resolve("hackmyagent")),
+      "telemetry",
+      "nanomind-telemetry.js",
+    );
+
+    /** Stats HMA queues for one classified file under `env`. */
+    async function queuedStats(env: NodeJS.ProcessEnv): Promise<string> {
+      const { execFileSync } =
+        await vi.importActual<typeof import("node:child_process")>("node:child_process");
+      const script =
+        `const t = require(${JSON.stringify(telemetryModule)});` +
+        `t.queueClassificationStat("skill", "x", "benign", 0.9, "test");` +
+        `process.stdout.write(String(t.getTelemetryQueueSize()));`;
+      return execFileSync(process.execPath, ["-e", script], { env, encoding: "utf8" });
+    }
+
+    it("queues no classification telemetry for a saved enabled of \"false\"", async () => {
+      saveChoice(join(tempHome, ".opena2a"), "false");
+      expect(await queuedStats(hmaEnv())).toBe("0");
+    });
+
+    it("queues classification telemetry for a saved enabled of true", async () => {
+      saveChoice(join(tempHome, ".opena2a"), true);
+      expect(await queuedStats(hmaEnv())).toBe("1");
+    });
   });
 });
