@@ -78,14 +78,14 @@ opena2a review                              # full security dashboard
 
 Usage telemetry is on by default. After each command, ai-trust sends the tool name and version, the command name, success, duration, platform and Node.js major version to the OpenA2A Registry (`api.oa2a.org`), and no package name, argument, file path or content.
 
-Each event carries an install ID that identifies the machine, so the data is personal data. It is a persistent hash derived from this machine's ID, kept in `~/.config/opena2a/telemetry.json`. Policy: [opena2a.org/telemetry](https://opena2a.org/telemetry).
+Each event carries an install ID, a persistent hash derived from this machine's ID and kept in `~/.config/opena2a/telemetry.json`, so the data is personal data. Policy: [opena2a.org/telemetry](https://opena2a.org/telemetry).
 
 ```bash
 ai-trust telemetry off            # or set OPENA2A_TELEMETRY=off for one run
 ai-trust telemetry status         # the current state and install ID
 ```
 
-Sharing scan results is opt-in: `ai-trust config contribute on`, or `--contribute` for one scan; `audit` on a terminal asks. A shared scan sends the registry the package name, version and ecosystem, score, verdict and per-check results, not file paths or source code; saved consent adds a pseudonymous contributor token.
+Sharing scan results is opt-in: `ai-trust config contribute on`, or `--contribute` for one scan; `audit` on a terminal asks. A shared scan sends the registry the package name, version and ecosystem, score, verdict and per-check results, not file paths or source code; a pseudonymous contributor token goes with saved consent or summaries queued earlier.
 
 With contribution saved on, the bundled scanner also sends a SHA-256 hash and the classification of each file it classifies; `--no-deep` stops that, `--no-contribute` does not. The choice is saved in `~/.opena2a/config.json` and shared by OpenA2A tools; `ai-trust config contribute off` turns it off. The [contribution guide](docs/use-cases/contribute-scans.md) lists every field.
 
