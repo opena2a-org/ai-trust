@@ -9,7 +9,7 @@
 import chalk from "chalk";
 import type { Command } from "commander";
 import { classify } from "@opena2a/ai-classifier";
-import { PackageNotFoundError, firstPartySignerFromEnv } from "@opena2a/registry-client";
+import { PackageNotFoundError } from "@opena2a/registry-client";
 import type { RegistryClient, TrustAnswer } from "@opena2a/registry-client";
 import { createRegistryClient } from "../utils/registry-client.js";
 import {
@@ -25,15 +25,7 @@ import { stripControlCharacters } from "../output/sanitize.js";
 import { isHmaAvailable, reinstallCommand, scanPackage, scanLocalPath } from "../scanner/index.js";
 import type { ScanResult } from "../scanner/index.js";
 import { confirm } from "../utils/prompt.js";
-import {
-  resolveContributeChoice,
-  queueScanResult,
-  flushQueue,
-  recordScanAndMaybeShowTip,
-  saveContributeChoice,
-  sendScanPing,
-} from "../telemetry/index.js";
-import { buildScanSubmission } from "../telemetry/publish.js";
+import { shareScans } from "../telemetry/index.js";
 import { checkSkillOrMcp, parseRichTarget } from "../check/skill-mcp-check.js";
 import { checkCitation } from "../utils/cli-prefix.js";
 import { shellArg } from "../utils/shell-arg.js";
@@ -56,8 +48,6 @@ interface CheckOptions {
   analm?: boolean;
   /** Scan a local directory directly, skipping the npm-pack download. */
   scanPath?: string;
-  /** Internal: set when scanning a package not yet in the registry */
-  _firstScan?: boolean;
 }
 
 export function registerCheckCommand(program: Command): void {
@@ -371,7 +361,7 @@ async function handleNotFound(
       ecosystem,
       client,
       globalOpts,
-      { ...opts, _firstScan: true },
+      opts,
       `Package "${name}" not found in registry. Scanning...`
     );
     return;
@@ -414,7 +404,7 @@ async function handleNotFound(
     return;
   }
 
-  await handleScanFlow(name, ecosystem, client, globalOpts, { ...opts, _firstScan: true }, "Scanning...");
+  await handleScanFlow(name, ecosystem, client, globalOpts, opts, "Scanning...");
 }
 
 /** A git-style shorthand, `<owner>/<repo>` with no `@scope`. */
@@ -510,132 +500,14 @@ async function handleScanFlow(
     process.exitCode = 2;
   }
 
-  // Anonymous scan ping. Shares the SAME contribution consent as the full
-  // contribution flow below -- package name + verdict is scan-result data,
-  // not invocation telemetry, so --no-contribute must be able to stop it.
-  if (resolveContributeChoice(opts.contribute)) {
-    sendScanPing(
-      name,
-      scanResult.verdict,
-      Math.round(scanResult.trustScore * 100),
-      globalOpts.registryUrl,
-      ecosystem
-    );
-  }
-
-  // Community contribution flow
-  await handleContribute(name, ecosystem, scanResult, globalOpts, opts);
-}
-
-let _shownCiContributeTip = false;
-
-async function handleContribute(
-  name: string,
-  ecosystem: "npm" | "pypi",
-  scanResult: ScanResult,
-  globalOpts: { registryUrl: string; json: boolean },
-  opts: CheckOptions
-): Promise<void> {
-  const alreadyEnabled = resolveContributeChoice(opts.contribute);
-
-  // For first scans of missing packages, be more proactive about contribution.
-  // Ask once and remember the choice — never spam on repeated scans.
-  if (opts._firstScan && !alreadyEnabled) {
-    if (process.stdin.isTTY) {
-      // Interactive: ask directly after first scan of a missing package
-      console.error("");
-      console.error(
-        chalk.bold("  You just scanned a package with no community trust data.")
-      );
-      console.error(
-        chalk.gray("  Sharing anonymized results helps other developers")
-      );
-      console.error(
-        chalk.gray("  make informed security decisions about AI packages.")
-      );
-      console.error("");
-
-      const wantsToShare = await confirm(
-        "Share this scan with the community?",
-        true
-      );
-
-      // Persist the choice so we never ask again
-      saveContributeChoice(wantsToShare);
-
-      if (wantsToShare) {
-        console.error(
-          chalk.gray("  (Future scans will auto-share. Change: ai-trust config contribute off)")
-        );
-        await submitContribution(name, ecosystem, scanResult, globalOpts.registryUrl, { type: opts.type });
-        return;
-      }
-    } else {
-      // Non-interactive: show a clear call-to-action (once per session, don't repeat)
-      if (!_shownCiContributeTip) {
-        _shownCiContributeTip = true;
-        console.error("");
-        console.error(
-          chalk.gray(
-            "  This is the first scan of this package. Share it with the community:"
-          )
-        );
-        const target = ecosystem === "pypi" ? `pip:${name}` : name;
-        console.error(
-          chalk.cyan(
-            `    ${checkCitation()} ${target} --scan-if-missing --contribute`
-          )
-        );
-      }
-    }
-  }
-
-  // Standard contribution flow (tip after 3rd scan, or auto-contribute if enabled)
-  const tip = recordScanAndMaybeShowTip();
-  if (tip) {
-    process.stderr.write(tip + "\n");
-  }
-
-  if (!alreadyEnabled) return;
-
-  await submitContribution(name, ecosystem, scanResult, globalOpts.registryUrl, { type: opts.type });
-}
-
-async function submitContribution(
-  name: string,
-  ecosystem: "npm" | "pypi",
-  scanResult: ScanResult,
-  registryUrl: string,
-  opts?: { type?: string }
-): Promise<void> {
-  // Contribution is silent once consent is given: no per-scan line. Disclosure
-  // lives in the consent prompt, `--help`, and `config contribute status`.
-  try {
-    queueScanResult(name, scanResult.scan.findings, 0, ecosystem, scanResult.packageVersion);
-    await flushQueue(registryUrl);
-  } catch {
-    // Non-fatal: contribution should never crash the scan
-  }
-
-  // Publish per-check results via unified endpoint for evidence correlation + consensus
-  try {
-    const client = createRegistryClient({
-      baseUrl: registryUrl,
-      userAgent: `ai-trust/${AI_TRUST_VERSION}`,
-    });
-    // ai-trust is NOT first_party_scanner; self-tag source=ci only when run in our CI
-    // (AI_TRUST_CI_SIGNING_KEY set). End-user `check` runs publish as community.
-    const signer = firstPartySignerFromEnv({
-      keyEnv: "AI_TRUST_CI_SIGNING_KEY",
-      source: "ci",
-    });
-    await client.publishScan(
-      buildScanSubmission(name, scanResult, { toolVersion: AI_TRUST_VERSION, type: opts?.type, ecosystem }),
-      signer,
-    );
-  } catch {
-    // Non-fatal: contribution should never crash the scan
-  }
+  // The scan ping and the community contribution: whether to share is
+  // decided by decideContribution, with the same inputs as `audit`.
+  await shareScans("check", [{ name, scanResult }], {
+    flag: opts.contribute,
+    registryUrl: globalOpts.registryUrl,
+    ecosystem,
+    type: opts.type,
+  });
 }
 
 function handleNoScanNotFound(

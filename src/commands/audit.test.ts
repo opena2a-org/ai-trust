@@ -47,35 +47,32 @@ vi.mock("../utils/prompt.js", () => ({
   confirm: vi.fn().mockResolvedValue(false),
 }));
 
-vi.mock("../telemetry/index.js", () => {
-  const isContributeEnabled = vi.fn().mockReturnValue(undefined);
-  return {
-    isContributeEnabled,
-    // Mirrors the real resolveContributeChoice: an explicit flag beats
-    // config either way; only an unset flag falls through to config.
-    resolveContributeChoice: vi.fn((flag: boolean | undefined) => {
-      if (flag === true) return true;
-      if (flag === false) return false;
-      return isContributeEnabled() === true;
-    }),
-    recordScanAndMaybeShowTip: vi.fn().mockReturnValue(null),
-    queueScanResult: vi.fn(),
-    flushQueue: vi.fn().mockResolvedValue(false),
-    saveContributeChoice: vi.fn(),
-    sendScanPing: vi.fn(),
-  };
-});
+// The saved choice, the scan ping and the contribute library are mocked;
+// the decision and the contribution flow are the real ones.
+vi.mock("../telemetry/opt-in.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../telemetry/opt-in.js")>()),
+  readContributeChoice: vi.fn().mockReturnValue(undefined),
+  recordScanAndMaybeShowTip: vi.fn().mockReturnValue(null),
+  saveContributeChoice: vi.fn(),
+}));
+vi.mock("../telemetry/contribute.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../telemetry/contribute.js")>()),
+  sendScanPing: vi.fn(),
+}));
+vi.mock("@opena2a/contribute", () => ({
+  contribute: {
+    scanResult: vi.fn().mockResolvedValue(undefined),
+    flush: vi.fn().mockResolvedValue(false),
+  },
+  getContributorToken: vi.fn().mockReturnValue("a".repeat(64)),
+}));
 
 import { RegistryClient } from "@opena2a/registry-client";
 import { parseDependencyFile, detectEcosystem } from "../utils/parser.js";
 import { isHmaAvailable, scanPackage } from "../scanner/index.js";
-import {
-  sendScanPing,
-  isContributeEnabled,
-  queueScanResult,
-  saveContributeChoice,
-  flushQueue,
-} from "../telemetry/index.js";
+import { sendScanPing } from "../telemetry/contribute.js";
+import { readContributeChoice, saveContributeChoice } from "../telemetry/opt-in.js";
+import { contribute } from "@opena2a/contribute";
 import { confirm } from "../utils/prompt.js";
 
 function createProgram(): Command {
@@ -356,7 +353,7 @@ describe("audit command", () => {
     });
 
     it("does NOT ping when contribution has never been configured (default state)", async () => {
-      vi.mocked(isContributeEnabled).mockReturnValue(undefined);
+      vi.mocked(readContributeChoice).mockReturnValue(undefined);
 
       const program = createProgram();
       await program.parseAsync([
@@ -367,7 +364,7 @@ describe("audit command", () => {
     });
 
     it("pings when --contribute is passed", async () => {
-      vi.mocked(isContributeEnabled).mockReturnValue(undefined);
+      vi.mocked(readContributeChoice).mockReturnValue(undefined);
 
       const program = createProgram();
       await program.parseAsync([
@@ -378,7 +375,7 @@ describe("audit command", () => {
     });
 
     it("--no-contribute is a registered option and does not error", async () => {
-      vi.mocked(isContributeEnabled).mockReturnValue(undefined);
+      vi.mocked(readContributeChoice).mockReturnValue(undefined);
 
       const program = createProgram();
       await expect(
@@ -389,7 +386,7 @@ describe("audit command", () => {
     });
 
     it("--no-contribute overrides a persisted opt-in and suppresses the ping", async () => {
-      vi.mocked(isContributeEnabled).mockReturnValue(true);
+      vi.mocked(readContributeChoice).mockReturnValue(true);
 
       const program = createProgram();
       await program.parseAsync([
@@ -464,7 +461,9 @@ describe("audit command", () => {
         attackClass: "SCOPE-ESCALATION",
       },
     ]);
-    expect(queueScanResult).toHaveBeenCalledWith("leaky-pkg", expect.any(Array), 0, "npm", "4.5.6");
+    expect(contribute.scanResult).toHaveBeenCalledWith(
+        expect.objectContaining({ packageName: "leaky-pkg", ecosystem: "npm", packageVersion: "4.5.6" })
+      );
   });
 
   it("publishes a requirements.txt scan with ecosystem pypi, so the registry does not record it as npm", async () => {
@@ -510,7 +509,9 @@ describe("audit command", () => {
       version: "0.9.1",
       ecosystem: "pypi",
     });
-    expect(queueScanResult).toHaveBeenCalledWith("py-pkg", expect.any(Array), 0, "pypi", "0.9.1");
+    expect(contribute.scanResult).toHaveBeenCalledWith(
+        expect.objectContaining({ packageName: "py-pkg", ecosystem: "pypi", packageVersion: "0.9.1" })
+      );
   });
 
   it("does not download a name the registry answered with when the dependency file does not list it", async () => {
@@ -587,7 +588,7 @@ describe("audit command", () => {
       Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
       // The user presses Enter, which accepts the prompt's default (yes).
       vi.mocked(confirm).mockResolvedValue(true);
-      vi.mocked(isContributeEnabled).mockReturnValue(undefined);
+      vi.mocked(readContributeChoice).mockReturnValue(undefined);
       vi.mocked(parseDependencyFile).mockResolvedValue([{ name: "tty-pkg" }]);
       mockPublishScan.mockResolvedValue({ accepted: true });
       vi.mocked(RegistryClient).mockImplementation(
@@ -631,14 +632,14 @@ describe("audit command", () => {
     });
 
     it("does not ask again once the user has answered no, and shares nothing (#139)", async () => {
-      vi.mocked(isContributeEnabled).mockReturnValue(false);
+      vi.mocked(readContributeChoice).mockReturnValue(false);
 
       const program = createProgram();
       await program.parseAsync(["node", "test", "audit", "package.json", "--scan-missing"]);
 
       expect(confirm).not.toHaveBeenCalled();
       expect(saveContributeChoice).not.toHaveBeenCalled();
-      expect(queueScanResult).not.toHaveBeenCalled();
+      expect(contribute.scanResult).not.toHaveBeenCalled();
       expect(mockPublishScan).not.toHaveBeenCalled();
       expect(sendScanPing).not.toHaveBeenCalled();
     });
@@ -660,7 +661,7 @@ describe("audit command", () => {
 
       expect(confirm).not.toHaveBeenCalled();
       expect(saveContributeChoice).not.toHaveBeenCalled();
-      expect(queueScanResult).not.toHaveBeenCalled();
+      expect(contribute.scanResult).not.toHaveBeenCalled();
       expect(mockPublishScan).not.toHaveBeenCalled();
       expect(sendScanPing).not.toHaveBeenCalled();
     });
@@ -668,7 +669,7 @@ describe("audit command", () => {
 
   it("contributes silently once consent is given (no per-scan contribution line)", async () => {
     vi.mocked(parseDependencyFile).mockResolvedValue([{ name: "quiet-pkg" }]);
-    vi.mocked(flushQueue).mockResolvedValue(true);
+    vi.mocked(contribute.flush).mockResolvedValue(true);
     const mockPublishScan = vi
       .fn()
       .mockResolvedValue({ publishId: "0123456789abcdef" });
@@ -709,12 +710,12 @@ describe("audit command", () => {
       ]);
     } finally {
       stderrSpy.mockRestore();
-      vi.mocked(flushQueue).mockResolvedValue(false);
+      vi.mocked(contribute.flush).mockResolvedValue(false);
     }
 
     // The contribution still happens...
-    expect(queueScanResult).toHaveBeenCalled();
-    expect(flushQueue).toHaveBeenCalled();
+    expect(contribute.scanResult).toHaveBeenCalled();
+    expect(contribute.flush).toHaveBeenCalled();
     expect(mockPublishScan).toHaveBeenCalled();
     // ...but nothing about it is printed.
     const printed = [

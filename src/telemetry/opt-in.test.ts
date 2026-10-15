@@ -13,15 +13,15 @@ import * as path from "path";
 import * as os from "os";
 import { createRequire } from "node:module";
 import {
-  isContributeEnabled,
+  readContributeChoice,
   shouldPromptContribute,
   incrementScanCount,
   saveContributeChoice,
   recordScanAndMaybeShowTip,
   hasUnmarkedOff,
-  resolveContributeChoice,
   _resetBackend,
 } from "./opt-in.js";
+import { decideContribution } from "./decision.js";
 
 function createTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "ai-trust-optin-test-"));
@@ -47,7 +47,7 @@ function writeConfig(
   );
 }
 
-describe("isContributeEnabled", () => {
+describe("readContributeChoice", () => {
   let tempHome: string;
 
   beforeEach(() => {
@@ -63,24 +63,24 @@ describe("isContributeEnabled", () => {
   });
 
   it("returns undefined when no config exists", () => {
-    expect(isContributeEnabled()).toBeUndefined();
+    expect(readContributeChoice()).toBeUndefined();
   });
 
   it("returns undefined when config has no contribute section", () => {
     writeConfig(tempHome, { someOtherKey: true });
-    expect(isContributeEnabled()).toBeUndefined();
+    expect(readContributeChoice()).toBeUndefined();
   });
 
   it("returns true when contribute.enabled is true", () => {
     writeConfig(tempHome, { contribute: { enabled: true } });
-    expect(isContributeEnabled()).toBe(true);
+    expect(readContributeChoice()).toBe(true);
   });
 
   it("returns false when contribute.enabled is false", () => {
-    // isContributeEnabled() correctly distinguishes explicit opt-out (false)
+    // readContributeChoice() correctly distinguishes explicit opt-out (false)
     // from not-yet-configured (undefined)
     writeConfig(tempHome, { contribute: { enabled: false } });
-    expect(isContributeEnabled()).toBe(false);
+    expect(readContributeChoice()).toBe(false);
   });
 
   it("returns undefined for the defaults @opena2a/shared writes on any save", () => {
@@ -91,11 +91,11 @@ describe("isContributeEnabled", () => {
       contribute: { enabled: false, consentedAt: null, consentVersion: "1.0" },
       telemetry: { scanCount: 1, contributePromptDismissedAt: null },
     });
-    expect(isContributeEnabled()).toBeUndefined();
+    expect(readContributeChoice()).toBeUndefined();
   });
 });
 
-describe("isContributeEnabled with the @opena2a/shared backend", () => {
+describe("readContributeChoice with the @opena2a/shared backend", () => {
   const sharedConfig = createRequire(import.meta.url)("@opena2a/shared") as {
     incrementScanCount(): number;
   };
@@ -120,10 +120,29 @@ describe("isContributeEnabled with the @opena2a/shared backend", () => {
     return readConfig(path.join(tempHome, ".opena2a"));
   }
 
+  // The saved files of src/contribution-decision-table.test.ts, read as
+  // decision.test.ts reads them. First in this block: @opena2a/shared returns
+  // a shallow copy of its defaults when there is no file, so a later save of
+  // true with no file changes the defaults this process reads.
+  it.each([
+    ["no", undefined, null],
+    ["a true", true, '{"contribute":{"enabled":true,"decidedAt":"2026-01-01T00:00:00.000Z"}}\n'],
+    ["a false", false, '{"contribute":{"enabled":false,"decidedAt":"2026-01-01T00:00:00.000Z"}}\n'],
+    ['a "true"', undefined, '{"contribute":{"enabled":"true","decidedAt":"2026-01-01T00:00:00.000Z"}}\n'],
+    ['a "false"', undefined, '{"contribute":{"enabled":"false","decidedAt":"2026-01-01T00:00:00.000Z"}}\n'],
+    ["a not JSON", undefined, '{"contribute":'],
+  ])("reads %s config file as %s", (_name, reading, file) => {
+    if (file !== null) {
+      fs.mkdirSync(path.join(tempHome, ".opena2a"), { recursive: true });
+      fs.writeFileSync(path.join(tempHome, ".opena2a", "config.json"), file);
+    }
+    expect(readContributeChoice()).toBe(reading);
+  });
+
   it("stays not set after another tool's scan saves the file", () => {
     sharedConfig.incrementScanCount();
     expect(homeConfig().contribute).toMatchObject({ enabled: false, consentedAt: null });
-    expect(isContributeEnabled()).toBeUndefined();
+    expect(readContributeChoice()).toBeUndefined();
   });
 
   it.each(["false", "true", 1])(
@@ -131,17 +150,24 @@ describe("isContributeEnabled with the @opena2a/shared backend", () => {
     (value) => {
       fs.mkdirSync(path.join(tempHome, ".opena2a"), { recursive: true });
       writeConfig(path.join(tempHome, ".opena2a"), { contribute: { enabled: value } });
-      expect(isContributeEnabled()).toBeUndefined();
-      expect(resolveContributeChoice(undefined)).toBe(false);
+      expect(readContributeChoice()).toBeUndefined();
+      const decision = decideContribution({
+        command: "check",
+        flag: undefined,
+        saved: readContributeChoice(),
+        interactive: false,
+        scanned: 1,
+      });
+      expect(decision.send).toBe(false);
     },
   );
 
   it("keeps a saved off choice through later saves by another tool", () => {
     sharedConfig.incrementScanCount();
     saveContributeChoice(false);
-    expect(isContributeEnabled()).toBe(false);
+    expect(readContributeChoice()).toBe(false);
     sharedConfig.incrementScanCount();
-    expect(isContributeEnabled()).toBe(false);
+    expect(readContributeChoice()).toBe(false);
   });
 
   it("cannot tell a no saved by ai-trust 0.7.6 from no choice, and flags it", () => {
@@ -153,18 +179,18 @@ describe("isContributeEnabled with the @opena2a/shared backend", () => {
     expect(hasUnmarkedOff()).toBe(false);
     shared.setContributeEnabled(false);
     shared.dismissContributePrompt();
-    expect(isContributeEnabled()).toBeUndefined();
+    expect(readContributeChoice()).toBeUndefined();
     expect(hasUnmarkedOff()).toBe(true);
 
     saveContributeChoice(false);
-    expect(isContributeEnabled()).toBe(false);
+    expect(readContributeChoice()).toBe(false);
     expect(hasUnmarkedOff()).toBe(false);
   });
 
   it("keeps a saved on choice", () => {
     saveContributeChoice(true);
     sharedConfig.incrementScanCount();
-    expect(isContributeEnabled()).toBe(true);
+    expect(readContributeChoice()).toBe(true);
   });
 });
 
@@ -233,7 +259,7 @@ describe("saveContributeChoice", () => {
 
   it("saves enabled=true", () => {
     saveContributeChoice(true);
-    expect(isContributeEnabled()).toBe(true);
+    expect(readContributeChoice()).toBe(true);
   });
 
   it("saves enabled=false and dismisses prompt", () => {

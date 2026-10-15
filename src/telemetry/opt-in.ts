@@ -180,14 +180,17 @@ function createLocalBackend(): ConfigBackend {
 // ---------------------------------------------------------------------------
 
 /**
- * Check whether the contribution setting is enabled.
+ * Read the saved contribution choice.
  *
  * Returns:
  *   true  - user explicitly opted in
- *   false - user explicitly opted out (or default in shared backend)
+ *   false - user explicitly opted out
  *   undefined - not yet configured
+ *
+ * Whether a scan is shared is decided by decideContribution (decision.ts)
+ * from this value and the command's flags.
  */
-export function isContributeEnabled(): boolean | undefined {
+export function readContributeChoice(): boolean | undefined {
   const backend = resolveBackend();
   const enabled = backend.isContributeEnabled();
   // If the user hasn't configured yet, return undefined (not false).
@@ -252,26 +255,6 @@ export function incrementScanCount(): number {
 }
 
 /**
- * Resolve whether a scan should contribute to the community registry,
- * giving an explicit --contribute / --no-contribute flag priority over
- * the persisted config choice. Mirrors hackmyagent's handleContribution
- * priority ordering (contributeFlag === true/false beats config either
- * way; only an unset flag falls through to isContributeEnabled()).
- *
- * Both the full contribution flow (queueScanResult) and the scan-adoption
- * ping (sendScanPing) must use this -- sendScanPing sends package name +
- * verdict + score, which is scan-result data under the two-bucket
- * telemetry policy (data that names what the user scanned is opt-in),
- * not invocation telemetry, so it needs the same consent as a full
- * contribution and the same --no-contribute override.
- */
-export function resolveContributeChoice(flag: boolean | undefined): boolean {
-  if (flag === true) return true;
-  if (flag === false) return false;
-  return isContributeEnabled() === true;
-}
-
-/**
  * Save the user's contribution choice to the config file.
  */
 export function saveContributeChoice(enabled: boolean): void {
@@ -279,7 +262,7 @@ export function saveContributeChoice(enabled: boolean): void {
   if (!enabled) {
     resolveBackend().dismissContributePrompt();
   }
-  // Mark the choice as made, so isContributeEnabled() can tell a saved
+  // Mark the choice as made, so readContributeChoice() can tell a saved
   // "off" from the defaults other writers of this file fill in.
   const config = readConfig();
   config.contribute = { ...config.contribute, decidedAt: new Date().toISOString() };
@@ -308,21 +291,6 @@ export function recordScanAndMaybeShowTip(): string | null {
     "  Enable: npx ai-trust check --contribute  (or: ai-trust config contribute on)",
     "",
   ].join("\n");
-}
-
-/**
- * Display the contribution opt-in prompt and return the user's choice.
- *
- * @deprecated Use recordScanAndMaybeShowTip() instead. This is kept
- * for backward compatibility but now shows a non-interactive tip
- * rather than blocking for input.
- */
-export async function showContributePrompt(): Promise<boolean> {
-  const tip = recordScanAndMaybeShowTip();
-  if (tip) {
-    process.stdout.write(tip + "\n");
-  }
-  return false;
 }
 
 /**

@@ -115,11 +115,14 @@ describe("AIT-01 registry-client timeout hardening", () => {
     );
 
     // The six former construction sites (check.ts x3, audit.ts x2,
-    // batch.ts x1) all obtain their client from the factory now.
+    // batch.ts x1) all obtain their client from the factory now. The client
+    // that sends a shared scan, built once in check.ts and once in audit.ts,
+    // is built in telemetry/contribute.ts for both.
     const formerSites: Array<[string, number]> = [
-      ["commands/check.ts", 3],
-      ["commands/audit.ts", 2],
+      ["commands/check.ts", 2],
+      ["commands/audit.ts", 1],
       ["commands/batch.ts", 1],
+      ["telemetry/contribute.ts", 1],
     ];
     for (const [rel, expectedCalls] of formerSites) {
       const source = readFileSync(path.join(SRC_DIR, rel), "utf8");
