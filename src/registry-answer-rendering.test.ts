@@ -243,7 +243,9 @@ describe("registry answers through the built CLI", () => {
     expect(existsSync(CLI_PATH)).toBe(true);
   });
 
-  describe("control characters in registry strings", () => {
+  // A case here runs the built CLI up to three times; on Node 20 in CI three
+  // runs took longer than the 5 s default.
+  describe("control characters in registry strings", { timeout: 30000 }, () => {
     it("check --no-scan prints a listed CVE without them and adds no output line", async () => {
       const dirty = await runCli(["check", "cve-ctrl", "--no-scan"]);
       const clean = await runCli(["check", "cve-clean", "--no-scan"]);
