@@ -43,8 +43,10 @@ describe("helpFooter", () => {
       expect(footer).toMatch(/^\nTelemetry:\n/);
       expect(footer).toMatch(/Local scans may contribute to the OpenA2A Registry/);
       expect(footer).toMatch(/--no-contribute/);
-      expect(footer).toMatch(/or ai-trust config contribute off \(saved\)$/m);
-      expect(footer).toMatch(/Stop it: --no-deep or ai-trust config contribute off\n$/);
+      expect(footer).toMatch(/or ai-trust config contribute off \(saved\)\n$/);
+      // The bundled scanner sends nothing during an ai-trust scan, so there is
+      // no exception to --no-contribute to state.
+      expect(footer).not.toMatch(/classification|--no-deep/);
       expect(footer).not.toMatch(/opena2a config/);
     }
   });

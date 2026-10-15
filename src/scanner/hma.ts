@@ -4,13 +4,21 @@
  */
 
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs";
 import Module, { createRequire } from "node:module";
-import { devNull, homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { hasTruthyNonBooleanChoice, recordEarlierNo } from "../telemetry/opt-in.js";
+import { recordEarlierNo } from "../telemetry/opt-in.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -186,9 +194,12 @@ function resolveHma(): { cmd: string; prefixArgs: string[] } {
 export async function isHmaAvailable(): Promise<boolean> {
   try {
     const hma = resolveHma();
-    await execFileAsync(hma.cmd, [...hma.prefixArgs, "--version"], {
-      timeout: 15_000,
-    });
+    await withScannerEnv((env) =>
+      execFileAsync(hma.cmd, [...hma.prefixArgs, "--version"], {
+        timeout: 15_000,
+        env,
+      }),
+    );
     return true;
   } catch {
     return false;
@@ -244,45 +255,56 @@ export function reinstallCommand(fromDir: string = MODULE_DIR): string {
 }
 
 /**
- * The environment for the HMA scan subprocess. HMA gates its NanoMind
- * classification telemetry on its own reading of the saved contribution
- * choice, and `--no-contribute` does not change that reading. Without
- * OPENA2A_HOME, HMA takes the value @opena2a/shared returns, the saved value
- * as it is, so a string such as "false" passes that gate where ai-trust
- * reads no choice. With OPENA2A_HOME set, HMA reads the config file itself
- * and takes only the boolean true as consent. For a saved value that is
- * truthy but not the boolean true, the scan therefore runs with OPENA2A_HOME
- * set to ~/.opena2a, the directory both tools read when it is unset.
- *
- * Not while HMA's legacy config, ~/.hackmyagent/config.json, holds
- * `"contribute": true`. A `secure` run, even with `--no-contribute`, moves
- * that opt-in into OPENA2A_HOME/config.json as the boolean true, and removes
- * it from the legacy file, unless HMA's own reading of the saved choice is
- * already on. With OPENA2A_HOME at ~/.opena2a, that reading of such a value
- * is off, so the scan would replace the saved value with true. In that case
- * OPENA2A_HOME is a path under the null device instead: HMA reads no saved
- * choice there, so its reading is off, and the move fails at its first write,
- * before it changes the legacy file. The NanoMind model HMA loads is found
- * through the home directory, not OPENA2A_HOME.
+ * The directories, relative to the home directory, that a deep scan reads
+ * its classifier models from. The scanner downloads a missing model into
+ * the first.
  */
-export function hmaEnv(): NodeJS.ProcessEnv {
-  if (process.env.OPENA2A_HOME || !hasTruthyNonBooleanChoice()) {
-    return process.env;
-  }
-  const home = hasLegacyHmaOptIn() ? join(devNull, "opena2a") : join(homedir(), ".opena2a");
-  return { ...process.env, OPENA2A_HOME: home };
-}
+const SCANNER_MODEL_DIRS = [".nanomind", join(".opena2a", "nanomind")];
 
-/** True when HMA's legacy config, ~/.hackmyagent/config.json, holds `"contribute": true`. */
-function hasLegacyHmaOptIn(): boolean {
+/**
+ * Run `fn` with the environment for a scanner subprocess. Left to itself,
+ * the scanner reads the saved contribution choice from
+ * ~/.opena2a/config.json (or $OPENA2A_HOME/config.json), moves an opt-in
+ * from its legacy ~/.hackmyagent/config.json into that file, counts its
+ * scans there, and sends classification and usage telemetry when the saved
+ * choices read as on; `--no-contribute` changes none of that. So the
+ * scanner runs with HOME, USERPROFILE, OPENA2A_HOME and XDG_CONFIG_HOME in a
+ * new temporary directory, removed afterwards, and with OPENA2A_TELEMETRY
+ * set to off; every decision ai-trust made reaches it as a flag. The model
+ * directories are linked into that directory, so a deep scan finds its
+ * models, and keeps one it downloads, where it did before.
+ */
+async function withScannerEnv<T>(fn: (env: NodeJS.ProcessEnv) => Promise<T>): Promise<T> {
+  const home = mkdtempSync(join(tmpdir(), "ai-trust-scanner-"));
+  const links: string[] = [];
   try {
-    const legacy: unknown = JSON.parse(
-      readFileSync(join(homedir(), ".hackmyagent", "config.json"), "utf8"),
-    );
-    return (legacy as { contribute?: unknown } | null)?.contribute === true;
-  } catch {
-    // No legacy config, or one HMA cannot parse either: there is nothing to move.
-    return false;
+    try {
+      // The scanner creates ~/.nanomind on every run; creating it here first
+      // keeps a model it downloads in the user's home.
+      mkdirSync(join(homedir(), ".nanomind"), { recursive: true });
+    } catch {
+      // A home it cannot write to: the scan runs without a model cache.
+    }
+    for (const dir of SCANNER_MODEL_DIRS) {
+      const target = join(homedir(), dir);
+      if (!existsSync(target)) continue;
+      const link = join(home, dir);
+      mkdirSync(dirname(link), { recursive: true });
+      symlinkSync(target, link, "junction");
+      links.push(link);
+    }
+    return await fn({
+      ...process.env,
+      HOME: home,
+      USERPROFILE: home,
+      OPENA2A_HOME: join(home, ".opena2a"),
+      XDG_CONFIG_HOME: join(home, ".config"),
+      OPENA2A_TELEMETRY: "off",
+    });
+  } finally {
+    // The links go first, so removing the directory cannot reach what they point to.
+    for (const link of links) rmSync(link, { force: true });
+    rmSync(home, { recursive: true, force: true });
   }
 }
 
@@ -311,16 +333,10 @@ export async function runHmaScan(
   const hma = resolveHma();
   // Always pass --no-contribute: ai-trust decides about contribution itself
   // (check/audit honour --contribute / --no-contribute and the saved choice).
-  // Without the flag the HMA subprocess reads ~/.opena2a/config.json and
-  // queues its own scan_result, so `--no-contribute` would not stop it.
-  // The flag does not cover HMA's NanoMind classification telemetry, which a
-  // deep scan still sends whenever the saved choice is on; hmaEnv() covers a
-  // saved value HMA would read as on where ai-trust reads no choice.
-  // The scan raises the saved scan count, and a "no" saved without a mark
-  // can be told from no choice only while that count is below 3, so such a
-  // "no" is marked before the scan.
+  // Each counted scan raises the saved scan count, and a "no" saved without a
+  // mark can be told from no choice only while that count is below 3, so
+  // such a "no" is marked before the scan.
   recordEarlierNo();
-  const env = hmaEnv();
   const args = [...hma.prefixArgs, "secure", "--format", "json", "--no-contribute"];
   if (deep) {
     args.push("--deep");
@@ -333,22 +349,24 @@ export async function runHmaScan(
   }
   args.push(targetDir);
 
-  let attemptArgs = args;
-  for (;;) {
-    try {
-      return await runHmaWithArgs(hma.cmd, attemptArgs, deep, env);
-    } catch (err: unknown) {
-      // If an optional flag caused "unknown option", retry without it (older HMA version)
-      const rejected = OPTIONAL_HMA_FLAGS.find(
-        (flag) => attemptArgs.includes(flag) && isUnknownOptionError(err, flag)
-      );
-      if (!rejected) {
-        const message = err instanceof Error ? err.message : String(err);
-        throw new Error(`HMA scan failed: ${message}`);
+  return withScannerEnv(async (env) => {
+    let attemptArgs = args;
+    for (;;) {
+      try {
+        return await runHmaWithArgs(hma.cmd, attemptArgs, deep, env);
+      } catch (err: unknown) {
+        // If an optional flag caused "unknown option", retry without it (older HMA version)
+        const rejected = OPTIONAL_HMA_FLAGS.find(
+          (flag) => attemptArgs.includes(flag) && isUnknownOptionError(err, flag)
+        );
+        if (!rejected) {
+          const message = err instanceof Error ? err.message : String(err);
+          throw new Error(`HMA scan failed: ${message}`);
+        }
+        attemptArgs = attemptArgs.filter((a) => a !== rejected);
       }
-      attemptArgs = attemptArgs.filter((a) => a !== rejected);
     }
-  }
+  });
 }
 
 /** Flags that older HMA versions may not recognise; the scan retries without them. */

@@ -214,7 +214,7 @@ export function readContributeChoice(): boolean | undefined {
 /**
  * True when the config holds `enabled: false, consentedAt: null` with no
  * `decidedAt`. @opena2a/shared writes that pair as its defaults whenever it
- * saves the file, and the bundled scanner saves it on every run, so on its
+ * saves the file, and hackmyagent saves it on every scan it runs, so on its
  * own it is not a choice. A choice saved through ai-trust carries
  * `decidedAt`, but a "no" saved by ai-trust 0.7.6 does not. That "no" also
  * writes the dismissal timestamp, which the consent tip writes too from the
@@ -269,17 +269,6 @@ export function recordEarlierNo(): boolean {
     // A config that cannot be written still reads as that "no" in this run.
   }
   return true;
-}
-
-/**
- * True when the config holds a contribution value that is truthy but not
- * the boolean true, such as the string "false". ai-trust reads that value
- * as no choice, while @opena2a/shared returns it as it is, so a caller that
- * tests the returned value for truth reads it as consent.
- */
-export function hasTruthyNonBooleanChoice(): boolean {
-  const enabled: unknown = readConfig().contribute?.enabled;
-  return Boolean(enabled) && enabled !== true;
 }
 
 /**

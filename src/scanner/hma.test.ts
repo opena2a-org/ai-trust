@@ -3,9 +3,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
-import { devNull, tmpdir } from "node:os";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 // Mock child_process
@@ -22,7 +21,7 @@ vi.mock("node:util", async (importOriginal) => {
 });
 
 import { execFile } from "node:child_process";
-import { hmaEnv, isHmaAvailable, runHmaScan } from "./hma.js";
+import { isHmaAvailable, runHmaScan } from "./hma.js";
 
 describe("isHmaAvailable", () => {
   beforeEach(() => {
@@ -277,101 +276,75 @@ describe("runHmaScan contribution", () => {
   });
 });
 
-// HMA gates its NanoMind classification telemetry on its own reading of the
-// saved contribution choice. Through @opena2a/shared that reading is the
-// saved value as it is, so a string such as "false" passed the gate while
-// ai-trust read the same file as no choice (#147).
-describe("runHmaScan scanner environment", () => {
+// The scanner reads, rewrites and acts on the saved contribution choice in
+// ~/.opena2a/config.json and ~/.hackmyagent/config.json, and sends usage
+// telemetry unless told not to. It runs with those files out of reach and its
+// telemetry off. hma-saved-state.test.ts runs the real scanner over every
+// combination of saved values and flags.
+describe("scanner environment", () => {
   const scanJson = JSON.stringify({ score: 100, maxScore: 100, findings: [] });
   let tempHome: string;
-  let savedHome: string | undefined;
-  let savedOpena2aHome: string | undefined;
+  let savedEnv: Record<string, string | undefined>;
+  const VARS = ["HOME", "USERPROFILE", "OPENA2A_HOME", "XDG_CONFIG_HOME", "OPENA2A_TELEMETRY"];
 
-  function saveChoice(dir: string, enabled: unknown): void {
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "config.json"), JSON.stringify({ contribute: { enabled } }));
-  }
-
-  /** HMA's legacy config, whose `"contribute": true` a `secure` run moves into ~/.opena2a. */
-  function saveLegacyChoice(contribute: unknown): void {
-    mkdirSync(join(tempHome, ".hackmyagent"), { recursive: true });
-    writeFileSync(join(tempHome, ".hackmyagent", "config.json"), JSON.stringify({ contribute }));
-  }
-
-  /** The environment of the `secure` invocation. */
-  function secureEnv(): NodeJS.ProcessEnv | undefined {
-    const call = vi
-      .mocked(execFile as any)
-      .mock.calls.find((c: unknown[]) => (c[1] as string[]).includes("secure"));
-    return (call?.[2] as { env?: NodeJS.ProcessEnv } | undefined)?.env;
-  }
+  /** The environment of each scanner invocation, with what it saw of its home. */
+  let seen: { args: string[]; env: NodeJS.ProcessEnv; models: string[]; savedChoice: boolean }[];
 
   beforeEach(() => {
     vi.clearAllMocks();
     tempHome = mkdtempSync(join(tmpdir(), "ai-trust-hma-env-"));
-    savedHome = process.env.HOME;
-    savedOpena2aHome = process.env.OPENA2A_HOME;
+    savedEnv = Object.fromEntries(VARS.map((v) => [v, process.env[v]]));
+    for (const v of VARS) delete process.env[v];
     process.env.HOME = tempHome;
-    delete process.env.OPENA2A_HOME;
+    process.env.USERPROFILE = tempHome;
+    seen = [];
+    vi.mocked(execFile as any).mockImplementation(
+      async (_cmd: string, args: string[], opts: { env: NodeJS.ProcessEnv }) => {
+        const home = opts.env.HOME as string;
+        seen.push({
+          args,
+          env: opts.env,
+          models: [
+            join(home, ".nanomind", "models", "a.onnx"),
+            join(home, ".opena2a", "nanomind", "models", "b.onnx"),
+          ]
+            .filter((f) => existsSync(f))
+            .map((f) => readFileSync(f, "utf8")),
+          savedChoice: existsSync(join(opts.env.OPENA2A_HOME as string, "config.json")),
+        });
+        return { stdout: scanJson, stderr: "" };
+      },
+    );
   });
 
   afterEach(() => {
-    process.env.HOME = savedHome;
-    if (savedOpena2aHome === undefined) delete process.env.OPENA2A_HOME;
-    else process.env.OPENA2A_HOME = savedOpena2aHome;
+    for (const v of VARS) {
+      if (savedEnv[v] === undefined) delete process.env[v];
+      else process.env[v] = savedEnv[v];
+    }
     rmSync(tempHome, { recursive: true, force: true });
   });
 
-  it.each(["false", "true", 1])(
-    "runs HMA with OPENA2A_HOME set to ~/.opena2a when the saved enabled is %j",
-    async (value) => {
-      saveChoice(join(tempHome, ".opena2a"), value);
-      vi.mocked(execFile as any).mockResolvedValue({ stdout: scanJson, stderr: "" });
+  it("runs secure with its home in a new temporary directory and its telemetry off", async () => {
+    process.env.OPENA2A_HOME = join(tempHome, "custom");
+    process.env.XDG_CONFIG_HOME = join(tempHome, "config");
 
-      await runHmaScan("/tmp/test-pkg");
+    await runHmaScan("/tmp/test-pkg");
 
-      const env = secureEnv();
-      expect(env?.OPENA2A_HOME).toBe(join(tempHome, ".opena2a"));
-      expect(env?.HOME).toBe(tempHome);
-    },
-  );
-
-  it.each([true, false, 0, null])(
-    "leaves OPENA2A_HOME unset when the saved enabled is %j",
-    async (value) => {
-      saveChoice(join(tempHome, ".opena2a"), value);
-      vi.mocked(execFile as any).mockResolvedValue({ stdout: scanJson, stderr: "" });
-
-      await runHmaScan("/tmp/test-pkg");
-
-      expect(secureEnv()).toBeDefined();
-      expect(secureEnv()?.OPENA2A_HOME).toBeUndefined();
-    },
-  );
-
-  // HMA can neither read a saved choice under the null device nor write one there (#150).
-  it.each(["false", "true", 1])(
-    "runs HMA with OPENA2A_HOME under the null device when the saved enabled is %j and ~/.hackmyagent/config.json holds \"contribute\": true",
-    async (value) => {
-      saveChoice(join(tempHome, ".opena2a"), value);
-      saveLegacyChoice(true);
-      vi.mocked(execFile as any).mockResolvedValue({ stdout: scanJson, stderr: "" });
-
-      await runHmaScan("/tmp/test-pkg");
-
-      const env = secureEnv();
-      expect(env?.OPENA2A_HOME).toBe(join(devNull, "opena2a"));
-      expect(env?.HOME).toBe(tempHome);
-    },
-  );
-
-  it("leaves OPENA2A_HOME unset when the saved enabled is true and ~/.hackmyagent/config.json holds \"contribute\": true", () => {
-    saveChoice(join(tempHome, ".opena2a"), true);
-    saveLegacyChoice(true);
-    expect(hmaEnv().OPENA2A_HOME).toBeUndefined();
+    expect(seen).toHaveLength(1);
+    const { env } = seen[0];
+    const home = env.HOME as string;
+    expect(home).not.toBe(tempHome);
+    expect(home.startsWith(tmpdir())).toBe(true);
+    expect(env.USERPROFILE).toBe(home);
+    expect(env.OPENA2A_HOME).toBe(join(home, ".opena2a"));
+    expect(env.XDG_CONFIG_HOME).toBe(join(home, ".config"));
+    expect(env.OPENA2A_TELEMETRY).toBe("off");
+    // Removed after the run.
+    expect(existsSync(home)).toBe(false);
   });
 
-  it("marks a no saved by ai-trust 0.7.6 before the scanner raises the scan count (#133)", async () => {
+  it("marks a no saved by ai-trust 0.7.6 before the scan (#133)", async () => {
     const configPath = join(tempHome, ".opena2a", "config.json");
     mkdirSync(dirname(configPath), { recursive: true });
     writeFileSync(
@@ -397,117 +370,54 @@ describe("runHmaScan scanner environment", () => {
     });
   });
 
-  it("sets OPENA2A_HOME when ~/.hackmyagent/config.json holds \"contribute\": false", () => {
-    saveChoice(join(tempHome, ".opena2a"), "false");
-    saveLegacyChoice(false);
-    expect(hmaEnv().OPENA2A_HOME).toBe(join(tempHome, ".opena2a"));
+  it("runs the --version check the same way", async () => {
+    expect(await isHmaAvailable()).toBe(true);
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0].args).toContain("--version");
+    expect(seen[0].env.HOME).not.toBe(tempHome);
+    expect(seen[0].env.OPENA2A_TELEMETRY).toBe("off");
+    expect(existsSync(seen[0].env.HOME as string)).toBe(false);
   });
 
-  it("sets OPENA2A_HOME when ~/.hackmyagent/config.json does not parse", () => {
-    saveChoice(join(tempHome, ".opena2a"), "false");
-    mkdirSync(join(tempHome, ".hackmyagent"), { recursive: true });
-    writeFileSync(join(tempHome, ".hackmyagent", "config.json"), "{\"contribute\": true");
-    expect(hmaEnv().OPENA2A_HOME).toBe(join(tempHome, ".opena2a"));
+  it("gives each run a home of its own", async () => {
+    await runHmaScan("/tmp/test-pkg");
+    await runHmaScan("/tmp/test-pkg");
+
+    expect(seen[0].env.HOME).not.toBe(seen[1].env.HOME);
   });
 
-  it("leaves OPENA2A_HOME unset when no config file exists", () => {
-    expect(hmaEnv().OPENA2A_HOME).toBeUndefined();
+  it("finds the classifier models in ~/.nanomind and ~/.opena2a/nanomind and leaves them in place", async () => {
+    mkdirSync(join(tempHome, ".nanomind", "models"), { recursive: true });
+    writeFileSync(join(tempHome, ".nanomind", "models", "a.onnx"), "model a");
+    mkdirSync(join(tempHome, ".opena2a", "nanomind", "models"), { recursive: true });
+    writeFileSync(join(tempHome, ".opena2a", "nanomind", "models", "b.onnx"), "model b");
+    writeFileSync(join(tempHome, ".opena2a", "config.json"), JSON.stringify({ contribute: { enabled: true } }));
+
+    await runHmaScan("/tmp/test-pkg");
+
+    expect(seen[0].models).toEqual(["model a", "model b"]);
+    expect(seen[0].savedChoice).toBe(false);
+    expect(readFileSync(join(tempHome, ".nanomind", "models", "a.onnx"), "utf8")).toBe("model a");
+    expect(readFileSync(join(tempHome, ".opena2a", "nanomind", "models", "b.onnx"), "utf8")).toBe("model b");
+    expect(readFileSync(join(tempHome, ".opena2a", "config.json"), "utf8")).toContain("true");
   });
 
-  it("keeps an OPENA2A_HOME that is already set", () => {
-    const custom = join(tempHome, "custom");
-    saveChoice(custom, "false");
-    process.env.OPENA2A_HOME = custom;
-    expect(hmaEnv().OPENA2A_HOME).toBe(custom);
+  it("creates ~/.nanomind, so a model the scanner downloads stays in the user's home", async () => {
+    await runHmaScan("/tmp/test-pkg");
+
+    expect(existsSync(join(tempHome, ".nanomind"))).toBe(true);
   });
 
-  describe("with the pinned hackmyagent", () => {
-    const telemetryModule = join(
-      dirname(createRequire(import.meta.url).resolve("hackmyagent")),
-      "telemetry",
-      "nanomind-telemetry.js",
-    );
-
-    /** Stats HMA queues for one classified file under `env`. */
-    async function queuedStats(env: NodeJS.ProcessEnv): Promise<string> {
-      const { execFileSync } =
-        await vi.importActual<typeof import("node:child_process")>("node:child_process");
-      const script =
-        `const t = require(${JSON.stringify(telemetryModule)});` +
-        `t.queueClassificationStat("skill", "x", "benign", 0.9, "test");` +
-        `process.stdout.write(String(t.getTelemetryQueueSize()));`;
-      return execFileSync(process.execPath, ["-e", script], { env, encoding: "utf8" });
-    }
-
-    it("queues no classification telemetry for a saved enabled of \"false\"", async () => {
-      saveChoice(join(tempHome, ".opena2a"), "false");
-      expect(await queuedStats(hmaEnv())).toBe("0");
-    });
-
-    it("queues classification telemetry for a saved enabled of true", async () => {
-      saveChoice(join(tempHome, ".opena2a"), true);
-      expect(await queuedStats(hmaEnv())).toBe("1");
-    });
-
-    // A `secure` run classifies files during the scan and then calls HMA's
-    // legacy move; the queue size is read before and after that move (#150).
-    it.each(["false", "true", 1])(
-      "queues no classification telemetry for a saved enabled of %j when ~/.hackmyagent/config.json holds \"contribute\": true",
-      async (value) => {
-        saveChoice(join(tempHome, ".opena2a"), value);
-        saveLegacyChoice(true);
-        const { execFileSync } =
-          await vi.importActual<typeof import("node:child_process")>("node:child_process");
-        const optInModule = join(dirname(telemetryModule), "opt-in.js");
-        const script =
-          `const t = require(${JSON.stringify(telemetryModule)});` +
-          `const o = require(${JSON.stringify(optInModule)});` +
-          `t.queueClassificationStat("skill", "x", "benign", 0.9, "test");` +
-          `const before = t.getTelemetryQueueSize();` +
-          `o.migrateLegacyContributeChoice();` +
-          `t.queueClassificationStat("skill", "y", "benign", 0.9, "test");` +
-          `process.stdout.write(before + "," + t.getTelemetryQueueSize());`;
-        const queued = execFileSync(process.execPath, ["-e", script], {
-          env: hmaEnv(),
-          encoding: "utf8",
-        });
-
-        expect(queued).toBe("0,0");
-        const read = (dir: string) => JSON.parse(readFileSync(join(tempHome, dir, "config.json"), "utf8"));
-        expect(read(".opena2a").contribute.enabled).toBe(value);
-        expect(read(".hackmyagent").contribute).toBe(true);
+  it("removes the temporary home when the scan fails", async () => {
+    vi.mocked(execFile as any).mockImplementation(
+      async (_cmd: string, args: string[], opts: { env: NodeJS.ProcessEnv }) => {
+        seen.push({ args, env: opts.env, models: [], savedChoice: false });
+        throw new Error("scanner crashed");
       },
     );
 
-    // A `secure` run moves `"contribute": true` from ~/.hackmyagent/config.json
-    // into ~/.opena2a/config.json unless HMA reads the saved choice as on.
-    it.each(["false", "true"])(
-      "a scan leaves a saved enabled of %j in place when ~/.hackmyagent/config.json holds \"contribute\": true",
-      async (value) => {
-        const actual =
-          await vi.importActual<typeof import("node:child_process")>("node:child_process");
-        const { promisify } = await vi.importActual<typeof import("node:util")>("node:util");
-        vi.mocked(execFile as any).mockImplementation(promisify(actual.execFile));
-        saveChoice(join(tempHome, ".opena2a"), value);
-        saveLegacyChoice(true);
-        const pkg = join(tempHome, "pkg");
-        mkdirSync(pkg);
-        writeFileSync(join(pkg, "index.js"), "module.exports = 1;\n");
-        // Keep the scanner's anonymous usage telemetry off for this run.
-        const savedTelemetry = process.env.OPENA2A_TELEMETRY;
-        process.env.OPENA2A_TELEMETRY = "off";
-        try {
-          await runHmaScan(pkg, { deep: false });
-        } finally {
-          if (savedTelemetry === undefined) delete process.env.OPENA2A_TELEMETRY;
-          else process.env.OPENA2A_TELEMETRY = savedTelemetry;
-        }
-
-        const read = (dir: string) => JSON.parse(readFileSync(join(tempHome, dir, "config.json"), "utf8"));
-        expect(read(".opena2a").contribute.enabled).toBe(value);
-        expect(read(".hackmyagent").contribute).toBe(true);
-      },
-      60000,
-    );
+    await expect(runHmaScan("/tmp/test-pkg")).rejects.toThrow("HMA scan failed");
+    expect(existsSync(seen[0].env.HOME as string)).toBe(false);
   });
 });
