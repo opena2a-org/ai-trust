@@ -244,6 +244,21 @@ describe("docs-links.mjs on a tree", () => {
     expect(run.code).toBe(2);
     expect(run.stderr).toContain('lists URLs the repository no longer cites: skip "http://localhost:9/example"');
   });
+
+  it("exits 2 with a usage error, not a stack trace, when --root names no directory", async () => {
+    const missing = join(tree, "no-such-dir");
+    const file = join(tree, "README.md");
+    writeFileSync(file, "# Fixture\n");
+    for (const [root, message] of [
+      [missing, `docs:links: --root "${missing}" does not exist`],
+      [file, `docs:links: --root "${file}" is not a directory`],
+    ]) {
+      const run = await runScript(root);
+      expect(run.code, run.stdout + run.stderr).toBe(2);
+      expect(run.stderr).toBe(`${message}\nUsage: node scripts/docs-links.mjs [--root <dir>] [--manifest <file>]\n`);
+      expect(run.stdout).toBe("");
+    }
+  });
 });
 
 describe("this repository", () => {

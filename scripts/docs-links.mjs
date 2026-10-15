@@ -31,11 +31,12 @@
  *
  * Usage: node scripts/docs-links.mjs [--root <dir>] [--manifest <file>]
  * Exit 0 when every checked URL resolves, 1 when one does not, 2 on a usage
- * or manifest error.
+ * error (an unknown argument, or a --root that does not exist or is not a
+ * directory) or a manifest error.
  */
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -330,10 +331,22 @@ function parseArgs(argv) {
   return args;
 }
 
+/** Why `root` cannot be walked as a tree, or null when it is a directory. */
+function rootProblem(root) {
+  try {
+    return statSync(root).isDirectory() ? null : "is not a directory";
+  } catch (error) {
+    if (error?.code === "ENOENT" || error?.code === "ENOTDIR") return "does not exist";
+    return `cannot be read (${error?.code ?? error?.message ?? String(error)})`;
+  }
+}
+
 async function main() {
   let args;
   try {
     args = parseArgs(process.argv.slice(2));
+    const problem = rootProblem(resolve(args.root));
+    if (problem) throw new Error(`--root "${args.root}" ${problem}`);
   } catch (error) {
     console.error(`docs:links: ${error.message}`);
     console.error("Usage: node scripts/docs-links.mjs [--root <dir>] [--manifest <file>]");
