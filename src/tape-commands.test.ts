@@ -4,8 +4,10 @@
  * A recording is rendered from a VHS tape under docs/. Every command a tape
  * types on screen (a `Type` line outside a `Hide`..`Show` block) must be an
  * `ai-trust` command that names a registered subcommand, uses only flags that
- * subcommand or the root command registers, and passes as many arguments as
- * the subcommand takes. The check asks the built CLI itself, through
+ * subcommand or the root command registers, gives each flag shown with
+ * `<value>` a value (a whole number in the range when the flag's description
+ * states one, as `(0-4)`), and passes as many arguments as the subcommand
+ * takes. The check asks the built CLI itself, through
  * `node dist/index.js <subcommand> --help`, so a tape cannot show a command a
  * reader would fail to run. Hidden lines are setup (a `cd` into the copy of the
  * sample project) and are not checked.
@@ -65,13 +67,35 @@ function help(args: string[]): { stdout: string; status: number | null } {
   }
 }
 
-/** Flags listed under "Options:" in a help text, mapped to whether they take a value. */
-function registeredFlags(helpText: string): Map<string, boolean> {
-  const flags = new Map<string, boolean>();
+interface FlagSpec {
+  /** `<value>` in the help is required, `[value]` optional. */
+  value: "none" | "required" | "optional";
+  /** The whole-number range the description states, as `(0-4)`. */
+  range?: { min: number; max: number };
+}
+
+/** Flags listed under "Options:" in a help text, with the value each one takes. */
+function registeredFlags(helpText: string): Map<string, FlagSpec> {
+  const entries: { names: string[]; value: FlagSpec["value"]; description: string }[] = [];
+  let last: (typeof entries)[number] | undefined;
   for (const line of helpText.split("\n")) {
-    const m = line.match(/^ {2}((?:-\w|--[\w-]+)(?:, (?:-\w|--[\w-]+))*)( [<[]\S+)?/);
-    if (!m) continue;
-    for (const flag of m[1].split(", ")) flags.set(flag, m[2] !== undefined);
+    const m = line.match(/^ {2}((?:-\w|--[\w-]+)(?:, (?:-\w|--[\w-]+))*)( [<[]\S+)?(.*)$/);
+    if (m) {
+      const value = m[2] === undefined ? "none" : m[2].startsWith(" <") ? "required" : "optional";
+      last = { names: m[1].split(", "), value, description: m[3] };
+      entries.push(last);
+    } else if (last !== undefined && /^ {3,}\S/.test(line)) {
+      // A description wrapped onto the next line.
+      last.description += ` ${line.trim()}`;
+    } else {
+      last = undefined;
+    }
+  }
+  const flags = new Map<string, FlagSpec>();
+  for (const { names, value, description } of entries) {
+    const r = value === "none" ? null : description.match(/\((\d+)-(\d+)\)/);
+    const spec: FlagSpec = r ? { value, range: { min: Number(r[1]), max: Number(r[2]) } } : { value };
+    for (const name of names) flags.set(name, spec);
   }
   return flags;
 }
@@ -85,7 +109,7 @@ function arity(usage: string): { min: number; max: number } {
   };
 }
 
-function problemsIn(command: string, rootFlags: Map<string, boolean>): string[] {
+function problemsIn(command: string, rootFlags: Map<string, FlagSpec>): string[] {
   const m = command.match(/^(?:npx\s+)?ai-trust(?:\s+(.*))?$/);
   if (!m) return ["not an ai-trust command"];
   const tokens = (m[1] ?? "").split(/\s+/).filter((t) => t.length > 0);
@@ -108,9 +132,31 @@ function problemsIn(command: string, rootFlags: Map<string, boolean>): string[] 
       operands++;
       continue;
     }
-    const [flag, inlineValue] = tokens[i].split("=", 2);
-    if (!flags.has(flag)) problems.push(`unregistered flag ${flag}`);
-    else if (flags.get(flag) && inlineValue === undefined) i++;
+    const eq = tokens[i].indexOf("=");
+    const flag = eq === -1 ? tokens[i] : tokens[i].slice(0, eq);
+    let value = eq === -1 ? undefined : tokens[i].slice(eq + 1);
+    const spec = flags.get(flag);
+    if (spec === undefined) {
+      problems.push(`unregistered flag ${flag}`);
+      continue;
+    }
+    // As commander parses: a required value is the next token whatever it is,
+    // an optional one is the next token unless that token is a flag.
+    if (value === undefined && spec.value === "required") {
+      if (i + 1 >= tokens.length) {
+        problems.push(`flag ${flag} takes a value and none follows`);
+        continue;
+      }
+      value = tokens[++i];
+    } else if (value === undefined && spec.value === "optional" && i + 1 < tokens.length && !tokens[i + 1].startsWith("-")) {
+      value = tokens[++i];
+    }
+    if (value !== undefined && spec.range !== undefined) {
+      const { min, max } = spec.range;
+      if (!/^\d+$/.test(value) || Number(value) < min || Number(value) > max) {
+        problems.push(`flag ${flag} value "${value}" is not a whole number from ${min} to ${max}, as its help states`);
+      }
+    }
   }
   const { min, max } = arity(usage);
   if (operands < min || operands > max) {
@@ -145,5 +191,25 @@ describe("tapes type only registered ai-trust commands and flags", () => {
       }
     }
     expect(problems).toEqual([]);
+  }, 60000);
+
+  it("reports a flag typed without its value, or with a value outside the range its help states", () => {
+    const rootFlags = registeredFlags(help([]).stdout);
+    expect(registeredFlags(help(["audit"]).stdout).get("--min-trust")).toEqual({
+      value: "required",
+      range: { min: 0, max: 4 },
+    });
+    // The CLI exits 1 on each of these three.
+    expect(problemsIn("npx ai-trust audit package.json --min-trust", rootFlags)).toEqual([
+      "flag --min-trust takes a value and none follows",
+    ]);
+    expect(problemsIn("npx ai-trust audit package.json --min-trust banana", rootFlags)).toEqual([
+      'flag --min-trust value "banana" is not a whole number from 0 to 4, as its help states',
+    ]);
+    expect(problemsIn("npx ai-trust batch a b --min-trust=5", rootFlags)).toEqual([
+      'flag --min-trust value "5" is not a whole number from 0 to 4, as its help states',
+    ]);
+    expect(problemsIn("npx ai-trust audit package.json --min-trust 3", rootFlags)).toEqual([]);
+    expect(problemsIn("npx ai-trust audit --min-trust=0 package.json", rootFlags)).toEqual([]);
   }, 60000);
 });
