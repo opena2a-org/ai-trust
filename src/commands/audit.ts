@@ -5,7 +5,6 @@
 
 import chalk from "chalk";
 import type { Command } from "commander";
-import { firstPartySignerFromEnv } from "@opena2a/registry-client";
 import type { TrustAnswer } from "@opena2a/registry-client";
 import { createRegistryClient } from "../utils/registry-client.js";
 import { parseDependencyFile, detectEcosystem } from "../utils/parser.js";
@@ -18,16 +17,7 @@ import {
 import { isHmaAvailable, reinstallCommand, scanPackage } from "../scanner/index.js";
 import type { ScanResult } from "../scanner/index.js";
 import { confirm } from "../utils/prompt.js";
-import {
-  isContributeEnabled,
-  resolveContributeChoice,
-  queueScanResult,
-  flushQueue,
-  recordScanAndMaybeShowTip,
-  saveContributeChoice,
-  sendScanPing,
-} from "../telemetry/index.js";
-import { buildScanSubmission } from "../telemetry/publish.js";
+import { shareScans } from "../telemetry/index.js";
 import { createRequire } from "node:module";
 import { basename } from "node:path";
 
@@ -297,19 +287,6 @@ async function scanMissingPackages(
       }
 
       scannedResults.push({ name: target, scanResult });
-
-      // Anonymous scan ping. Shares the SAME contribution consent as the
-      // full contribution flow below -- see resolveContributeChoice's
-      // doc comment for why --no-contribute must be able to stop it.
-      if (resolveContributeChoice(opts.contribute)) {
-        sendScanPing(
-          target,
-          scanResult.verdict,
-          Math.round(scanResult.trustScore * 100),
-          registryUrl,
-          scanOpts.ecosystem
-        );
-      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(
@@ -318,121 +295,12 @@ async function scanMissingPackages(
     }
   }
 
-  // Handle community contribution for all scanned packages
-  if (scannedResults.length > 0) {
-    await handleAuditContribution(
-      scannedResults,
-      opts,
-      registryUrl,
-      scanOpts.ecosystem
-    );
-  }
-}
-
-/**
- * Handle community contribution after audit scanning.
- * Follows the same opt-in flow as check: queue + flush.
- */
-async function handleAuditContribution(
-  scannedResults: { name: string; scanResult: ScanResult }[],
-  opts: AuditOptions,
-  registryUrl: string,
-  ecosystem: "npm" | "pypi" = "npm"
-): Promise<void> {
-  // An explicit --no-contribute answers for this run: share nothing, and
-  // neither ask nor save a choice.
-  if (opts.contribute === false) return;
-
-  const alreadyEnabled = resolveContributeChoice(opts.contribute);
-
-  // These are first scans of missing packages — proactively encourage sharing
-  if (!alreadyEnabled) {
-    if (process.stdin.isTTY) {
-      // A saved "no" already answers this prompt: share nothing, ask nothing.
-      if (isContributeEnabled() === false) return;
-
-      const { confirm } = await import("../utils/prompt.js");
-      console.error("");
-      console.error(
-        chalk.bold(
-          `  You just scanned ${scannedResults.length} package(s) with no community trust data.`
-        )
-      );
-      console.error(
-        chalk.gray(
-          "  Sharing pseudonymous results helps other developers make informed decisions."
-        )
-      );
-      console.error("");
-
-      const wantsToShare = await confirm(
-        "Share these scans with the community?",
-        true
-      );
-
-      // Persist the choice so we never ask again
-      saveContributeChoice(wantsToShare);
-
-      if (wantsToShare) {
-        console.error(
-          chalk.gray("  (Future scans will auto-share. Change: ai-trust config contribute off)")
-        );
-      } else {
-        return;
-      }
-    } else {
-      // Non-interactive: show call-to-action
-      console.error("");
-      console.error(
-        chalk.gray(
-          `  ${scannedResults.length} package(s) scanned for the first time. Share with the community:`
-        )
-      );
-      console.error(
-        chalk.cyan(
-          "    ai-trust audit <file> --scan-missing --contribute"
-        )
-      );
-      return;
-    }
-  }
-
-  // Show standard tip for scan count tracking
-  const tip = recordScanAndMaybeShowTip();
-  if (tip) {
-    process.stderr.write(tip + "\n");
-  }
-
-  // Contribution is silent once consent is given, as in `check`: no per-run line.
-  try {
-    for (const { name, scanResult } of scannedResults) {
-      queueScanResult(name, scanResult.scan.findings, 0, ecosystem, scanResult.packageVersion);
-    }
-    await flushQueue(registryUrl);
-  } catch {
-    // Non-fatal
-  }
-
-  // Publish per-check results via unified endpoint for evidence correlation + consensus.
-  // ai-trust is NOT first_party_scanner; when run in our own CI (AI_TRUST_CI_SIGNING_KEY
-  // set, Secretless env-only) the bulk audit self-tags source=ci. End-user runs (no key)
-  // publish as community — the safe default.
-  const client = createRegistryClient({
-    baseUrl: registryUrl,
-    userAgent: `ai-trust/${AI_TRUST_VERSION}`,
+  // The scan pings and the community contribution for every scanned package:
+  // whether to share is decided by decideContribution, with the same inputs
+  // as `check`.
+  await shareScans("audit", scannedResults, {
+    flag: opts.contribute,
+    registryUrl,
+    ecosystem: scanOpts.ecosystem ?? "npm",
   });
-  const signer = firstPartySignerFromEnv({
-    keyEnv: "AI_TRUST_CI_SIGNING_KEY",
-    source: "ci",
-  });
-  for (const { name, scanResult } of scannedResults) {
-    try {
-      await client.publishScan(
-        buildScanSubmission(name, scanResult, { toolVersion: AI_TRUST_VERSION, ecosystem }),
-        signer,
-      );
-    } catch {
-      // Non-fatal: contribution should never crash the audit
-    }
-  }
 }

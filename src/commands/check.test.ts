@@ -47,25 +47,25 @@ vi.mock("../utils/prompt.js", () => ({
   confirm: vi.fn().mockResolvedValue(false),
 }));
 
-// Mock telemetry
-vi.mock("../telemetry/index.js", () => {
-  const isContributeEnabled = vi.fn().mockReturnValue(undefined);
-  return {
-    isContributeEnabled,
-    // Mirrors the real resolveContributeChoice: an explicit flag beats
-    // config either way; only an unset flag falls through to config.
-    resolveContributeChoice: vi.fn((flag: boolean | undefined) => {
-      if (flag === true) return true;
-      if (flag === false) return false;
-      return isContributeEnabled() === true;
-    }),
-    recordScanAndMaybeShowTip: vi.fn().mockReturnValue(null),
-    queueScanResult: vi.fn(),
-    flushQueue: vi.fn().mockResolvedValue(false),
-    saveContributeChoice: vi.fn(),
-    sendScanPing: vi.fn(),
-  };
-});
+// The saved choice, the scan ping and the contribute library are mocked;
+// the decision and the contribution flow are the real ones.
+vi.mock("../telemetry/opt-in.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../telemetry/opt-in.js")>()),
+  readContributeChoice: vi.fn().mockReturnValue(undefined),
+  recordScanAndMaybeShowTip: vi.fn().mockReturnValue(null),
+  saveContributeChoice: vi.fn(),
+}));
+vi.mock("../telemetry/contribute.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../telemetry/contribute.js")>()),
+  sendScanPing: vi.fn(),
+}));
+vi.mock("@opena2a/contribute", () => ({
+  contribute: {
+    scanResult: vi.fn().mockResolvedValue(undefined),
+    flush: vi.fn().mockResolvedValue(false),
+  },
+  getContributorToken: vi.fn().mockReturnValue("a".repeat(64)),
+}));
 
 import {
   RegistryClient,
@@ -79,12 +79,9 @@ import {
 } from "../output/formatter.js";
 import { isHmaAvailable, scanPackage, scanLocalPath } from "../scanner/index.js";
 import { confirm } from "../utils/prompt.js";
-import {
-  queueScanResult,
-  flushQueue,
-  sendScanPing,
-  isContributeEnabled,
-} from "../telemetry/index.js";
+import { sendScanPing } from "../telemetry/contribute.js";
+import { readContributeChoice } from "../telemetry/opt-in.js";
+import { contribute } from "@opena2a/contribute";
 
 function createProgram(): Command {
   const program = new Command();
@@ -473,7 +470,9 @@ describe("check command", () => {
       expect(sendScanPing).toHaveBeenCalledWith(
         "server-py", "safe", 90, "https://api.test.com", "pypi"
       );
-      expect(queueScanResult).toHaveBeenCalledWith("server-py", expect.any(Array), 0, "pypi", "0.9.1");
+      expect(contribute.scanResult).toHaveBeenCalledWith(
+        expect.objectContaining({ packageName: "server-py", ecosystem: "pypi", packageVersion: "0.9.1" })
+      );
       expect(mockPublishScan).toHaveBeenCalledOnce();
       expect(mockPublishScan.mock.calls[0][0]).toMatchObject({
         name: "server-py",
@@ -663,7 +662,7 @@ describe("check command", () => {
     });
 
     it("does NOT ping when contribution has never been configured (default state)", async () => {
-      vi.mocked(isContributeEnabled).mockReturnValue(undefined);
+      vi.mocked(readContributeChoice).mockReturnValue(undefined);
 
       const program = createProgram();
       await program.parseAsync(["node", "test", "check", "ping-pkg"]);
@@ -672,7 +671,7 @@ describe("check command", () => {
     });
 
     it("pings when --contribute is passed", async () => {
-      vi.mocked(isContributeEnabled).mockReturnValue(undefined);
+      vi.mocked(readContributeChoice).mockReturnValue(undefined);
 
       const program = createProgram();
       await program.parseAsync([
@@ -685,7 +684,7 @@ describe("check command", () => {
     });
 
     it("pings when contribution is enabled via persisted config, with no flag", async () => {
-      vi.mocked(isContributeEnabled).mockReturnValue(true);
+      vi.mocked(readContributeChoice).mockReturnValue(true);
 
       const program = createProgram();
       await program.parseAsync(["node", "test", "check", "ping-pkg"]);
@@ -694,7 +693,7 @@ describe("check command", () => {
     });
 
     it("--no-contribute is a registered option and does not error", async () => {
-      vi.mocked(isContributeEnabled).mockReturnValue(undefined);
+      vi.mocked(readContributeChoice).mockReturnValue(undefined);
 
       const program = createProgram();
       // Regression for the exact reported bug: this used to throw
@@ -706,7 +705,7 @@ describe("check command", () => {
     });
 
     it("--no-contribute overrides a persisted opt-in and suppresses the ping", async () => {
-      vi.mocked(isContributeEnabled).mockReturnValue(true);
+      vi.mocked(readContributeChoice).mockReturnValue(true);
 
       const program = createProgram();
       await program.parseAsync([
@@ -801,7 +800,7 @@ describe("check command", () => {
         "--contribute",
       ]);
 
-      expect(queueScanResult).toHaveBeenCalled();
+      expect(contribute.scanResult).toHaveBeenCalled();
     });
 
     it("publishes check IDs and results only, never finding names or messages, and sends the package version (#97)", async () => {
@@ -874,17 +873,13 @@ describe("check command", () => {
           attackClass: "SCOPE-ESCALATION",
         },
       ]);
-      expect(queueScanResult).toHaveBeenCalledWith(
-        "scan-me",
-        expect.any(Array),
-        0,
-        "npm",
-        "1.2.3"
+      expect(contribute.scanResult).toHaveBeenCalledWith(
+        expect.objectContaining({ packageName: "scan-me", ecosystem: "npm", packageVersion: "1.2.3" })
       );
     });
 
     it("contributes silently once consent is given (no per-scan contribution line)", async () => {
-      vi.mocked(flushQueue).mockResolvedValue(true);
+      vi.mocked(contribute.flush).mockResolvedValue(true);
       const mockPublishScan = vi
         .fn()
         .mockResolvedValue({ publishId: "0123456789abcdef" });
@@ -929,12 +924,12 @@ describe("check command", () => {
         ]);
       } finally {
         stderrSpy.mockRestore();
-        vi.mocked(flushQueue).mockResolvedValue(false);
+        vi.mocked(contribute.flush).mockResolvedValue(false);
       }
 
       // The contribution still happens...
-      expect(queueScanResult).toHaveBeenCalled();
-      expect(flushQueue).toHaveBeenCalled();
+      expect(contribute.scanResult).toHaveBeenCalled();
+      expect(contribute.flush).toHaveBeenCalled();
       expect(mockPublishScan).toHaveBeenCalled();
       // ...but nothing about it is printed.
       const printed = [
@@ -951,7 +946,7 @@ describe("check command", () => {
     });
 
     it("handles telemetry failure gracefully (non-fatal)", async () => {
-      vi.mocked(flushQueue).mockResolvedValue(false);
+      vi.mocked(contribute.flush).mockResolvedValue(false);
       const mockCheckTrust = vi
         .fn()
         .mockRejectedValue(

@@ -12,18 +12,25 @@ export {
   scanPingsSettled,
   type ContributionFinding,
   type ContributionPayload,
-  type ContributionResult,
   type ContributionEvent,
   type ContributionBatch,
 } from "./contribute.js";
 
 export {
-  isContributeEnabled,
+  readContributeChoice,
   hasUnmarkedOff,
-  resolveContributeChoice,
-  shouldPromptContribute,
   incrementScanCount,
   saveContributeChoice,
-  showContributePrompt,
   recordScanAndMaybeShowTip,
 } from "./opt-in.js";
+
+export {
+  decideContribution,
+  SHARE_QUESTION,
+  type ContributionCommand,
+  type ContributionDecision,
+  type ContributionInputs,
+  type ContributionLine,
+} from "./decision.js";
+
+export { shareScans, type SharedScan } from "./share.js";

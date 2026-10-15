@@ -85,7 +85,7 @@ ai-trust telemetry off            # or set OPENA2A_TELEMETRY=off for one run
 ai-trust telemetry status         # the current state and install ID
 ```
 
-Sharing scan results is opt-in: `ai-trust config contribute on`, or `--contribute` for one scan; `audit` on a terminal asks. A shared scan sends the same registry the package name, version and ecosystem, score, verdict and per-check results with a pseudonymous contributor token, and no file paths or source code.
+Sharing scan results is opt-in: `ai-trust config contribute on`, or `--contribute` for one scan; `audit` on a terminal asks. A shared scan sends the registry the package name, version and ecosystem, score, verdict and per-check results, not file paths or source code; saved consent adds a pseudonymous contributor token.
 
 With contribution saved on, the bundled scanner also sends a SHA-256 hash and the classification of each file it classifies; `--no-deep` stops that, `--no-contribute` does not. The choice is saved in `~/.opena2a/config.json` and shared by OpenA2A tools; `ai-trust config contribute off` turns it off. The [contribution guide](docs/use-cases/contribute-scans.md) lists every field.
 

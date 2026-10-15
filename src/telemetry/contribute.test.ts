@@ -7,7 +7,7 @@
  *   - Contributor token is a 64-char hex SHA256
  *   - queueScanResult delegates to @opena2a/contribute with correct summary
  *   - flushQueue delegates to @opena2a/contribute
- *   - Queue-based submission handles errors gracefully
+ *   - submitContribution queues, flushes and sends each scan, and never throws
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -29,6 +29,15 @@ vi.mock("@opena2a/contribute", () => {
   };
 });
 
+// The registry's publish endpoint, as submitContribution's client reaches it.
+const publishScanMock = vi.hoisted(() => vi.fn());
+vi.mock("@opena2a/registry-client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@opena2a/registry-client")>()),
+  RegistryClient: vi.fn().mockImplementation(function () {
+    return { publishScan: publishScanMock };
+  }),
+}));
+
 import {
   generateContributorToken,
   buildContributionPayload,
@@ -42,10 +51,10 @@ import {
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { HmaFinding } from "../scanner/hma.js";
+import type { ScanResult } from "../scanner/index.js";
 import {
   contribute,
   getContributorToken,
-  queueEvent,
 } from "@opena2a/contribute";
 
 /**
@@ -240,36 +249,76 @@ describe("generateContributorToken", () => {
   });
 });
 
-describe("submitContribution (legacy)", () => {
+describe("submitContribution", () => {
   beforeEach(() => {
+    vi.mocked(contribute.scanResult).mockClear();
     vi.mocked(contribute.flush).mockClear();
-    vi.mocked(queueEvent).mockClear();
+    publishScanMock.mockReset();
   });
 
-  it("queues event via shared library and flushes", async () => {
-    const payload = buildContributionPayload("test-pkg", makeSampleFindings());
-    const result = await submitContribution(payload, "http://localhost:1");
+  function scan(name: string, version: string): { name: string; scanResult: ScanResult } {
+    return {
+      name,
+      scanResult: {
+        packageName: name,
+        packageVersion: version,
+        scan: {
+          score: 80,
+          maxScore: 100,
+          findings: makeSampleFindings(),
+          projectType: "mcp_server",
+          timestamp: "2026-10-15T00:00:00Z",
+        },
+        trustScore: 0.8,
+        trustLevel: 3,
+        verdict: "warning",
+      } as ScanResult,
+    };
+  }
 
-    expect(queueEvent).toHaveBeenCalledOnce();
+  it("queues each scan's summary, flushes once, then sends each scan's per-check results", async () => {
+    await submitContribution([scan("pkg-a", "1.0.0"), scan("pkg-b", "2.0.0")], "http://localhost:1", {
+      ecosystem: "pypi",
+      type: "mcp_server",
+    });
+
+    expect(vi.mocked(contribute.scanResult).mock.calls.map(([e]) => [e.packageName, e.packageVersion, e.ecosystem])).toEqual([
+      ["pkg-a", "1.0.0", "pypi"],
+      ["pkg-b", "2.0.0", "pypi"],
+    ]);
     expect(contribute.flush).toHaveBeenCalledOnce();
-    expect(result.success).toBe(true);
+    expect(contribute.flush).toHaveBeenCalledWith("http://localhost:1", undefined);
+    expect(publishScanMock.mock.calls.map(([s]) => [s.name, s.version, s.ecosystem, s.type])).toEqual([
+      ["pkg-a", "1.0.0", "pypi", "mcp_server"],
+      ["pkg-b", "2.0.0", "pypi", "mcp_server"],
+    ]);
   });
 
-  it("returns failure when flush fails", async () => {
-    vi.mocked(contribute.flush).mockResolvedValueOnce(false);
+  it("sends check IDs and results, never finding names, messages or file paths (#97)", async () => {
+    await submitContribution([scan("pkg-a", "1.0.0")], "http://localhost:1", { ecosystem: "npm" });
 
-    const payload = buildContributionPayload("test-pkg", makeSampleFindings());
-    const result = await submitContribution(payload, "http://localhost:1");
+    const wire = JSON.stringify(publishScanMock.mock.calls[0][0]);
+    expect(wire).toContain("CRED-001");
+    expect(wire).not.toContain("Hardcoded API key");
+    expect(wire).not.toContain("API key sk-1234");
+    expect(wire).not.toContain("src/config.ts");
+  });
 
-    expect(result.success).toBe(false);
+  it("resolves when the flush and the send both fail", async () => {
+    vi.mocked(contribute.flush).mockRejectedValueOnce(new Error("offline"));
+    publishScanMock.mockRejectedValue(new Error("offline"));
+
+    await expect(
+      submitContribution([scan("pkg-a", "1.0.0")], "http://localhost:1", { ecosystem: "npm" }),
+    ).resolves.toBeUndefined();
+    expect(publishScanMock).toHaveBeenCalledOnce();
   });
 
   // #129: the queued event carried verdict "pass" whatever the findings were.
-  function queuedVerdict(findings: HmaFinding[]): Promise<string | undefined> {
-    const payload = buildContributionPayload("test-pkg", findings);
-    return submitContribution(payload, "http://localhost:1").then(
-      () => vi.mocked(queueEvent).mock.calls[0][0].scanSummary?.verdict,
-    );
+  function queuedVerdict(findings: HmaFinding[]): string | undefined {
+    vi.mocked(contribute.scanResult).mockClear();
+    queueScanResult("test-pkg", findings);
+    return vi.mocked(contribute.scanResult).mock.calls[0][0].verdict;
   }
 
   function finding(severity: string, passed: boolean): HmaFinding {
@@ -284,31 +333,17 @@ describe("submitContribution (legacy)", () => {
     } as HmaFinding;
   }
 
-  it("queues verdict fail when a critical check failed", async () => {
-    expect(await queuedVerdict(makeSampleFindings())).toBe("fail");
+  it("queues verdict fail when a critical check failed", () => {
+    expect(queuedVerdict(makeSampleFindings())).toBe("fail");
   });
 
-  it("queues verdict warn when a high check failed and no critical one did", async () => {
-    expect(await queuedVerdict([finding("high", false), finding("critical", true)])).toBe(
-      "warn",
-    );
+  it("queues verdict warn when a high check failed and no critical one did", () => {
+    expect(queuedVerdict([finding("high", false), finding("critical", true)])).toBe("warn");
   });
 
-  it("queues verdict pass when no critical or high check failed", async () => {
-    expect(await queuedVerdict([finding("medium", false), finding("high", true)])).toBe("pass");
-    vi.mocked(queueEvent).mockClear();
-    expect(await queuedVerdict([])).toBe("pass");
-  });
-
-  it("queues the ecosystem the payload was built for", async () => {
-    const payload = buildContributionPayload("test-pkg", makeSampleFindings(), "pypi");
-    expect(payload.ecosystem).toBe("pypi");
-    await submitContribution(payload, "http://localhost:1");
-
-    expect(vi.mocked(queueEvent).mock.calls[0][0].package).toEqual({
-      name: "test-pkg",
-      ecosystem: "pypi",
-    });
+  it("queues verdict pass when no critical or high check failed", () => {
+    expect(queuedVerdict([finding("medium", false), finding("high", true)])).toBe("pass");
+    expect(queuedVerdict([])).toBe("pass");
   });
 });
 

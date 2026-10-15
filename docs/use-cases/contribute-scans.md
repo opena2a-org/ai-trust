@@ -57,6 +57,8 @@ The OpenA2A Registry uses community-contributed scan data to calculate trust sco
 - Tool name and version, the kind of event, and the timestamps of the scan and of the submission
 - A contributor token: a pseudonymous per-device identifier, the SHA-256 hash of your hostname, username and a random salt stored only on your machine (`~/.opena2a/contributor-salt`). It links contributions from the same device to each other; it does not contain your hostname or username. The scan ping sends the fixed word `anonymous` in its place.
 
+The check counts and the contributor token are sent only when contribution is saved as on. A scan shared with `--contribute` alone sends the other fields, with no contributor token.
+
 **Shared by the bundled scanner (hackmyagent), when contribution is saved as on:**
 
 On a default scan (not with `--no-deep`), the scanner sends classification telemetry for the files its NanoMind classifier reads:
@@ -91,7 +93,7 @@ Your local scan results continue to work. Only the telemetry submission stops.
 
 ## Community contribution
 
-Every scan you run can improve trust data for the entire community. A contributed scan carries the package name, version and ecosystem, the score and verdict, the project type, check counts by severity, and for each check its ID, pass/fail, severity, category and attack class. No file paths, source code, finding names, messages or descriptions. Contributions from one device share a pseudonymous contributor token: a SHA-256 hash of the hostname, username and a random salt that stays on your machine, so the hostname and username themselves are never sent.
+Every scan you run can improve trust data for the entire community. A contributed scan carries the package name, version and ecosystem, the score and verdict, the project type, and for each check its ID, pass/fail, severity, category and attack class. No file paths, source code, finding names, messages or descriptions. With contribution saved as on, it also carries check counts by severity, and contributions from one device share a pseudonymous contributor token: a SHA-256 hash of the hostname, username and a random salt that stays on your machine, so the hostname and username themselves are never sent.
 
 When contribution is saved as on, the bundled scanner (hackmyagent) also sends classification telemetry on a default scan: for each file its classifier reads, the content type, a SHA-256 hash of the content, the classification, confidence, verdict and model version, with no package name or file path. `--no-contribute` does not stop it; `--no-deep` or turning contribution off does. [What data is shared](#4-what-data-is-shared-and-what-is-not) lists the fields.
 

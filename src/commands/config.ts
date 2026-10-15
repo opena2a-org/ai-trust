@@ -10,7 +10,7 @@
 import type { Command } from "commander";
 import {
   hasUnmarkedOff,
-  isContributeEnabled,
+  readContributeChoice,
   saveContributeChoice,
 } from "../telemetry/index.js";
 
@@ -51,7 +51,7 @@ export function registerConfigCommand(program: Command): void {
         saveContributeChoice(requested === "on");
       }
 
-      const choice = isContributeEnabled();
+      const choice = readContributeChoice();
       if (globalOpts.json) {
         console.log(JSON.stringify({ contribute: choice ?? null }, null, 2));
         return;

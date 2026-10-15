@@ -15,13 +15,16 @@
 import {
   contribute,
   getContributorToken,
-  queueEvent,
   type ContributionEvent as SharedContributionEvent,
   type ContributionBatch as SharedContributionBatch,
 } from "@opena2a/contribute";
+import { firstPartySignerFromEnv } from "@opena2a/registry-client";
 import { type as osType } from "os";
 import { createRequire } from "node:module";
 import type { HmaFinding } from "../scanner/hma.js";
+import type { ScanResult } from "../scanner/index.js";
+import { createRegistryClient } from "../utils/registry-client.js";
+import { buildScanSubmission } from "./publish.js";
 
 const require = createRequire(import.meta.url);
 const pkg = require("../../package.json");
@@ -48,13 +51,6 @@ export interface ContributionPayload {
   findings: ContributionFinding[];
   aiTrustVersion: string;
   osType: "linux" | "macos" | "windows";
-}
-
-/** Result of submitting a contribution. */
-export interface ContributionResult {
-  success: boolean;
-  scanId?: string;
-  error?: string;
 }
 
 /** Re-export ContributionEvent from the shared library. */
@@ -176,8 +172,8 @@ const pendingScanPings = new Set<Promise<void>>();
  * verdict is scan-result data under the two-bucket telemetry policy:
  * it names what the user scanned, so it is Bucket 2 (opt-in), not
  * Bucket 1 (invocation telemetry, no package names, default-on).
- * Callers MUST gate this on `resolveContributeChoice()`, the same
- * predicate used for queueScanResult -- do not call it unconditionally.
+ * Callers MUST gate this on the `send` of decideContribution(), the same
+ * decision used for submitContribution -- do not call it unconditionally.
  */
 export function sendScanPing(
   packageName: string,
@@ -256,6 +252,53 @@ export async function flushQueue(
   return contribute.flush(registryUrl, verbose);
 }
 
+/**
+ * Share scans the user consented to share: queue each scan's summary and
+ * flush the queue, then send each scan's per-check results to the registry's
+ * publish endpoint. Nothing is printed. Never throws.
+ */
+export async function submitContribution(
+  scans: { name: string; scanResult: ScanResult }[],
+  registryUrl: string,
+  opts: { ecosystem: "npm" | "pypi"; type?: string }
+): Promise<void> {
+  try {
+    for (const { name, scanResult } of scans) {
+      queueScanResult(name, scanResult.scan.findings, 0, opts.ecosystem, scanResult.packageVersion);
+    }
+    await flushQueue(registryUrl);
+  } catch {
+    // Non-fatal: contribution should never crash the scan
+  }
+
+  // Per-check results via the unified endpoint, for evidence correlation and
+  // consensus. ai-trust is NOT first_party_scanner: only a run in our own CI
+  // (AI_TRUST_CI_SIGNING_KEY set) self-tags source=ci; a user's run, with no
+  // key, is sent as community.
+  for (const { name, scanResult } of scans) {
+    try {
+      const client = createRegistryClient({
+        baseUrl: registryUrl,
+        userAgent: `ai-trust/${VERSION}`,
+      });
+      const signer = firstPartySignerFromEnv({
+        keyEnv: "AI_TRUST_CI_SIGNING_KEY",
+        source: "ci",
+      });
+      await client.publishScan(
+        buildScanSubmission(name, scanResult, {
+          toolVersion: VERSION,
+          type: opts.type,
+          ecosystem: opts.ecosystem,
+        }),
+        signer,
+      );
+    } catch {
+      // Non-fatal: contribution should never crash the scan
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Legacy API (kept for backward compatibility with existing callers/tests)
 // ---------------------------------------------------------------------------
@@ -288,59 +331,4 @@ export function buildContributionPayload(
     aiTrustVersion: VERSION,
     osType: resolveOsType(),
   };
-}
-
-/**
- * Submit a contribution payload to the registry.
- *
- * @deprecated Use queueScanResult() + flushQueue() instead. This legacy
- * function now queues the event internally and flushes, rather than
- * posting per-finding payloads directly.
- */
-export async function submitContribution(
-  payload: ContributionPayload,
-  registryUrl?: string
-): Promise<ContributionResult> {
-  const critical = payload.findings.filter(
-    (f) => f.result === "fail" && f.severity === "critical"
-  ).length;
-  const high = payload.findings.filter(
-    (f) => f.result === "fail" && f.severity === "high"
-  ).length;
-  const event: ContributionEvent = {
-    type: "scan_result",
-    tool: "ai-trust",
-    toolVersion: payload.aiTrustVersion,
-    timestamp: payload.scanTimestamp,
-    package: {
-      name: payload.packageName,
-      ecosystem: payload.ecosystem,
-    },
-    scanSummary: {
-      totalChecks: payload.findings.length,
-      passed: payload.findings.filter((f) => f.result === "pass").length,
-      critical,
-      high,
-      medium: payload.findings.filter(
-        (f) => f.result === "fail" && f.severity === "medium"
-      ).length,
-      low: payload.findings.filter(
-        (f) => f.result === "fail" && f.severity === "low"
-      ).length,
-      score:
-        payload.findings.length > 0
-          ? Math.round(
-              (payload.findings.filter((f) => f.result === "pass").length /
-                payload.findings.length) *
-                100
-            )
-          : 0,
-      verdict: verdictFromCounts(critical, high),
-      durationMs: 0,
-    },
-  };
-
-  queueEvent(event);
-  const ok = await flushQueue(registryUrl);
-  return { success: ok };
 }
