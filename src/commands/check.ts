@@ -28,7 +28,7 @@ import { confirm } from "../utils/prompt.js";
 import { shareScans } from "../telemetry/index.js";
 import { checkSkillOrMcp } from "../check/skill-mcp-check.js";
 import { classifyCheckTarget } from "../check/target.js";
-import type { InvalidTarget, PackageTarget } from "../check/target.js";
+import type { InvalidTarget, PackageTarget, RichTarget } from "../check/target.js";
 import { checkCitation } from "../utils/cli-prefix.js";
 import { shellArg } from "../utils/shell-arg.js";
 import { buildCheckJson } from "../output/check-json.js";
@@ -145,8 +145,10 @@ export function registerCheckCommand(program: Command): void {
           baseUrl: globalOpts.registryUrl,
           userAgent: `ai-trust/${AI_TRUST_VERSION}`,
         });
+        const narrative = narrativeLookup(target);
         const result = await checkSkillOrMcp({
-          parsed: { artifactType: target.kind, name: target.name },
+          parsed: { artifactType: target.kind, name: narrative.name },
+          version: narrative.version,
           registryUrl: globalOpts.registryUrl,
           client: richClient,
           userAgent: `ai-trust/${AI_TRUST_VERSION}`,
@@ -585,6 +587,20 @@ function notePackageAnswer(target: PackageTarget): void {
   console.error(
     chalk.dim(`  Note: the registry's answer is for the package ${name}, not for version ${version}.`)
   );
+}
+
+/**
+ * What the registry is asked for the narrative of a `skill:` or `mcp:` target.
+ * The registry keeps a narrative by package name and version, so a
+ * `<name>@<version>` target asks for the narrative of `<name>` at `<version>`.
+ * Any other target asks for the name as typed, at the latest version.
+ */
+function narrativeLookup(target: RichTarget): { name: string; version?: string } {
+  const { fallback } = target;
+  if (fallback.kind !== "npm" || fallback.version === undefined) return { name: target.name };
+  const suffix = `@${fallback.version}`;
+  if (!target.name.endsWith(suffix)) return { name: target.name };
+  return { name: target.name.slice(0, -suffix.length), version: fallback.version };
 }
 
 /**
