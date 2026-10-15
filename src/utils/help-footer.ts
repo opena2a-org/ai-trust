@@ -34,6 +34,20 @@ export function withEnableSteps(telemetryOutput: string): string {
   return telemetryOutput.replace(RENDERER_ENABLE_HINT, ENABLE_STEPS);
 }
 
+/**
+ * Output of `telemetry on` when OPENA2A_TELEMETRY still turns usage telemetry
+ * off, built from the `telemetry status` output for that state: the header
+ * says the saved choice is on and the variable keeps it off, and the toggle
+ * line names the step that is left.
+ */
+export function onKeptOffByVariable(statusOutput: string): string {
+  const lines = statusOutput.split("\n");
+  lines[0] = "Telemetry saved as on for ai-trust, but OPENA2A_TELEMETRY keeps it off.";
+  return lines
+    .map((line) => (line.includes(RENDERER_ENABLE_HINT) ? "  Enable: unset OPENA2A_TELEMETRY" : line))
+    .join("\n");
+}
+
 export function helpFooter(usageTelemetryEnabled: boolean): string {
   return `
 Telemetry:

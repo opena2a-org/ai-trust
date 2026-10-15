@@ -46,6 +46,7 @@ import type { TrustAnswer, BatchResponse } from "@opena2a/registry-client";
 import type { ScanResult } from "../scanner/index.js";
 import { findAuditFile } from "../utils/audit-file.js";
 import { checkCitation } from "../utils/cli-prefix.js";
+import { shellArg } from "../utils/shell-arg.js";
 
 // ── Visual helpers ─────────────────────────────────────────────���──────
 
@@ -191,7 +192,8 @@ function buildCheckCtas(answer: TrustAnswer, isScanError: boolean): NextStepsCta
   const isUnscanned = meterGate === undefined && !isScanError;
 
   const ctas: NextStepsCta[] = [];
-  const checkCmd = `${checkCitation()} ${answer.name}`;
+  // The name is the registry's string: quoted, so it stays one argument.
+  const checkCmd = `${checkCitation()} ${shellArg(answer.name)}`;
   if (isScanError) {
     ctas.push({
       label: "Rescan",
@@ -345,13 +347,18 @@ export function formatCheckResult(
   }
 
   const scanStatusForMeter = mapScanStatusForMeter(answer.scanStatus);
+  // The shared meter reads a score above 1 as out of 100 and throws on a
+  // negative or infinite one. A score that is not from 0 to 1 gets no meter:
+  // the Trust line shows --, as batch and audit do.
+  const unreadableScore =
+    scanStatusForMeter !== undefined && scorePercent(answer.trustScore) === undefined;
   const block = renderCheckBlock({
     name: answer.name,
     packageType: answer.packageType,
     trustLevel: answer.trustLevel,
     trustScore: answer.trustScore,
     verdict: answer.verdict,
-    scanStatus: scanStatusForMeter,
+    scanStatus: unreadableScore ? undefined : scanStatusForMeter,
     communityScans: answer.communityScans,
     lastScannedAt: answer.lastScannedAt,
   });
@@ -396,6 +403,14 @@ export function formatCheckResult(
       out.push(
         `  ${"Trust".padEnd(CHECK_LABEL_WIDTH)}${chalk.red.bold("Scan failed")} ${chalk.dim(
           "\u2014 rescan to get an accurate score"
+        )}`
+      );
+      continue;
+    }
+    if (line.label === "Trust" && unreadableScore) {
+      out.push(
+        `  ${"Trust".padEnd(CHECK_LABEL_WIDTH)}-- ${chalk.dim(
+          "(the registry's score is not a number from 0 to 1)"
         )}`
       );
       continue;
@@ -798,6 +813,12 @@ export interface FormatScanResultOptions {
    * local (false).
    */
   remote?: boolean;
+  /**
+   * The ecosystem the package was downloaded from. A `pip:<name>` target
+   * names it in the header (`six (pypi)  downloaded package`), as the
+   * registry answer's header does. Defaults to npm, which adds nothing.
+   */
+  ecosystem?: "npm" | "pypi";
 }
 
 export function formatScanResult(result: ScanResult, opts: FormatScanResultOptions = {}): string {
@@ -807,7 +828,7 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
 
   const lines: string[] = [
     "",
-    `  ${chalk.bold.white(result.packageName)}  ${chalk.dim(remote ? "downloaded package" : "local scan")}`,
+    `  ${chalk.bold.white(result.packageName)}${ecosystemSuffix(opts.ecosystem ?? "npm")}  ${chalk.dim(remote ? "downloaded package" : "local scan")}`,
   ];
 
   // Verdict

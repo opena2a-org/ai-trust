@@ -13,7 +13,7 @@ import { registerCheckCommand } from "./commands/check.js";
 import { registerAuditCommand } from "./commands/audit.js";
 import { registerBatchCommand } from "./commands/batch.js";
 import { registerConfigCommand } from "./commands/config.js";
-import { helpFooter, withEnableSteps } from "./utils/help-footer.js";
+import { helpFooter, onKeptOffByVariable, withEnableSteps } from "./utils/help-footer.js";
 import { helpDocsLine } from "./utils/help-docs.js";
 import { scanPingsSettled } from "./telemetry/contribute.js";
 
@@ -120,16 +120,25 @@ program.addHelpText("afterAll", ({ command }) => helpDocsLine(command));
   program
     .command("telemetry [action]")
     .description("Inspect or toggle usage telemetry: on | off | status")
-    .action((action: string | undefined) => {
-      console.log(
-        withEnableSteps(
-          cliUi.runTelemetryCommand(action as Parameters<typeof cliUi.runTelemetryCommand>[0], {
-            tool: TELEMETRY_TOOL,
-            getStatus: tele.status,
-            setOptOut: tele.setOptOut,
-          }),
-        ),
+    .action(async (action: string | undefined) => {
+      const telemetryInput = {
+        tool: TELEMETRY_TOOL,
+        getStatus: tele.status,
+        setOptOut: tele.setOptOut,
+      };
+      let output = cliUi.runTelemetryCommand(
+        action as Parameters<typeof cliUi.runTelemetryCommand>[0],
+        telemetryInput,
       );
+      if (action === "on") {
+        // setOptOut marks this run on, but OPENA2A_TELEMETRY=off wins over the
+        // saved choice on every run; init resolves the state in effect again.
+        await tele.init({ tool: TELEMETRY_TOOL, version: VERSION });
+        if (!tele.status().enabled) {
+          output = onKeptOffByVariable(cliUi.runTelemetryCommand("status", telemetryInput));
+        }
+      }
+      console.log(withEnableSteps(output));
       // An unrecognized action prints "Unknown action …" but must also exit
       // non-zero so scripts and CI can detect the usage error (release-test P3).
       const knownActions = new Set(["on", "off", "status", "--help", "-h"]);

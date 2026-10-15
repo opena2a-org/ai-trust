@@ -170,6 +170,47 @@ describe("`telemetry status` gives steps that turn usage telemetry back on", { t
   });
 });
 
+describe("`telemetry on` reports the state in effect (#141)", { timeout: 60000 }, () => {
+  const KEPT_OFF = "Telemetry saved as on for ai-trust, but OPENA2A_TELEMETRY keeps it off.";
+
+  it("under OPENA2A_TELEMETRY=off, says the variable keeps it off and agrees with `telemetry status`", () => {
+    if (!existsSync(CLI_PATH)) return;
+    const configHome = mkdtempSync(join(tmpdir(), "ai-trust-telemetry-on-"));
+    try {
+      expect(run(["telemetry", "off"], { configHome }).status).toBe(0);
+
+      const on = run(["telemetry", "on"], { configHome, telemetry: "off" });
+      expect(on.status).toBe(0);
+      expect(on.stdout.split("\n")[0]).toBe(KEPT_OFF);
+      expect(on.stdout).not.toContain("Telemetry enabled");
+      expect(on.stdout).toMatch(/^ {2}state: +off$/m);
+      expect(on.stdout.split("\n")).toContain("  Enable: unset OPENA2A_TELEMETRY");
+
+      const status = run(["telemetry", "status"], { configHome, telemetry: "off" });
+      expect(status.stdout).toMatch(/^ {2}state: +off$/m);
+
+      // The choice was saved: without the variable, usage telemetry is on.
+      expect(run(["telemetry", "status"], { configHome }).stdout).toMatch(/^ {2}state: +on$/m);
+    } finally {
+      rmSync(configHome, { recursive: true, force: true });
+    }
+  });
+
+  it("without the variable, says telemetry is enabled and on", () => {
+    if (!existsSync(CLI_PATH)) return;
+    const configHome = mkdtempSync(join(tmpdir(), "ai-trust-telemetry-on-"));
+    try {
+      const on = run(["telemetry", "on"], { configHome });
+      expect(on.status).toBe(0);
+      expect(on.stdout.split("\n")[0]).toBe("Telemetry enabled for ai-trust.");
+      expect(on.stdout).toMatch(/^ {2}state: +on$/m);
+      expect(on.stdout).not.toContain(KEPT_OFF);
+    } finally {
+      rmSync(configHome, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("usage telemetry is not called anonymous", { timeout: 60000 }, () => {
   it.each([
     { variable: "unset", telemetry: undefined },

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { helpFooter, withEnableSteps } from "./help-footer.js";
+import { helpFooter, onKeptOffByVariable, withEnableSteps } from "./help-footer.js";
 
 /** The first line under the "Telemetry:" heading. */
 function telemetryLine(footer: string): string {
@@ -61,5 +61,14 @@ describe("withEnableSteps", () => {
   it("leaves the hint for turning telemetry off unchanged", () => {
     const status = "  toggle: 'ai-trust telemetry off'  or  OPENA2A_TELEMETRY=off";
     expect(withEnableSteps(status)).toBe(status);
+  });
+});
+
+describe("onKeptOffByVariable", () => {
+  it("says the saved choice is on, keeps the state lines and names the step left (#141)", () => {
+    const status = "ai-trust telemetry\n  state:       off\n\n  toggle: 'ai-trust telemetry on'  or  OPENA2A_TELEMETRY=on";
+    expect(onKeptOffByVariable(status)).toBe(
+      "Telemetry saved as on for ai-trust, but OPENA2A_TELEMETRY keeps it off.\n  state:       off\n\n  Enable: unset OPENA2A_TELEMETRY",
+    );
   });
 });

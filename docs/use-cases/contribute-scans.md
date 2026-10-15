@@ -6,7 +6,7 @@ Time: 3 min.
 
 ### 1. Enable contribution
 
-`ai-trust check` never asks whether to share: it shares a scan only when contribution is enabled or you pass `--contribute`. `ai-trust audit` on a terminal asks after it scans packages that the registry does not have, unless contribution is already enabled, you already answered no or ran `ai-trust config contribute off`, or you pass `--contribute` or `--no-contribute`. It saves your answer in `~/.opena2a/config.json`. The setting is shared across all OpenA2A tools (opena2a-cli, hackmyagent, ai-trust).
+`ai-trust check` never asks whether to share: it shares a scan only when contribution is enabled or you pass `--contribute`. `ai-trust audit` on a terminal asks after it scans packages that the registry does not have, unless contribution is already enabled, you answered no to that question or ran `ai-trust config contribute off`, or you pass `--contribute` or `--no-contribute`. It saves your answer in `~/.opena2a/config.json`. The setting is shared across all OpenA2A tools (opena2a-cli, hackmyagent, ai-trust). A no saved by ai-trust 0.7.6, or an off saved by hackmyagent, is stored the same way as no choice at all, so `audit` still asks; answering it or running `ai-trust config contribute off` records the choice.
 
 To save the preference up front:
 
@@ -95,7 +95,7 @@ Every scan you run can improve trust data for the entire community. A contribute
 
 When contribution is saved as on, the bundled scanner (hackmyagent) also sends classification telemetry on a default scan: for each file its classifier reads, the content type, a SHA-256 hash of the content, the classification, confidence, verdict and model version, with no package name or file path. `--no-contribute` does not stop it; `--no-deep` or turning contribution off does. [What data is shared](#4-what-data-is-shared-and-what-is-not) lists the fields.
 
-No scan results are shared until you opt in. `check` never asks: after a few scans without a choice, it prints a tip on how to opt in. `audit` on a terminal asks whether to share after it scans packages the registry does not have, unless contribution is already on, you already answered no or turned it off, or you pass `--contribute` or `--no-contribute`. A global choice is saved in `~/.opena2a/config.json` and shared across all OpenA2A tools (`opena2a-cli`, `hackmyagent`).
+No scan results are shared until you opt in. `check` never asks: after a few scans without a choice, it prints a tip on how to opt in. `audit` on a terminal asks whether to share after it scans packages the registry does not have, unless contribution is already on, you answered no to that question or ran `ai-trust config contribute off`, or you pass `--contribute` or `--no-contribute`. A no saved by ai-trust 0.7.6 or an off saved by hackmyagent looks like no choice, so `audit` still asks; answering it or running `ai-trust config contribute off` records the choice. A global choice is saved in `~/.opena2a/config.json` and shared across all OpenA2A tools (`opena2a-cli`, `hackmyagent`).
 
 ```bash
 ai-trust check @modelcontextprotocol/server-filesystem --contribute   # contribute for this scan (non-interactive / CI)

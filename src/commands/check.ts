@@ -36,6 +36,7 @@ import {
 import { buildScanSubmission } from "../telemetry/publish.js";
 import { checkSkillOrMcp, parseRichTarget } from "../check/skill-mcp-check.js";
 import { checkCitation } from "../utils/cli-prefix.js";
+import { shellArg } from "../utils/shell-arg.js";
 import { buildCheckJson } from "../output/check-json.js";
 import { createRequire } from "node:module";
 
@@ -215,6 +216,10 @@ export function registerCheckCommand(program: Command): void {
       if (opts.scan === false) {
         try {
           const result = await client.checkTrust(name, opts.type);
+          // The registry can answer a miss with the all-zero package id
+          // instead of a 404; the client reads that as found: false. Both are
+          // the same miss, with the same output and exit code.
+          if (!result.found) throw new PackageNotFoundError(name);
           // Classify using the registry's packageType (authoritative) before
           // falling back to the name-only allowlist.
           const tier = classify({ name, packageType: result.packageType }).tier;
@@ -497,7 +502,7 @@ async function handleScanFlow(
   if (globalOpts.json) {
     console.log(formatJson(buildCheckJson({ kind: "scan", scan: scanResult, ecosystem })));
   } else {
-    console.log(formatScanResult(scanResult, { remote: true }));
+    console.log(formatScanResult(scanResult, { remote: true, ecosystem }));
   }
 
   // Set exit code based on verdict (2 = policy signal, matching audit/batch)
@@ -735,9 +740,10 @@ function printLibraryWithTrust(
  * The target to hand `hackmyagent check`. Its help gives the bare name as the
  * npm form (`hackmyagent check express`) and `pip:<name>` as the PyPI form
  * (`hackmyagent check pip:requests`), so a PyPI package keeps the prefix.
+ * The name can come from the registry, so it is quoted for the shell.
  */
 function hmaCheckTarget(name: string, ecosystem: "npm" | "pypi"): string {
-  return ecosystem === "pypi" ? `pip:${name}` : name;
+  return shellArg(ecosystem === "pypi" ? `pip:${name}` : name);
 }
 
 /**
