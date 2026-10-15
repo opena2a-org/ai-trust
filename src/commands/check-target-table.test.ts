@@ -304,6 +304,7 @@ const ROWS: Row[] = [
       },
     },
   },
+  // The registry is asked about a versioned target by the package name alone.
   {
     form: "name@version",
     target: "table-tool@1.2.3",
@@ -311,23 +312,24 @@ const ROWS: Row[] = [
       "no flag": {
         exit: 1,
         shows: ["Scanning table-tool@1.2.3...", "Error: Failed to download \"table-tool@1.2.3\": \"table-tool@1.2.3\" is not a valid npm package name."],
-        requests: ["trust table-tool@1.2.3"],
+        requests: ["trust table-tool"],
       },
       "--no-scan": {
-        exit: 2,
-        shows: ["Package not found: table-tool@1.2.3 (npm)", "→ Scan locally  ai-trust check table-tool@1.2.3"],
-        requests: ["trust table-tool@1.2.3"],
+        exit: 0,
+        shows: ["Note: the registry's answer is for the package table-tool, not for version 1.2.3.", "table-tool  mcp server", "No known issues", "→ Fresh scan  ai-trust check table-tool"],
+        requests: ["trust table-tool"],
       },
       "--json": {
         exit: 1,
         json: {"name": "table-tool@1.2.3", "ecosystem": "npm", "found": false, "error": "Failed to download \"table-tool@1.2.3\": \"table-tool@1.2.3\" is not a valid npm package name."},
         shows: ["Scanning table-tool@1.2.3..."],
-        requests: ["trust table-tool@1.2.3"],
+        requests: ["trust table-tool"],
       },
       "--no-scan --json": {
-        exit: 2,
-        json: {"name": "table-tool@1.2.3", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check table-tool@1.2.3", "npx hackmyagent secure <project-dir>"], "error": "Package \"table-tool@1.2.3\" not found in the OpenA2A Registry."},
-        requests: ["trust table-tool@1.2.3"],
+        exit: 0,
+        json: {"name": "table-tool", "ecosystem": "npm", "source": "registry", "found": true, "verdict": "passed"},
+        shows: ["Note: the registry's answer is for the package table-tool, not for version 1.2.3."],
+        requests: ["trust table-tool"],
       },
     },
   },
@@ -338,23 +340,23 @@ const ROWS: Row[] = [
       "no flag": {
         exit: 1,
         shows: ["Scanning @table/agent@2.0.0...", "Error: Failed to download \"@table/agent@2.0.0\": \"@table/agent@2.0.0\" is not a valid npm package name."],
-        requests: ["trust @table/agent@2.0.0"],
+        requests: ["trust @table/agent"],
       },
       "--no-scan": {
         exit: 2,
         shows: ["Package not found: @table/agent@2.0.0 (npm)", "→ Scan locally  ai-trust check @table/agent@2.0.0"],
-        requests: ["trust @table/agent@2.0.0"],
+        requests: ["trust @table/agent"],
       },
       "--json": {
         exit: 1,
         json: {"name": "@table/agent@2.0.0", "ecosystem": "npm", "found": false, "error": "Failed to download \"@table/agent@2.0.0\": \"@table/agent@2.0.0\" is not a valid npm package name."},
         shows: ["Scanning @table/agent@2.0.0..."],
-        requests: ["trust @table/agent@2.0.0"],
+        requests: ["trust @table/agent"],
       },
       "--no-scan --json": {
         exit: 2,
         json: {"name": "@table/agent@2.0.0", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check @table/agent@2.0.0", "npx hackmyagent secure <project-dir>"], "error": "Package \"@table/agent@2.0.0\" not found in the OpenA2A Registry."},
-        requests: ["trust @table/agent@2.0.0"],
+        requests: ["trust @table/agent"],
       },
     },
   },
