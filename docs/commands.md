@@ -9,12 +9,12 @@ ai-trust verifies trust for AI-native packages. For everything else, use HMA.
 | Your package is... | Use |
 |---|---|
 | MCP server, A2A agent, skill, AI tool, LLM | `ai-trust` |
-| General-purpose library (express, chalk, typescript, etc.) | `hackmyagent check <pkg>` |
-| Full codebase security audit | `hackmyagent secure .` |
+| General-purpose library (express, chalk, typescript, etc.) | `npx hackmyagent check <pkg>` |
+| Full codebase security audit | `npx hackmyagent secure .` |
 
 `ai-trust audit package.json` audits AI packages in the trust table and separately lists libraries in an "Out of scope" section with an HMA pointer.
 
-Running `ai-trust check express` on a general-purpose library returns an "out of scope" verdict with a redirect to `hackmyagent check express`. Intentional. ai-trust is for AI packages only.
+Running `ai-trust check express` on a general-purpose library returns an "out of scope" verdict with a redirect to `npx hackmyagent check express`. Intentional. ai-trust is for AI packages only.
 
 ## Commands
 

@@ -1414,54 +1414,54 @@ describe("check command", () => {
           packageType: "library",
         });
 
-      it("registry-classified library (--no-scan) cites hackmyagent check pip:<name>", async () => {
+      it("registry-classified library (--no-scan) cites npx hackmyagent check pip:<name>", async () => {
         mockRegistry(registryLibrary("requests"));
 
         const program = createProgram();
         await program.parseAsync(["node", "test", "check", "pip:requests", "--no-scan"]);
 
-        expect(stderrText()).toMatch(/^ {4}hackmyagent check pip:requests$/m);
+        expect(stderrText()).toMatch(/^ {4}npx hackmyagent check pip:requests$/m);
         expect(process.exitCode).toBeUndefined();
       });
 
-      it("registry-classified library (--no-scan --json) lists hackmyagent check pip:<name>", async () => {
+      it("registry-classified library (--no-scan --json) lists npx hackmyagent check pip:<name>", async () => {
         mockRegistry(registryLibrary("requests"));
 
         const program = createProgram();
         await program.parseAsync(["node", "test", "--json", "check", "pip:requests", "--no-scan"]);
 
         const out = JSON.parse(consoleSpy.mock.calls[0][0] as string);
-        expect(out.nextSteps).toEqual(["hackmyagent check pip:requests"]);
+        expect(out.nextSteps).toEqual(["npx hackmyagent check pip:requests"]);
       });
 
-      it("registry-classified library on the default scan path cites hackmyagent check pip:<name>", async () => {
+      it("registry-classified library on the default scan path cites npx hackmyagent check pip:<name>", async () => {
         mockRegistry(registryLibrary("requests"));
 
         const program = createProgram();
         await program.parseAsync(["node", "test", "check", "pip:requests"]);
 
         expect(scanPackage).not.toHaveBeenCalled();
-        expect(stderrText()).toMatch(/^ {4}hackmyagent check pip:requests$/m);
+        expect(stderrText()).toMatch(/^ {4}npx hackmyagent check pip:requests$/m);
       });
 
-      it("library by name with no registry data (--no-scan) cites hackmyagent check pip:<name>", async () => {
+      it("library by name with no registry data (--no-scan) cites npx hackmyagent check pip:<name>", async () => {
         mockRegistry(vi.fn().mockRejectedValue(new PackageNotFoundError("not in registry")));
 
         const program = createProgram();
         await program.parseAsync(["node", "test", "check", "pip:requests", "--no-scan"]);
 
-        expect(stderrText()).toMatch(/^ {4}hackmyagent check pip:requests$/m);
+        expect(stderrText()).toMatch(/^ {4}npx hackmyagent check pip:requests$/m);
         expect(process.exitCode).toBeUndefined();
       });
 
-      it("library by name with no registry data (--no-scan --json) lists hackmyagent check pip:<name>", async () => {
+      it("library by name with no registry data (--no-scan --json) lists npx hackmyagent check pip:<name>", async () => {
         mockRegistry(vi.fn().mockRejectedValue(new PackageNotFoundError("not in registry")));
 
         const program = createProgram();
         await program.parseAsync(["node", "test", "--json", "check", "pip:requests", "--no-scan"]);
 
         const out = JSON.parse(consoleSpy.mock.calls[0][0] as string);
-        expect(out.nextSteps).toEqual(["hackmyagent check pip:requests"]);
+        expect(out.nextSteps).toEqual(["npx hackmyagent check pip:requests"]);
       });
 
       it("an npm target still cites the bare name", async () => {
@@ -1470,7 +1470,7 @@ describe("check command", () => {
         const program = createProgram();
         await program.parseAsync(["node", "test", "check", "express", "--no-scan"]);
 
-        expect(stderrText()).toMatch(/^ {4}hackmyagent check express$/m);
+        expect(stderrText()).toMatch(/^ {4}npx hackmyagent check express$/m);
       });
     });
   });

@@ -282,7 +282,7 @@ describe("registry answers through the built CLI", () => {
       expect(stderr).not.toMatch(CONTROL);
       expect(stderr).toContain("lib]0;x-ctrl SECOND LINE  library (registry-classified)");
       // Quoted for the shell: the name has a ";" and spaces in it (#141).
-      expect(stderr).toContain("hackmyagent check 'lib]0;x-ctrl SECOND LINE'");
+      expect(stderr).toContain("npx hackmyagent check 'lib]0;x-ctrl SECOND LINE'");
     });
 
     it("check mcp:<name> prints the registry's narrative without them", async () => {
@@ -549,14 +549,14 @@ describe("registry answers through the built CLI", () => {
     it("check pip:<name> --no-scan quotes it in the hackmyagent check command", async () => {
       const { stderr } = await runCli(["check", "pip:shell-lib", "--no-scan"]);
 
-      expect(stderr.split("\n")).toContain("    hackmyagent check 'pip:shell-lib; echo injected'");
+      expect(stderr.split("\n")).toContain("    npx hackmyagent check 'pip:shell-lib; echo injected'");
     });
 
     it("check pip:<name> --no-scan --json quotes it in nextSteps", async () => {
       const { stdout } = await runCli(["check", "pip:shell-lib", "--no-scan", "--json"]);
 
       expect(JSON.parse(stdout).nextSteps).toEqual([
-        "hackmyagent check 'pip:shell-lib; echo injected'",
+        "npx hackmyagent check 'pip:shell-lib; echo injected'",
       ]);
     });
 
