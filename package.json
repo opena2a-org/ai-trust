@@ -24,7 +24,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "release-smoke:corpus": "tsx scripts/release-smoke-corpus.ts",
-    "audit:consumer": "node scripts/audit-consumer-resolution.mjs"
+    "audit:consumer": "node scripts/audit-consumer-resolution.mjs",
+    "docs:links": "node scripts/docs-links.mjs"
   },
   "keywords": [
     "ai",
