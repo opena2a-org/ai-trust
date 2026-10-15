@@ -174,22 +174,22 @@ const ROWS: Row[] = [
     cells: {
       "no flag": {
         exit: 0,
-        shows: ["table-lib  library (registry-classified)", "Out of scope for ai-trust — the registry classifies this as a general-purpose library.", "hackmyagent check table-lib"],
+        shows: ["table-lib  library (registry-classified)", "Out of scope for ai-trust — the registry classifies this as a general-purpose library.", "npx hackmyagent check table-lib"],
         requests: ["trust table-lib"],
       },
       "--no-scan": {
         exit: 0,
-        shows: ["table-lib  library (registry-classified)", "Out of scope for ai-trust — the registry classifies this as a general-purpose library.", "hackmyagent check table-lib"],
+        shows: ["table-lib  library (registry-classified)", "Out of scope for ai-trust — the registry classifies this as a general-purpose library.", "npx hackmyagent check table-lib"],
         requests: ["trust table-lib"],
       },
       "--json": {
         exit: 0,
-        json: {"name": "table-lib", "ecosystem": "npm", "found": true, "outOfScope": true, "nextSteps": ["hackmyagent check table-lib"]},
+        json: {"name": "table-lib", "ecosystem": "npm", "found": true, "outOfScope": true, "nextSteps": ["npx hackmyagent check table-lib"]},
         requests: ["trust table-lib"],
       },
       "--no-scan --json": {
         exit: 0,
-        json: {"name": "table-lib", "ecosystem": "npm", "found": true, "outOfScope": true, "nextSteps": ["hackmyagent check table-lib"]},
+        json: {"name": "table-lib", "ecosystem": "npm", "found": true, "outOfScope": true, "nextSteps": ["npx hackmyagent check table-lib"]},
         requests: ["trust table-lib"],
       },
     },
@@ -205,7 +205,7 @@ const ROWS: Row[] = [
       },
       "--no-scan": {
         exit: 0,
-        shows: ["express  library (by name — no registry data)", "Out of scope for ai-trust — ai-trust is for AI packages (MCP servers, agents, skills, AI tools, LLMs).", "hackmyagent check express"],
+        shows: ["express  library (by name — no registry data)", "Out of scope for ai-trust — ai-trust is for AI packages (MCP servers, agents, skills, AI tools, LLMs).", "npx hackmyagent check express"],
         requests: ["trust express"],
       },
       "--json": {
@@ -216,7 +216,7 @@ const ROWS: Row[] = [
       },
       "--no-scan --json": {
         exit: 0,
-        json: {"name": "express", "ecosystem": "npm", "found": false, "outOfScope": true, "nextSteps": ["hackmyagent check express"]},
+        json: {"name": "express", "ecosystem": "npm", "found": false, "outOfScope": true, "nextSteps": ["npx hackmyagent check express"]},
         requests: ["trust express"],
       },
     },
@@ -393,22 +393,22 @@ const ROWS: Row[] = [
     cells: {
       "no flag": {
         exit: 0,
-        shows: ["table-pylib (pypi)  library (registry-classified)", "Out of scope for ai-trust — the registry classifies this as a general-purpose library.", "hackmyagent check pip:table-pylib"],
+        shows: ["table-pylib (pypi)  library (registry-classified)", "Out of scope for ai-trust — the registry classifies this as a general-purpose library.", "npx hackmyagent check pip:table-pylib"],
         requests: ["trust table-pylib"],
       },
       "--no-scan": {
         exit: 0,
-        shows: ["table-pylib (pypi)  library (registry-classified)", "Out of scope for ai-trust — the registry classifies this as a general-purpose library.", "hackmyagent check pip:table-pylib"],
+        shows: ["table-pylib (pypi)  library (registry-classified)", "Out of scope for ai-trust — the registry classifies this as a general-purpose library.", "npx hackmyagent check pip:table-pylib"],
         requests: ["trust table-pylib"],
       },
       "--json": {
         exit: 0,
-        json: {"name": "table-pylib", "ecosystem": "pypi", "found": true, "outOfScope": true, "nextSteps": ["hackmyagent check pip:table-pylib"]},
+        json: {"name": "table-pylib", "ecosystem": "pypi", "found": true, "outOfScope": true, "nextSteps": ["npx hackmyagent check pip:table-pylib"]},
         requests: ["trust table-pylib"],
       },
       "--no-scan --json": {
         exit: 0,
-        json: {"name": "table-pylib", "ecosystem": "pypi", "found": true, "outOfScope": true, "nextSteps": ["hackmyagent check pip:table-pylib"]},
+        json: {"name": "table-pylib", "ecosystem": "pypi", "found": true, "outOfScope": true, "nextSteps": ["npx hackmyagent check pip:table-pylib"]},
         requests: ["trust table-pylib"],
       },
     },
@@ -722,22 +722,22 @@ const ROWS: Row[] = [
     cells: {
       "no flag": {
         exit: 0,
-        shows: ["chalk  library (registry-classified)", "Out of scope for ai-trust — the registry classifies this as a general-purpose library.", "hackmyagent check chalk"],
+        shows: ["chalk  library (registry-classified)", "Out of scope for ai-trust — the registry classifies this as a general-purpose library.", "npx hackmyagent check chalk"],
         requests: ["trust chalk"],
       },
       "--no-scan": {
         exit: 0,
-        shows: ["chalk  library (by name — no registry data)", "Out of scope for ai-trust — ai-trust is for AI packages (MCP servers, agents, skills, AI tools, LLMs).", "hackmyagent check chalk"],
+        shows: ["chalk  library (by name — no registry data)", "Out of scope for ai-trust — ai-trust is for AI packages (MCP servers, agents, skills, AI tools, LLMs).", "npx hackmyagent check chalk"],
         requests: ["trust chalk"],
       },
       "--json": {
         exit: 0,
-        json: {"name": "chalk", "ecosystem": "npm", "found": false, "outOfScope": true, "nextSteps": ["hackmyagent check chalk"]},
+        json: {"name": "chalk", "ecosystem": "npm", "found": false, "outOfScope": true, "nextSteps": ["npx hackmyagent check chalk"]},
         requests: ["trust chalk"],
       },
       "--no-scan --json": {
         exit: 0,
-        json: {"name": "chalk", "ecosystem": "npm", "found": false, "outOfScope": true, "nextSteps": ["hackmyagent check chalk"]},
+        json: {"name": "chalk", "ecosystem": "npm", "found": false, "outOfScope": true, "nextSteps": ["npx hackmyagent check chalk"]},
         requests: ["trust chalk"],
       },
     },

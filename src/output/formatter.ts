@@ -881,7 +881,7 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
   lines.push("");
   if (noAnalyzableSurfaces) {
     lines.push(
-      `  Security  ${chalk.dim("not scored — no analyzable surfaces (use `hackmyagent check` for a deeper scan)")}`,
+      `  Security  ${chalk.dim("not scored — no analyzable surfaces (use `npx hackmyagent check` for a deeper scan)")}`,
     );
   } else {
     lines.push(`  Security  ${scoreMeter(result.scan.score, result.scan.maxScore)}`);
@@ -916,7 +916,7 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
     : {
         status: "unknown" as const,
         message:
-          "No analyzable surfaces — not scored. Use `hackmyagent check` for a deeper scan.",
+          "No analyzable surfaces — not scored. Use `npx hackmyagent check` for a deeper scan.",
       };
   const { lines: obsLines } = renderObservationsBlock({
     surfaces: { kind: projectLabel, remote },

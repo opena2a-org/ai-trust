@@ -15,8 +15,9 @@
  *   and scan it).
  *
  * The suite also fails when a cited line is in neither list, when an entry
- * matches no cited line, when a line is in both lists, and when a run asks
- * the registry for anything the fixture does not serve.
+ * matches no cited line, when a line is in both lists, when a run asks the
+ * registry for anything the fixture does not serve, and when a run prints a
+ * line in another tool's voice (scripts/foreign-voice.mjs).
  *
  * Each run gets OPENA2A_TELEMETRY=off, which turns usage telemetry off, and an
  * npm registry address on a closed local port, so a command that tries to
@@ -29,6 +30,7 @@ import type { AddressInfo } from "node:net";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { describeFinding, foreignVoice } from "../scripts/foreign-voice.mjs";
 
 const ROOT = resolve(__dirname, "..");
 const CLI_PATH = join(ROOT, "dist/index.js");
@@ -240,7 +242,18 @@ function runExample(command: string, entry: RunEntry): Promise<RunResult> {
   });
 }
 
-/** What is wrong with one run: a different exit code, or a request the fixture does not serve. */
+/** The lines of a run's output written in another tool's voice. */
+function voiceProblems(command: string, stdout: string, stderr: string): string[] {
+  return [
+    ...foreignVoice(stdout).map((f) => `"${command}" printed ${describeFinding("stdout", f)}`),
+    ...foreignVoice(stderr).map((f) => `"${command}" printed ${describeFinding("stderr", f)}`),
+  ];
+}
+
+/**
+ * What is wrong with one run: a different exit code, a request the fixture
+ * does not serve, or a line in another tool's voice.
+ */
 async function runProblems(command: string, entry: RunEntry): Promise<string[]> {
   unexpected = [];
   const { status, stdout, stderr } = await runExample(command, entry);
@@ -252,6 +265,7 @@ async function runProblems(command: string, entry: RunEntry): Promise<string[]> 
   for (const request of unexpected) {
     problems.push(`"${command}" asked the registry for ${request}, which the fixture does not serve`);
   }
+  problems.push(...voiceProblems(command, stdout, stderr));
   return problems;
 }
 
@@ -338,6 +352,15 @@ describe("the walker finds the ai-trust commands in shell blocks", () => {
     expect(problems).toHaveLength(1);
     expect(problems[0]).toMatch(/^"ai-trust check planted-package --no-scan" exited 2, docs\/examples\.json says 0: /);
   }, 30000);
+
+  it("reports a run that prints another tool's command in that tool's own form", () => {
+    const stdout = ["", "  Out of scope for ai-trust", "  For a thorough security audit:", "    hackmyagent check express", ""].join("\n");
+    const stderr = "Run: opena2a protect .\n";
+    expect(voiceProblems("ai-trust check express --no-scan", stdout, stderr)).toEqual([
+      `"ai-trust check express --no-scan" printed stdout:4: bare-command: "hackmyagent check"; ai-trust's form is "npx hackmyagent check" (hackmyagent check express)`,
+      `"ai-trust check express --no-scan" printed stderr:1: bare-command: "opena2a protect"; ai-trust's form is "npx opena2a-cli protect" (Run: opena2a protect .)`,
+    ]);
+  });
 
   it("a command that downloads a package fails on the closed npm port instead of reaching npm", async () => {
     // Without --no-scan, check downloads the package with `npm pack`.

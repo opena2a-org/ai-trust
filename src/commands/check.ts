@@ -636,7 +636,7 @@ function printLibraryWithTrust(
       outOfScope: true,
       scored: false,
       outOfScopeReason: "registry-classified as general-purpose library",
-      nextSteps: [`hackmyagent check ${hmaCheckTarget(result.name, ecosystem)}`],
+      nextSteps: [`npx hackmyagent check ${hmaCheckTarget(result.name, ecosystem)}`],
       registryData: result,
     }));
     return;
@@ -651,7 +651,7 @@ function printLibraryWithTrust(
     `  ${chalk.cyan("Out of scope for ai-trust")} ${chalk.dim("\u2014 the registry classifies this as a general-purpose library.")}`
   );
   console.error(`  ${chalk.dim("For a thorough security audit:")}`);
-  console.error(`    ${chalk.cyan(`hackmyagent check ${hmaCheckTarget(name, ecosystem)}`)}`);
+  console.error(`    ${chalk.cyan(`npx hackmyagent check ${hmaCheckTarget(name, ecosystem)}`)}`);
   console.error("");
 }
 
@@ -680,7 +680,7 @@ function printOutOfScopeByName(target: PackageTarget, asJson: boolean): void {
       outOfScope: true,
       scored: false,
       outOfScopeReason: "recognized as general-purpose library by name (no registry data)",
-      nextSteps: [`hackmyagent check ${hmaCheckTarget(name, ecosystem)}`],
+      nextSteps: [`npx hackmyagent check ${hmaCheckTarget(name, ecosystem)}`],
     }));
   } else {
     console.error("");
@@ -692,7 +692,7 @@ function printOutOfScopeByName(target: PackageTarget, asJson: boolean): void {
     );
     console.error("");
     console.error(`  For general security scanning, use HackMyAgent:`);
-    console.error(`    ${chalk.cyan(`hackmyagent check ${hmaCheckTarget(name, ecosystem)}`)}`);
+    console.error(`    ${chalk.cyan(`npx hackmyagent check ${hmaCheckTarget(name, ecosystem)}`)}`);
     console.error("");
   }
 }
