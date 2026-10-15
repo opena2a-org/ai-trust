@@ -10,7 +10,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { spawn } from "node:child_process";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -184,10 +184,14 @@ describe("checkUrl", () => {
 });
 
 /** Runs the script without blocking this process, which serves its requests. */
-function runScript(root: string): Promise<{ code: number | null; stdout: string; stderr: string }> {
+function runScript(
+  args: string[],
+  home: string,
+  script = SCRIPT,
+): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((done) => {
-    const child = spawn(process.execPath, [SCRIPT, "--root", root], {
-      env: { PATH: process.env.PATH, HOME: root },
+    const child = spawn(process.execPath, [script, ...args], {
+      env: { PATH: process.env.PATH, HOME: home },
     });
     let stdout = "";
     let stderr = "";
@@ -220,7 +224,7 @@ describe("docs-links.mjs on a tree", () => {
         "\n",
       ),
     );
-    const run = await runScript(tree);
+    const run = await runScript(["--root", tree], tree);
     expect(run.code, run.stdout + run.stderr).toBe(1);
     expect(run.stdout).toContain(`FAIL  404  ${base}/gone\n      answers 404\n      cited at README.md:3`);
     expect(run.stdout).toContain(`ok    200  ${base}/page`);
@@ -233,14 +237,14 @@ describe("docs-links.mjs on a tree", () => {
       join(tree, "README.md"),
       ["# Fixture", `See [the page](${base}/page).`, "Example: http://localhost:9/example"].join("\n"),
     );
-    const run = await runScript(tree);
+    const run = await runScript(["--root", tree], tree);
     expect(run.code, run.stdout + run.stderr).toBe(0);
     expect(run.stdout).toContain("docs:links: 1 of 1 checked URLs resolve.");
   });
 
   it("exits 2 when the manifest excuses a URL the tree no longer cites", async () => {
     writeFileSync(join(tree, "README.md"), `See [the page](${base}/page).\n`);
-    const run = await runScript(tree);
+    const run = await runScript(["--root", tree], tree);
     expect(run.code).toBe(2);
     expect(run.stderr).toContain('lists URLs the repository no longer cites: skip "http://localhost:9/example"');
   });
@@ -253,11 +257,43 @@ describe("docs-links.mjs on a tree", () => {
       [missing, `docs:links: --root "${missing}" does not exist`],
       [file, `docs:links: --root "${file}" is not a directory`],
     ]) {
-      const run = await runScript(root);
+      const run = await runScript(["--root", root], root);
       expect(run.code, run.stdout + run.stderr).toBe(2);
       expect(run.stderr).toBe(`${message}\nUsage: node scripts/docs-links.mjs [--root <dir>] [--manifest <file>]\n`);
       expect(run.stdout).toBe("");
     }
+  });
+});
+
+describe("docs-links.mjs run through a symbolic link to it", () => {
+  let dir: string;
+  let link: string;
+  let tree: string;
+
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), "ai-trust-docs-links-link-"));
+    link = join(dir, "docs-links.mjs");
+    symlinkSync(SCRIPT, link);
+    tree = join(dir, "tree");
+    mkdirSync(tree);
+    writeFileSync(join(tree, "README.md"), `See [the page](${base}/page).\n`);
+  });
+
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("prints the usage error and exits 2 for an unknown argument", async () => {
+    const run = await runScript(["--bogus"], dir, link);
+    expect(run.code, run.stdout + run.stderr).toBe(2);
+    expect(run.stderr).toContain('docs:links: unknown argument "--bogus"');
+  });
+
+  it("checks the URLs of the tree it is given", async () => {
+    const run = await runScript(["--root", tree], dir, link);
+    expect(run.code, run.stdout + run.stderr).toBe(0);
+    expect(run.stdout).toContain(`ok    200  ${base}/page`);
+    expect(run.stdout).toContain("docs:links: 1 of 1 checked URLs resolve.");
   });
 });
 

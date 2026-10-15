@@ -38,7 +38,7 @@ import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 const URL_PATTERN = /https?:\/\/[^\s<>()[\]{}"'`\\|^$]+/g;
 const TRAILING_PUNCTUATION = /[.,;:!?*]+$/;
@@ -359,6 +359,20 @@ async function main() {
   process.exit(exitCode);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+/**
+ * Whether node was started on this file. Node resolves symbolic links in
+ * import.meta.url and leaves process.argv[1] as given, so both are compared
+ * as real paths: a path to the script through a link still runs it.
+ */
+function isMainModule() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule()) {
   await main();
 }
