@@ -10,7 +10,7 @@ import { devNull, homedir } from "node:os";
 import { basename, dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { hasTruthyNonBooleanChoice } from "../telemetry/opt-in.js";
+import { hasTruthyNonBooleanChoice, recordEarlierNo } from "../telemetry/opt-in.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -316,6 +316,10 @@ export async function runHmaScan(
   // The flag does not cover HMA's NanoMind classification telemetry, which a
   // deep scan still sends whenever the saved choice is on; hmaEnv() covers a
   // saved value HMA would read as on where ai-trust reads no choice.
+  // The scan raises the saved scan count, and a "no" saved without a mark
+  // can be told from no choice only while that count is below 3, so such a
+  // "no" is marked before the scan.
+  recordEarlierNo();
   const env = hmaEnv();
   const args = [...hma.prefixArgs, "secure", "--format", "json", "--no-contribute"];
   if (deep) {

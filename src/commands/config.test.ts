@@ -132,15 +132,43 @@ describe("config contribute command", () => {
     expect(stdout()).toContain("Community contribution: disabled");
   });
 
-  it("status says how to record a no that an earlier ai-trust saved", async () => {
+  it("status reports a no that an earlier ai-trust saved as disabled, and marks it (#133)", async () => {
     // What ai-trust 0.7.6 saves for a "no" to audit's "Share these scans with
-    // the community?": the same pair the bundled scanner saves, plus a dismissal.
+    // the community?": the same pair the bundled scanner saves, plus a
+    // dismissal, which the consent tip writes only from the third scan on.
     const earlierNo = {
       version: 1,
       contribute: { enabled: false, consentedAt: null, consentVersion: "1.0" },
       telemetry: { scanCount: 2, contributePromptDismissedAt: "2026-06-20T10:00:00.000Z" },
     };
-    fs.writeFileSync(path.join(tempHome, "config.json"), JSON.stringify(earlierNo));
+    const configPath = path.join(tempHome, "config.json");
+    fs.writeFileSync(configPath, JSON.stringify(earlierNo));
+    const hint = "Answered no in an earlier ai-trust version?";
+
+    await run(["config", "contribute", "status"]);
+    expect(stdout()).toContain("Community contribution: disabled");
+    expect(stdout()).not.toContain(hint);
+    expect(readConfig(tempHome)).toMatchObject({
+      contribute: { enabled: false, decidedAt: "2026-06-20T10:00:00.000Z" },
+    });
+
+    // Later scans raise the count past the consent tip's; the mark keeps the no.
+    const marked = readConfig(tempHome) as { telemetry: { scanCount: number } };
+    marked.telemetry.scanCount = 5;
+    fs.writeFileSync(configPath, JSON.stringify(marked));
+    logSpy.mockClear();
+    await run(["--json", "config", "contribute", "status"]);
+    expect(JSON.parse(stdout())).toEqual({ contribute: false });
+  });
+
+  it("status says how to record a no it cannot tell from the consent tip", async () => {
+    // The consent tip writes the same dismissal once the scan count is 3.
+    const tipOrNo = {
+      version: 1,
+      contribute: { enabled: false, consentedAt: null, consentVersion: "1.0" },
+      telemetry: { scanCount: 3, contributePromptDismissedAt: "2026-06-20T10:00:00.000Z" },
+    };
+    fs.writeFileSync(path.join(tempHome, "config.json"), JSON.stringify(tipOrNo));
     const hint = "Answered no in an earlier ai-trust version? Record it: ai-trust config contribute off";
 
     await run(["config", "contribute", "status"]);

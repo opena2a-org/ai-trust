@@ -19,6 +19,7 @@ import {
   saveContributeChoice,
   recordScanAndMaybeShowTip,
   hasUnmarkedOff,
+  recordEarlierNo,
   _resetBackend,
 } from "./opt-in.js";
 import { decideContribution } from "./decision.js";
@@ -98,6 +99,7 @@ describe("readContributeChoice", () => {
 describe("readContributeChoice with the @opena2a/shared backend", () => {
   const sharedConfig = createRequire(import.meta.url)("@opena2a/shared") as {
     incrementScanCount(): number;
+    shouldPromptContribute(): boolean;
   };
   let tempHome: string;
   let savedHome: string | undefined;
@@ -170,21 +172,77 @@ describe("readContributeChoice with the @opena2a/shared backend", () => {
     expect(readContributeChoice()).toBe(false);
   });
 
-  it("cannot tell a no saved by ai-trust 0.7.6 from no choice, and flags it", () => {
-    // ai-trust 0.7.6 saved a "no" with these two calls and nothing else.
-    const shared = sharedConfig as typeof sharedConfig & {
-      setContributeEnabled(enabled: boolean): void;
-      dismissContributePrompt(): void;
-    };
-    expect(hasUnmarkedOff()).toBe(false);
+  // ai-trust 0.7.6 saved a "no" with these two calls and nothing else.
+  const shared = sharedConfig as typeof sharedConfig & {
+    setContributeEnabled(enabled: boolean): void;
+    dismissContributePrompt(): void;
+  };
+
+  /**
+   * Start from the file the bundled scanner leaves after `scans` scans with
+   * no choice made. Written out, because @opena2a/shared changes its own
+   * defaults in place when it saves with no file, as earlier tests here do.
+   */
+  function scannerFile(scans: number): void {
+    fs.mkdirSync(path.join(tempHome, ".opena2a"), { recursive: true });
+    writeConfig(path.join(tempHome, ".opena2a"), {
+      version: 1,
+      contribute: { enabled: false, consentedAt: null, consentVersion: "1.0" },
+      telemetry: { scanCount: scans, contributePromptDismissedAt: null },
+    });
+  }
+
+  it("reads a no saved by ai-trust 0.7.6 before the third scan as off, and marks it (#133)", () => {
+    scannerFile(0);
+    expect(hasUnmarkedOff()).toBe(true);
+    expect(readContributeChoice()).toBeUndefined();
     shared.setContributeEnabled(false);
     shared.dismissContributePrompt();
+    const dismissedAt = (readConfig(path.join(tempHome, ".opena2a")) as {
+      telemetry: { contributePromptDismissedAt: string };
+    }).telemetry.contributePromptDismissedAt;
+
+    expect(readContributeChoice()).toBe(false);
+    expect(homeConfig().contribute).toMatchObject({ enabled: false, decidedAt: dismissedAt });
+    expect(hasUnmarkedOff()).toBe(false);
+
+    // Three more scans would have hidden the no without the mark.
+    for (let i = 0; i < 3; i++) sharedConfig.incrementScanCount();
+    expect(readContributeChoice()).toBe(false);
+  });
+
+  it("marks that no before a bundled scanner scan, not only on a read (#133)", () => {
+    scannerFile(2);
+    shared.setContributeEnabled(false);
+    shared.dismissContributePrompt();
+    expect(recordEarlierNo()).toBe(true);
+    // The scan that follows raises the count to 3, the consent tip's.
+    sharedConfig.incrementScanCount();
+    expect(readContributeChoice()).toBe(false);
+    expect(recordEarlierNo()).toBe(false);
+  });
+
+  it("cannot tell a no saved from the third scan on from the consent tip, and flags it", () => {
+    scannerFile(3);
+    shared.setContributeEnabled(false);
+    shared.dismissContributePrompt();
+    expect(recordEarlierNo()).toBe(false);
     expect(readContributeChoice()).toBeUndefined();
     expect(hasUnmarkedOff()).toBe(true);
 
     saveContributeChoice(false);
     expect(readContributeChoice()).toBe(false);
     expect(hasUnmarkedOff()).toBe(false);
+  });
+
+  it("reads the consent tip's dismissal as no choice", () => {
+    scannerFile(2);
+    // The scanner's third scan counts first, then shows the tip and dismisses it.
+    sharedConfig.incrementScanCount();
+    expect(sharedConfig.shouldPromptContribute()).toBe(true);
+    shared.dismissContributePrompt();
+    expect(readContributeChoice()).toBeUndefined();
+    expect(homeConfig().contribute).not.toHaveProperty("decidedAt");
   });
 
   it("keeps a saved on choice", () => {

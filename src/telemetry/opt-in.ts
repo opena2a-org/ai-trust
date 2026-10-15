@@ -117,6 +117,9 @@ function writeConfig(config: Opena2aConfig): void {
 /** Cooldown for the consent tip: 30 days after dismissal. */
 const TIP_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000;
 
+/** The consent tip is shown from this scan count on, as in @opena2a/shared. */
+const TIP_SCAN_THRESHOLD = 3;
+
 function createLocalBackend(): ConfigBackend {
   return {
     isContributeEnabled(): boolean {
@@ -154,7 +157,7 @@ function createLocalBackend(): ConfigBackend {
         return false;
       }
       const count = config.telemetry?.scanCount ?? 0;
-      if (count < 3) return false;
+      if (count < TIP_SCAN_THRESHOLD) return false;
 
       // Check cooldown
       const dismissed = config.telemetry?.contributePromptDismissedAt;
@@ -203,6 +206,7 @@ export function readContributeChoice(): boolean | undefined {
   const contribute = readConfig().contribute;
   if (contribute?.enabled === true) return true;
   if (contribute?.enabled !== false) return undefined;
+  if (recordEarlierNo()) return false;
   if (hasUnmarkedOff()) return undefined;
   return false;
 }
@@ -212,17 +216,59 @@ export function readContributeChoice(): boolean | undefined {
  * `decidedAt`. @opena2a/shared writes that pair as its defaults whenever it
  * saves the file, and the bundled scanner saves it on every run, so on its
  * own it is not a choice. A choice saved through ai-trust carries
- * `decidedAt`, but a "no" saved by ai-trust 0.7.6 does not, and the
- * dismissal timestamp that "no" leaves is also written when the consent tip
- * is shown, so the file cannot tell it from no choice.
+ * `decidedAt`, but a "no" saved by ai-trust 0.7.6 does not. That "no" also
+ * writes the dismissal timestamp, which the consent tip writes too from the
+ * third counted scan on, so only earlierNoTime() tells some of them apart.
  */
 export function hasUnmarkedOff(): boolean {
-  const contribute = readConfig().contribute;
+  return isUnmarkedOff(readConfig());
+}
+
+function isUnmarkedOff(config: Opena2aConfig): boolean {
+  const contribute = config.contribute;
   return (
     contribute?.enabled === false &&
     contribute.consentedAt === null &&
     typeof contribute.decidedAt !== "string"
   );
+}
+
+/**
+ * The time of a "no" saved without `decidedAt`, or undefined when the config
+ * does not show one. Saving a "no" through @opena2a/shared, as ai-trust 0.7.6
+ * and `config contribute off` before `decidedAt` did, writes the dismissal
+ * timestamp at once. The consent tip writes it only once the scan count is
+ * TIP_SCAN_THRESHOLD or more, in @opena2a/shared, in the bundled scanner and
+ * in the local backend above. So an unmarked off with that timestamp and a
+ * lower scan count was saved as a "no".
+ */
+function earlierNoTime(config: Opena2aConfig): string | undefined {
+  const dismissedAt = config.telemetry?.contributePromptDismissedAt;
+  if (!isUnmarkedOff(config) || typeof dismissedAt !== "string") return undefined;
+  const scanCount = config.telemetry?.scanCount ?? 0;
+  if (typeof scanCount !== "number" || scanCount >= TIP_SCAN_THRESHOLD) return undefined;
+  return dismissedAt;
+}
+
+/**
+ * Mark a "no" that earlierNoTime() finds with `decidedAt`, set to the time
+ * that "no" was saved, and return true; return false when there is none.
+ * Each later scan raises the scan count, so without the mark the same file
+ * would read as no choice again from the third counted scan on. Called by
+ * readContributeChoice() on a saved off, and by runHmaScan() before the
+ * bundled scanner runs.
+ */
+export function recordEarlierNo(): boolean {
+  const config = readConfig();
+  const decidedAt = earlierNoTime(config);
+  if (decidedAt === undefined) return false;
+  try {
+    config.contribute = { ...config.contribute, decidedAt };
+    writeConfig(config);
+  } catch {
+    // A config that cannot be written still reads as that "no" in this run.
+  }
+  return true;
 }
 
 /**
