@@ -14,6 +14,7 @@ import { registerAuditCommand } from "./commands/audit.js";
 import { registerBatchCommand } from "./commands/batch.js";
 import { registerConfigCommand } from "./commands/config.js";
 import { helpFooter, withEnableSteps } from "./utils/help-footer.js";
+import { helpDocsLine } from "./utils/help-docs.js";
 import { scanPingsSettled } from "./telemetry/contribute.js";
 
 const require = createRequire(import.meta.url);
@@ -55,6 +56,10 @@ registerCheckCommand(program);
 registerAuditCommand(program);
 registerBatchCommand(program);
 registerConfigCommand(program);
+
+// "afterAll" on the root: every help, the root's and each subcommand's, ends
+// with the documentation URL.
+program.addHelpText("afterAll", ({ command }) => helpDocsLine(command));
 
 (async () => {
   // Tier-1 usage telemetry — default ON; opt-out via
