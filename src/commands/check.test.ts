@@ -502,6 +502,138 @@ describe("check command", () => {
       expect(stderrText()).not.toContain("Note:");
       expect(process.exitCode).toBe(2);
     });
+
+    describe("skill: and mcp: ask for the narrative of <name> at <version>", () => {
+      /** The one narrative the registry holds: my-skill at version 1.0.0. */
+      const NARRATIVE = {
+        artifactType: "skill",
+        packageName: "my-skill",
+        packageVersion: "1.0.0",
+        schemaVersion: 1,
+        generatedAt: "2026-10-01T00:00:00Z",
+        summary: "A skill this test reads.",
+        hardcodedSecrets: { detected: [], scanCovered: true },
+        skill: { skillName: "my-skill" },
+        verdictReasoning: [],
+        nextSteps: [],
+      };
+      let narrativeRequests: URL[];
+
+      beforeEach(() => {
+        narrativeRequests = [];
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(async (input: string | URL) => {
+            const url = new URL(String(input));
+            if (url.pathname !== "/api/v1/trust/narrative") {
+              throw new Error(`unexpected request: ${url.href}`);
+            }
+            narrativeRequests.push(url);
+            const held =
+              url.searchParams.get("type") === "skill" &&
+              url.searchParams.get("name") === "my-skill" &&
+              url.searchParams.get("version") === "1.0.0";
+            return held
+              ? new Response(JSON.stringify(NARRATIVE), { status: 200 })
+              : new Response(JSON.stringify({ error: "narrative_not_available" }), { status: 404 });
+          })
+        );
+      });
+
+      afterEach(() => {
+        vi.unstubAllGlobals();
+      });
+
+      function mockTrust(answer: Record<string, unknown>) {
+        const mockCheckTrust = vi.fn().mockResolvedValue(answer);
+        vi.mocked(RegistryClient).mockImplementation(
+          function () {
+            return {
+              checkTrust: mockCheckTrust,
+              batchQuery: vi.fn(),
+              publishScan: vi.fn(),
+            } as any;
+          }
+        );
+        return mockCheckTrust;
+      }
+
+      function stdoutText(): string {
+        return consoleSpy.mock.calls
+          .map((args) => args.join(" "))
+          .join("\n")
+          .replace(/\x1b\[[0-9;]*m/g, "");
+      }
+
+      it("skill:<name>@<version> shows the narrative the registry holds for that version", async () => {
+        const mockCheckTrust = mockTrust({
+          name: "my-skill",
+          found: true,
+          verdict: "passed",
+          trustLevel: 3,
+          trustScore: 0.9,
+          scanStatus: "completed",
+        });
+
+        const program = createProgram();
+        await program.parseAsync(["node", "test", "check", "skill:my-skill@1.0.0", "--no-scan"]);
+
+        expect(narrativeRequests).toHaveLength(1);
+        expect(narrativeRequests[0].searchParams.get("type")).toBe("skill");
+        expect(narrativeRequests[0].searchParams.get("name")).toBe("my-skill");
+        expect(narrativeRequests[0].searchParams.get("version")).toBe("1.0.0");
+        // The block's own trust lookup asks about the package name too.
+        expect(mockCheckTrust).toHaveBeenCalledTimes(1);
+        expect(mockCheckTrust).toHaveBeenCalledWith("my-skill");
+        expect(stdoutText()).toContain("my-skill");
+        expect(stdoutText()).toContain("Latest: 1.0.0");
+        expect(formatCheckResult).not.toHaveBeenCalled();
+        expect(stderrText()).not.toContain("Note:");
+        expect(process.exitCode).toBeUndefined();
+      });
+
+      it("mcp:<name>@<version> with no narrative for that version checks the package <name>", async () => {
+        const mockCheckTrust = mockTrust({
+          name: "my-tool",
+          found: true,
+          verdict: "safe",
+          trustLevel: 3,
+          packageType: "mcp_server",
+        });
+
+        const program = createProgram();
+        await program.parseAsync(["node", "test", "check", "mcp:my-tool@1.2.3", "--no-scan"]);
+
+        expect(narrativeRequests).toHaveLength(1);
+        expect(narrativeRequests[0].searchParams.get("type")).toBe("mcp");
+        expect(narrativeRequests[0].searchParams.get("name")).toBe("my-tool");
+        expect(narrativeRequests[0].searchParams.get("version")).toBe("1.2.3");
+        expect(mockCheckTrust).toHaveBeenCalledWith("my-tool", undefined);
+        expect(stderrText()).toContain(
+          "Note: the registry's answer is for the package my-tool, not for version 1.2.3."
+        );
+        expect(formatCheckResult).toHaveBeenCalled();
+        expect(process.exitCode).toBeUndefined();
+      });
+
+      it("skill:<name> with no version asks for the latest narrative of <name>", async () => {
+        mockTrust({
+          name: "my-skill",
+          found: true,
+          verdict: "safe",
+          trustLevel: 3,
+          packageType: "mcp_server",
+        });
+
+        const program = createProgram();
+        await program.parseAsync(["node", "test", "check", "skill:my-skill", "--no-scan"]);
+
+        expect(narrativeRequests).toHaveLength(1);
+        expect(narrativeRequests[0].searchParams.get("name")).toBe("my-skill");
+        expect(narrativeRequests[0].searchParams.get("version")).toBe("latest");
+        expect(stderrText()).not.toContain("Note:");
+      });
+    });
   });
 
   describe("default (local scan)", () => {
