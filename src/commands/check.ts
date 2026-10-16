@@ -22,7 +22,13 @@ import {
 import { buildNotFoundOutput, translateDownloadError } from "@opena2a/check-core";
 import { logResolved } from "../utils/resolve.js";
 import { stripControlCharacters } from "../output/sanitize.js";
-import { isHmaAvailable, reinstallCommand, scanPackage, scanLocalPath } from "../scanner/index.js";
+import {
+  isHmaAvailable,
+  reinstallCommand,
+  scanPackage,
+  scanLocalPath,
+  scannerTempDirProblem,
+} from "../scanner/index.js";
 import type { ScanResult } from "../scanner/index.js";
 import { confirm } from "../utils/prompt.js";
 import { shareScans } from "../telemetry/index.js";
@@ -98,8 +104,13 @@ export function registerCheckCommand(program: Command): void {
       // for the result (typically the fixture path).
       if (opts.scanPath) {
         if (!(await isHmaAvailable())) {
+          const tempDirProblem = scannerTempDirProblem();
           console.error(
-            chalk.red(`error: HMA is not available. ai-trust runs the hackmyagent version it pins as a dependency, and that copy could not be run. Reinstall it: ${reinstallCommand()}`),
+            chalk.red(
+              tempDirProblem
+                ? `error: HMA could not be started. ${tempDirProblem}`
+                : `error: HMA is not available. ai-trust runs the hackmyagent version it pins as a dependency, and that copy could not be run. Reinstall it: ${reinstallCommand()}`,
+            ),
           );
           process.exit(2);
         }
@@ -534,10 +545,17 @@ function handleNoScanNotFound(
 async function checkHmaReady(): Promise<boolean> {
   const available = await isHmaAvailable();
   if (!available) {
-    console.error(
-      "HMA (HackMyAgent) is required for scanning. ai-trust runs the hackmyagent version it pins as a dependency, and that copy could not be run. Reinstall it:"
-    );
-    console.error(`  ${reinstallCommand()}`);
+    const tempDirProblem = scannerTempDirProblem();
+    if (tempDirProblem) {
+      console.error(
+        `HMA (HackMyAgent) is required for scanning, and it could not be started. ${tempDirProblem}`
+      );
+    } else {
+      console.error(
+        "HMA (HackMyAgent) is required for scanning. ai-trust runs the hackmyagent version it pins as a dependency, and that copy could not be run. Reinstall it:"
+      );
+      console.error(`  ${reinstallCommand()}`);
+    }
     finish("error");
     return false;
   }

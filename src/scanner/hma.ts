@@ -265,6 +265,41 @@ const SCANNER_MODEL_DIRS = [".nanomind", join(".opena2a", "nanomind")];
 const SCANNER_PROVIDER_VARS = new Set(["ANTHROPIC_API_KEY"]);
 
 /**
+ * Create a new temporary home for a scanner run in the directory
+ * os.tmpdir() names. When that directory is missing or cannot be written,
+ * the error names it and the variable that sets it.
+ */
+function createScannerHome(): string {
+  const dir = tmpdir();
+  try {
+    return mkdtempSync(join(dir, "ai-trust-scanner-"));
+  } catch (err: unknown) {
+    const code = (err as NodeJS.ErrnoException | null)?.code;
+    const variable = process.platform === "win32" ? "TEMP" : "TMPDIR";
+    const example = process.platform === "win32" ? "" : ", for example: export TMPDIR=/tmp";
+    throw new Error(
+      `ai-trust runs the scanner with a new temporary home directory and could not create one in ${dir}${code ? ` (${code})` : ""}. Point ${variable} at a directory that exists and that you can write to${example}`,
+    );
+  }
+}
+
+/**
+ * Why the scanner cannot start for a reason a reinstall does not fix, or
+ * null: the temporary directory cannot hold its temporary home. For a
+ * caller that isHmaAvailable() answered false.
+ */
+export function scannerTempDirProblem(): string | null {
+  let home: string;
+  try {
+    home = createScannerHome();
+  } catch (err: unknown) {
+    return err instanceof Error ? err.message : String(err);
+  }
+  rmSync(home, { recursive: true, force: true });
+  return null;
+}
+
+/**
  * Run `fn` with the environment for a scanner subprocess. Left to itself,
  * the scanner reads the saved contribution choice from
  * ~/.opena2a/config.json (or $OPENA2A_HOME/config.json), moves an opt-in
@@ -280,7 +315,7 @@ const SCANNER_PROVIDER_VARS = new Set(["ANTHROPIC_API_KEY"]);
  * to an LLM provider.
  */
 async function withScannerEnv<T>(fn: (env: NodeJS.ProcessEnv) => Promise<T>): Promise<T> {
-  const home = mkdtempSync(join(tmpdir(), "ai-trust-scanner-"));
+  const home = createScannerHome();
   const links: string[] = [];
   try {
     try {

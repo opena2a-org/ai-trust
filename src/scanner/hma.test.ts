@@ -4,7 +4,15 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -22,7 +30,7 @@ vi.mock("node:util", async (importOriginal) => {
 });
 
 import { execFile } from "node:child_process";
-import { isHmaAvailable, runHmaScan } from "./hma.js";
+import { isHmaAvailable, runHmaScan, scannerTempDirProblem } from "./hma.js";
 
 describe("isHmaAvailable", () => {
   beforeEach(() => {
@@ -457,5 +465,63 @@ describe("scanner environment", () => {
 
     await expect(runHmaScan("/tmp/test-pkg")).rejects.toThrow("HMA scan failed");
     expect(existsSync(seen[0].env.HOME as string)).toBe(false);
+  });
+});
+
+// os.tmpdir() reads TMPDIR on every platform but Windows.
+describe.skipIf(process.platform === "win32")("a temporary directory that cannot hold the scanner's home", () => {
+  const VARS = ["TMPDIR", "HOME", "USERPROFILE", "OPENA2A_HOME"];
+  let scratch: string;
+  let savedEnv: Record<string, string | undefined>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(execFile as any).mockResolvedValue({ stdout: "0.33.2\n", stderr: "" });
+    scratch = mkdtempSync(join(tmpdir(), "ai-trust-hma-tmpdir-"));
+    savedEnv = Object.fromEntries(VARS.map((v) => [v, process.env[v]]));
+    delete process.env.OPENA2A_HOME;
+    process.env.HOME = join(scratch, "home");
+    process.env.USERPROFILE = join(scratch, "home");
+    mkdirSync(join(scratch, "home"));
+  });
+
+  afterEach(() => {
+    for (const v of VARS) {
+      if (savedEnv[v] === undefined) delete process.env[v];
+      else process.env[v] = savedEnv[v];
+    }
+    rmSync(scratch, { recursive: true, force: true });
+  });
+
+  it("names a TMPDIR that does not exist, and the scanner is not run", async () => {
+    const missing = join(scratch, "missing");
+    process.env.TMPDIR = missing;
+
+    expect(scannerTempDirProblem()).toBe(
+      `ai-trust runs the scanner with a new temporary home directory and could not create one in ${missing} (ENOENT). Point TMPDIR at a directory that exists and that you can write to, for example: export TMPDIR=/tmp`,
+    );
+    expect(await isHmaAvailable()).toBe(false);
+    await expect(runHmaScan("/tmp/test-pkg")).rejects.toThrow(
+      `could not create one in ${missing} (ENOENT)`,
+    );
+    expect(execFile).not.toHaveBeenCalled();
+  });
+
+  it("names a TMPDIR that is a file", () => {
+    const file = join(scratch, "a-file");
+    writeFileSync(file, "");
+    process.env.TMPDIR = file;
+
+    expect(scannerTempDirProblem()).toContain(`could not create one in ${file} (ENOTDIR)`);
+  });
+
+  it("finds no problem in a writable TMPDIR, and leaves nothing in it", async () => {
+    const writable = join(scratch, "tmp");
+    mkdirSync(writable);
+    process.env.TMPDIR = writable;
+
+    expect(scannerTempDirProblem()).toBeNull();
+    expect(readdirSync(writable)).toEqual([]);
+    expect(await isHmaAvailable()).toBe(true);
   });
 });
