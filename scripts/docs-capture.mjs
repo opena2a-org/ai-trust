@@ -116,12 +116,40 @@ export function readmeSample(readme) {
 }
 
 /**
+ * The variables git exports to the commands it starts, as a hook or a command
+ * run in a linked work tree is (`git rev-parse --local-env-vars`). With one of
+ * them set, git answers about that repository whatever `-C` names.
+ */
+const GIT_LOCAL_ENV_VARS = [
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_CONFIG",
+  "GIT_CONFIG_PARAMETERS",
+  "GIT_CONFIG_COUNT",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_IMPLICIT_WORK_TREE",
+  "GIT_GRAFT_FILE",
+  "GIT_INDEX_FILE",
+  "GIT_NO_REPLACE_OBJECTS",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_PREFIX",
+  "GIT_SHALLOW_FILE",
+  "GIT_COMMON_DIR",
+];
+
+/** The environment for a git run here: the process's, less the variables above, so that `-C <root>` alone names the repository. */
+function gitEnv() {
+  return Object.fromEntries(Object.entries(process.env).filter(([name]) => !GIT_LOCAL_ENV_VARS.includes(name)));
+}
+
+/**
  * Whether `commit`, the commit the record names, is HEAD or an ancestor of it
  * in the work tree whose top is `root`: { problem } when it is not, { unchecked }
  * with the reason when that cannot be told here, and {} when it is.
  */
 export function checkRecordedCommit(root, commit) {
-  const git = (...args) => spawnSync("git", ["-C", root, ...args], { encoding: "utf8" });
+  const git = (...args) => spawnSync("git", ["-C", root, ...args], { encoding: "utf8", env: gitEnv() });
   const top = git("rev-parse", "--show-toplevel");
   if (top.error) return { unchecked: `git could not be run (${top.error.message})` };
   if (top.status !== 0 || realpathSync(top.stdout.replace(/\n+$/, "")) !== realpathSync(root)) {
@@ -220,7 +248,10 @@ export function defaultRegistry(cliPath, env) {
  */
 function gitState(root, version) {
   const git = (...args) =>
-    execFileSync("git", ["-C", root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).replace(/\n+$/, "");
+    execFileSync("git", ["-C", root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], env: gitEnv() }).replace(
+      /\n+$/,
+      "",
+    );
   try {
     if (realpathSync(git("rev-parse", "--show-toplevel")) !== realpathSync(root)) throw new Error("not the top of a work tree");
     const inputs = ["src", ":(exclude,glob)src/**/*.test.ts", "package.json", "package-lock.json", "tsconfig.json"];
