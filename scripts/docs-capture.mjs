@@ -1,0 +1,330 @@
+#!/usr/bin/env node
+/**
+ * docs:capture: re-captures the README's first command from the build.
+ *
+ * It runs `node dist/index.js check @modelcontextprotocol/server-filesystem
+ * --no-scan`, the README's first command without `npx`, from an empty working
+ * directory, with an empty HOME and an environment that holds only PATH,
+ * CI=true, TERM=dumb, LANG=en_US.UTF-8 and OPENA2A_TELEMETRY=off. Then it
+ * writes three files:
+ *   - docs/captures/quick-start.txt, what the run printed on stdout;
+ *   - docs/captures/quick-start.json, the record of the run: the version in
+ *     package.json, the commit checked out, the build inputs that differ from
+ *     it, whether it is the release tag, the registry, the environment, the
+ *     exit code, and the capture's size and SHA-256;
+ *   - README.md, whose sample block under the
+ *     "[full output](docs/captures/quick-start.txt)" label becomes the
+ *     capture's lines less the blank ones at its start and end.
+ * A run that exits non-zero or prints on stderr writes none of them.
+ *
+ * Run `npm run build` first: the capture is of dist/index.js as it is.
+ *
+ * --check writes nothing and reports where the three files disagree: a
+ * capture whose size or SHA-256 differs from its record, a record whose
+ * command, version or exit code is not the README's first command, the
+ * version in package.json and 0, and a README sample that is not the
+ * capture's lines.
+ *
+ * Usage: node scripts/docs-capture.mjs [--registry-url <url>] [--root <dir>]
+ *        node scripts/docs-capture.mjs --check [--root <dir>]
+ * Exit 0 on success, 1 when the run fails or --check finds a difference, 2 on
+ * a usage error (an unknown argument, a flag with no value, or a --root that
+ * does not exist or is not a directory).
+ */
+import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+export const COMMAND = "npx ai-trust check @modelcontextprotocol/server-filesystem --no-scan";
+export const CAPTURE = "docs/captures/quick-start.txt";
+export const SIDECAR = "docs/captures/quick-start.json";
+export const README = "README.md";
+const CLI = "dist/index.js";
+const LABEL = `[full output](${CAPTURE})`;
+const VARIABLES = { CI: "true", TERM: "dumb", LANG: "en_US.UTF-8", OPENA2A_TELEMETRY: "off" };
+const RECAPTURE = "run npm run build, then npm run docs:capture";
+
+export function sha256(bytes) {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+/** A recorded value as a message shows it. */
+function shown(value) {
+  return value === undefined ? "nothing" : JSON.stringify(value);
+}
+
+/** The capture's lines: its text split at newlines, less the empty string after the final one. */
+function captureLines(text) {
+  const lines = text.split("\n");
+  if (lines.at(-1) === "") lines.pop();
+  return lines;
+}
+
+/** The 0-based indexes of the capture's first and last non-blank lines, or null when every line is blank. */
+export function excerptRange(lines) {
+  const first = lines.findIndex((line) => line.trim() !== "");
+  if (first === -1) return null;
+  let last = lines.length - 1;
+  while (lines[last].trim() === "") last--;
+  return { first, last };
+}
+
+/**
+ * The README split into lines, with the indexes of the fences that open and
+ * close the sample block under the capture label, or the reason there is none.
+ */
+export function readmeSample(readme) {
+  const lines = readme.split("\n");
+  const label = lines.findIndex((line) => line.includes(LABEL));
+  if (label === -1) return { error: `${README} has no line with the label ${LABEL}` };
+  let open = label + 1;
+  while (open < lines.length && lines[open].trim() === "") open++;
+  if (open === lines.length || !lines[open].startsWith("```")) {
+    return { error: `${README} has no fenced block right after the label ${LABEL} (line ${label + 1})` };
+  }
+  const close = lines.findIndex((line, i) => i > open && /^```\s*$/.test(line));
+  if (close === -1) return { error: `the fenced block at ${README}:${open + 1} has no closing fence` };
+  return { lines, open, close };
+}
+
+/** Where the capture, its record and the README sample under `root` disagree; empty when they agree. */
+export function checkCapture(root) {
+  const read = (rel) => readFileSync(join(root, rel));
+  let capture;
+  let sidecar;
+  try {
+    capture = read(CAPTURE);
+    sidecar = JSON.parse(read(SIDECAR).toString("utf8"));
+  } catch (error) {
+    return [`cannot read ${CAPTURE} and ${SIDECAR}: ${error.message}; ${RECAPTURE}`];
+  }
+  const problems = [];
+  const version = JSON.parse(read("package.json").toString("utf8")).version;
+  if (sidecar.command !== COMMAND) {
+    problems.push(`${SIDECAR} records the command "${sidecar.command}", not the README's first command "${COMMAND}"`);
+  }
+  if (sidecar.artifact?.version !== version) {
+    problems.push(`${SIDECAR} records version ${shown(sidecar.artifact?.version)} and package.json holds ${version}; ${RECAPTURE}`);
+  }
+  if (sidecar.exitCode !== 0) {
+    problems.push(`${SIDECAR} records exit code ${shown(sidecar.exitCode)}, not 0`);
+  }
+  if (sidecar.outputs?.capture !== CAPTURE) {
+    problems.push(`${SIDECAR} names the capture ${shown(sidecar.outputs?.capture)}, not ${CAPTURE}`);
+  }
+  if (sidecar.outputs?.bytes !== capture.length) {
+    problems.push(`${CAPTURE} is ${capture.length} bytes and ${SIDECAR} records ${shown(sidecar.outputs?.bytes)}; ${RECAPTURE}`);
+  }
+  const digest = sha256(capture);
+  if (sidecar.outputs?.sha256 !== digest) {
+    problems.push(`${CAPTURE} hashes to ${digest} and ${SIDECAR} records ${shown(sidecar.outputs?.sha256)}; ${RECAPTURE}`);
+  }
+
+  const lines = captureLines(capture.toString("utf8"));
+  const range = excerptRange(lines);
+  const sample = readmeSample(read(README).toString("utf8"));
+  if (range === null) {
+    problems.push(`${CAPTURE} holds no output; ${RECAPTURE}`);
+  } else if (sample.error) {
+    problems.push(sample.error);
+  } else {
+    const expected = lines.slice(range.first, range.last + 1);
+    const actual = sample.lines.slice(sample.open + 1, sample.close);
+    if (actual.length !== expected.length || actual.some((line, i) => line !== expected[i])) {
+      problems.push(
+        `the ${README} sample at lines ${sample.open + 2}-${sample.close} is not lines ${range.first + 1}-${range.last + 1} of ${CAPTURE}; ${RECAPTURE}`,
+      );
+    }
+    const excerpt = `${range.first + 1}-${range.last + 1} of the capture`;
+    if (sidecar.readmeExcerpt?.lines !== excerpt) {
+      problems.push(`${SIDECAR} records the README excerpt as ${shown(sidecar.readmeExcerpt?.lines)}, not "${excerpt}"`);
+    }
+  }
+  return problems;
+}
+
+/** The registry the CLI asks when no --registry-url is given, as its --help states it. */
+export function defaultRegistry(cliPath, env) {
+  const help = spawnSync(process.execPath, [cliPath, "--help"], { env, encoding: "utf8" });
+  const match = /--registry-url <url>\s+registry base URL\s+\(default:\s+"([^"]+)"\)/.exec(help.stdout ?? "");
+  return match ? match[1] : null;
+}
+
+/**
+ * The commit `root` is checked out at, the build inputs (the source under
+ * src/ less its tests, package.json, package-lock.json, tsconfig.json) that
+ * differ from it, and whether it is the release tag with none differing.
+ */
+function gitState(root, version) {
+  const git = (...args) =>
+    execFileSync("git", ["-C", root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).replace(/\n+$/, "");
+  try {
+    if (realpathSync(git("rev-parse", "--show-toplevel")) !== realpathSync(root)) throw new Error("not the top of a work tree");
+    const inputs = ["src", ":(exclude,glob)src/**/*.test.ts", "package.json", "package-lock.json", "tsconfig.json"];
+    const changed = git("status", "--porcelain", "--untracked-files=all", "--", ...inputs)
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => line.slice(3));
+    const tags = git("tag", "--points-at", "HEAD").split("\n");
+    return {
+      commit: git("rev-parse", "HEAD"),
+      uncommittedBuildInputs: changed,
+      taggedRelease: changed.length === 0 && tags.includes(`v${version}`),
+    };
+  } catch {
+    return { commit: null, uncommittedBuildInputs: null, taggedRelease: false };
+  }
+}
+
+function blankLines(count) {
+  return `${count} blank line${count === 1 ? "" : "s"}`;
+}
+
+/** Runs the capture under `root` and writes its three files; returns the lines to print and the exit code. */
+export function capture(root, registryUrl) {
+  const cliPath = join(root, CLI);
+  if (!existsSync(cliPath)) return { lines: [`docs:capture: ${CLI} does not exist; run npm run build first`], exitCode: 1 };
+  const readme = readFileSync(join(root, README), "utf8");
+  const sample = readmeSample(readme);
+  if (sample.error) return { lines: [`docs:capture: ${sample.error}`], exitCode: 1 };
+
+  const version = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
+  const scratch = mkdtempSync(join(tmpdir(), "ai-trust-docs-capture-"));
+  const home = join(scratch, "home");
+  const cwd = join(scratch, "cwd");
+  try {
+    for (const dir of [home, cwd]) mkdirSync(dir);
+    const env = { PATH: process.env.PATH ?? "", HOME: home, ...VARIABLES };
+    const registry = registryUrl ?? defaultRegistry(cliPath, env);
+    if (!registry) return { lines: [`docs:capture: ${CLI} --help names no default for --registry-url`], exitCode: 1 };
+
+    const args = [...COMMAND.split(" ").slice(2), ...(registryUrl ? ["--registry-url", registryUrl] : [])];
+    const invokedAs = `node ${CLI} ${args.join(" ")}`;
+    const run = spawnSync(process.execPath, [cliPath, ...args], { cwd, env });
+    const stderr = run.stderr?.toString("utf8") ?? "";
+    if (run.status !== 0 || stderr !== "") {
+      return {
+        lines: [
+          `docs:capture: ${invokedAs} exited ${run.status ?? run.signal}${stderr ? " and printed on stderr" : ""}; nothing written`,
+          ...stderr.split("\n").filter(Boolean).map((line) => `  ${line}`),
+        ],
+        exitCode: 1,
+      };
+    }
+
+    const out = run.stdout;
+    const lines = captureLines(out.toString("utf8"));
+    const range = excerptRange(lines);
+    if (range === null) return { lines: [`docs:capture: ${invokedAs} printed nothing on stdout; nothing written`], exitCode: 1 };
+
+    const record = {
+      name: "quick-start",
+      command: COMMAND,
+      artifact: {
+        package: "ai-trust",
+        version,
+        build: `${CLI} as npm run build left it`,
+        ...gitState(root, version),
+        invokedAs,
+      },
+      capturedAt: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
+      registry,
+      environment: {
+        platform: `${process.platform} ${process.arch}`,
+        node: process.version,
+        cwd: "an empty directory",
+        home: "an empty directory",
+        variables: VARIABLES,
+      },
+      exitCode: run.status,
+      outputs: { capture: CAPTURE, stream: "stdout", bytes: out.length, sha256: sha256(out), stderr: "empty" },
+      readmeExcerpt: {
+        file: README,
+        lines: `${range.first + 1}-${range.last + 1} of the capture`,
+        omitted: `${blankLines(range.first)} at the start and ${blankLines(lines.length - 1 - range.last)} at the end`,
+      },
+    };
+    const readmeLines = [
+      ...sample.lines.slice(0, sample.open + 1),
+      ...lines.slice(range.first, range.last + 1),
+      ...sample.lines.slice(sample.close),
+    ];
+
+    writeFileSync(join(root, CAPTURE), out);
+    writeFileSync(join(root, SIDECAR), `${JSON.stringify(record, null, 2)}\n`);
+    writeFileSync(join(root, README), readmeLines.join("\n"));
+    return {
+      lines: [
+        `docs:capture: ${invokedAs} against ${registry}, exit 0`,
+        `  wrote ${CAPTURE} (${out.length} bytes), ${SIDECAR}, and lines ${range.first + 1}-${range.last + 1} of the capture to the ${README} sample`,
+      ],
+      exitCode: 0,
+    };
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+function parseArgs(argv) {
+  const args = { root: process.cwd(), registryUrl: null, check: false };
+  for (let i = 0; i < argv.length; i++) {
+    const flag = argv[i];
+    if (flag === "--check") {
+      args.check = true;
+    } else if (flag === "--root" || flag === "--registry-url") {
+      const value = argv[i + 1];
+      if (value === undefined || value.startsWith("--")) throw new Error(`${flag} takes a value`);
+      args[flag === "--root" ? "root" : "registryUrl"] = value;
+      i++;
+    } else {
+      throw new Error(`unknown argument "${flag}"`);
+    }
+  }
+  if (args.check && args.registryUrl) throw new Error("--check runs nothing, so it takes no --registry-url");
+  return args;
+}
+
+function main() {
+  let args;
+  try {
+    args = parseArgs(process.argv.slice(2));
+    let isDirectory = false;
+    try {
+      isDirectory = statSync(args.root).isDirectory();
+    } catch {
+      throw new Error(`--root "${args.root}" does not exist`);
+    }
+    if (!isDirectory) throw new Error(`--root "${args.root}" is not a directory`);
+  } catch (error) {
+    console.error(`docs:capture: ${error.message}`);
+    console.error("Usage: node scripts/docs-capture.mjs [--registry-url <url>] [--root <dir>]");
+    console.error("       node scripts/docs-capture.mjs --check [--root <dir>]");
+    process.exit(2);
+  }
+  const root = resolve(args.root);
+  if (args.check) {
+    const problems = checkCapture(root);
+    for (const problem of problems) console.error(`docs:capture --check: ${problem}`);
+    if (problems.length === 0) console.log(`docs:capture --check: ${CAPTURE}, ${SIDECAR} and the ${README} sample agree.`);
+    process.exit(problems.length === 0 ? 0 : 1);
+  }
+  const result = capture(root, args.registryUrl);
+  for (const line of result.lines) (result.exitCode === 0 ? console.log : console.error)(line);
+  process.exit(result.exitCode);
+}
+
+function isMainModule() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule()) {
+  main();
+}
