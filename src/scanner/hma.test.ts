@@ -196,6 +196,127 @@ describe("runHmaScan", () => {
     });
   });
 
+  describe("semantic count", () => {
+    const record = (checkId: string, passed: boolean) => ({
+      checkId,
+      name: checkId,
+      description: checkId,
+      category: "credentials",
+      severity: "high",
+      passed,
+      message: checkId,
+    });
+    const allFindings = [
+      record("CRED-001", false),
+      record("PERM-001", false),
+      record("GIT-002", true),
+      record("SEM-CRED-001", false),
+      record("AST-CRED-001", false),
+    ];
+    // `semanticAnalysis` and `coverage.semanticFamilyCoverage` as
+    // `hackmyagent secure --format json --deep` (0.33.2) printed them for
+    // test/dvaa; the `partial` list keeps its first two of seven entries.
+    const deepJson = JSON.stringify({
+      score: 4,
+      maxScore: 100,
+      projectType: "api",
+      findings: allFindings.filter((f) => !f.passed),
+      allFindings,
+      semanticAnalysis: { layer2Findings: 16, layer3Findings: 0 },
+      coverage: {
+        semanticCompileSetTruncated: false,
+        semanticFamilyCoverage: {
+          totalFamilies: 7,
+          artifactsCompiled: 12,
+          fullyExamined: 1,
+          partial: [
+            {
+              artifactType: "unknown",
+              route: "non_agent",
+              familiesExamined: ["credentials", "stego"],
+              artifacts: 3,
+              examplePaths: ["attack-payloads.json", "challenge-config.json", "mcp-tools.json"],
+            },
+            {
+              artifactType: "unknown",
+              route: "not_routed",
+              familiesExamined: [],
+              artifacts: 2,
+              examplePaths: ["README.md", "package.json"],
+            },
+          ],
+        },
+      },
+    });
+
+    it("reads the scanner's compile count, not its Layer 2 findings count", async () => {
+      vi.mocked(execFile as any).mockResolvedValue({ stdout: deepJson, stderr: "" });
+
+      const result = await runHmaScan("/tmp/test-pkg");
+
+      expect(result.semanticCount).toBe(12);
+      expect(result.staticOnly).toBeUndefined();
+    });
+
+    it("counts static checks without the AST-*/SEM-* records", async () => {
+      vi.mocked(execFile as any).mockResolvedValue({ stdout: deepJson, stderr: "" });
+
+      const result = await runHmaScan("/tmp/test-pkg");
+
+      expect(result.checksEvaluated).toBe(5);
+      expect(result.staticChecksEvaluated).toBe(3);
+    });
+
+    it("marks a --static-only scan as one where the semantic layer did not run", async () => {
+      const staticJson = JSON.stringify({
+        score: 13,
+        maxScore: 100,
+        findings: [],
+        allFindings: allFindings.filter((f) => !f.checkId.startsWith("AST-")),
+        semanticAnalysis: { layer2Findings: 16, layer3Findings: 0 },
+        coverage: {
+          semanticCompileSetTruncated: false,
+          semanticFamilyCoverage: { totalFamilies: 7, artifactsCompiled: 0, fullyExamined: 0, partial: [] },
+        },
+      });
+      vi.mocked(execFile as any).mockResolvedValue({ stdout: staticJson, stderr: "" });
+
+      const result = await runHmaScan("/tmp/test-pkg", { deep: false });
+
+      expect(result.staticOnly).toBe(true);
+      expect(result.semanticCount).toBe(0);
+      expect(result.staticChecksEvaluated).toBe(3);
+    });
+
+    it("does not mark the scan static-only when an older scanner rejected --static-only", async () => {
+      vi.mocked(execFile as any).mockImplementation(async (_cmd: string, args: string[]) => {
+        if (args.includes("secure") && args.includes("--static-only")) {
+          const error = new Error(
+            "Command failed: hackmyagent secure\nerror: unknown option '--static-only'\n"
+          );
+          (error as any).stdout = "";
+          throw error;
+        }
+        return { stdout: JSON.stringify({ score: 75, maxScore: 100, findings: [] }), stderr: "" };
+      });
+
+      const result = await runHmaScan("/tmp/test-pkg", { deep: false });
+
+      expect(result.staticOnly).toBeUndefined();
+    });
+
+    it("leaves the semantic count unset when the scanner JSON carries no compile count", async () => {
+      vi.mocked(execFile as any).mockResolvedValue({
+        stdout: JSON.stringify({ score: 75, maxScore: 100, findings: [], allFindings }),
+        stderr: "",
+      });
+
+      const result = await runHmaScan("/tmp/test-pkg");
+
+      expect(result.semanticCount).toBeUndefined();
+    });
+  });
+
   it("throws when HMA produces no JSON", async () => {
     vi.mocked(execFile as any).mockResolvedValue({
       stdout: "Some non-JSON output\nAnother line\n",

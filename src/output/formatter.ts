@@ -958,18 +958,38 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
         message:
           "No analyzable surfaces — not scored. Use `npx hackmyagent check` for a deeper scan.",
       };
-  const { lines: obsLines } = renderObservationsBlock({
+  // The scanner's semantic count is its compile count. A --no-deep scan did
+  // not run that layer and an older scanner does not report it; neither is a
+  // measured 0, so the Checks line names which one it is.
+  const scannerSemanticCount = result.scan.semanticCount;
+  const semanticNote = result.scan.staticOnly
+    ? "0 semantic (not run: --no-deep)"
+    : scannerSemanticCount === undefined
+      ? "semantic not reported"
+      : null;
+  const { lines: renderedObsLines } = renderObservationsBlock({
     surfaces: { kind: projectLabel, remote },
     checks: {
-      // Executed static checks (passed + failed), not just failures — mirrors
-      // HMA's "N static" semantics. Falls back to the findings count when an
-      // older HMA omitted the executed-checks total.
-      staticCount: result.scan.checksEvaluated ?? result.scan.findings.length,
-      semanticCount: (result.semanticFindings?.length ?? 0),
+      // Executed static checks (passed + failed), not just failures, and not
+      // the semantic layer's AST-*/SEM-* records. Falls back to the
+      // executed-records and then the findings count for older HMA output.
+      staticCount:
+        result.scan.staticChecksEvaluated ??
+        result.scan.checksEvaluated ??
+        result.scan.findings.length,
+      semanticCount: scannerSemanticCount ?? 0,
     },
     categories: categorySummaries,
     verdict,
   });
+  const obsLines =
+    semanticNote === null
+      ? renderedObsLines
+      : renderedObsLines.map((obs) =>
+          obs.label === "Checks"
+            ? { ...obs, value: obs.value.replace("0 semantic (NanoMind AST)", semanticNote) }
+            : obs,
+        );
   lines.push("");
   lines.push(divider("Observations"));
   const tonePaint = (
