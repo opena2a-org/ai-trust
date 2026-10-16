@@ -531,23 +531,32 @@ describe.skipIf(process.platform === "win32")("a temporary directory that cannot
     expect(await isHmaAvailable()).toBe(true);
   });
 
-  it("finds no problem, and does not throw, in a TMPDIR where the probe directory can be created but not removed", async () => {
+  it("names a TMPDIR where the temporary home can be created but not removed, and does not throw; the scan fails with the same reason", async () => {
     const createOnly = join(scratch, "create-only");
     mkdirSync(createOnly);
     process.env.TMPDIR = createOnly;
     const probe = join(createOnly, "ai-trust-scanner-");
     const refused = Object.assign(new Error(`EACCES, Permission denied: ${probe}`), { code: "EACCES" });
     const { rmSync: realRmSync } = await vi.importActual<typeof import("node:fs")>("node:fs");
+    // Removing an entry of TMPDIR itself is refused; removing what is inside one is not.
     vi.mocked(rmSync).mockImplementation((path, options) => {
-      if (String(path).startsWith(probe)) throw refused;
+      if (dirname(String(path)) === createOnly) throw refused;
       return realRmSync(path, options);
     });
 
     try {
-      expect(scannerTempDirProblem()).toBeNull();
+      expect(scannerTempDirProblem()).toBe(
+        `ai-trust runs the scanner with a new temporary home directory and could not remove the one it created in ${createOnly} (EACCES). Point TMPDIR at a directory where you can both create and remove entries, for example: export TMPDIR=/tmp`,
+      );
       expect(rmSync).toHaveBeenCalledWith(expect.stringContaining(probe), expect.anything());
       // The probe directory stays, since removing it was refused.
       expect(readdirSync(createOnly)).toHaveLength(1);
+      // The scanner's --version check runs, and its temporary home is not removed.
+      expect(await isHmaAvailable()).toBe(false);
+      expect(execFile).toHaveBeenCalledTimes(1);
+      await expect(runHmaScan("/tmp/test-pkg")).rejects.toThrow(
+        `could not remove the one it created in ${createOnly} (EACCES). Point TMPDIR at`,
+      );
     } finally {
       vi.mocked(rmSync).mockImplementation(realRmSync);
     }

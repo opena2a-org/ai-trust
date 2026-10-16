@@ -265,6 +265,19 @@ const SCANNER_MODEL_DIRS = [".nanomind", join(".opena2a", "nanomind")];
 const SCANNER_PROVIDER_VARS = new Set(["ANTHROPIC_API_KEY"]);
 
 /**
+ * The error for a temporary home that could not be made or removed in `dir`:
+ * it names the directory, the error code and the variable that sets it.
+ */
+function scannerHomeError(err: unknown, failed: string, dir: string, need: string): Error {
+  const code = (err as NodeJS.ErrnoException | null)?.code;
+  const variable = process.platform === "win32" ? "TEMP" : "TMPDIR";
+  const example = process.platform === "win32" ? "" : ", for example: export TMPDIR=/tmp";
+  return new Error(
+    `ai-trust runs the scanner with a new temporary home directory and ${failed} in ${dir}${code ? ` (${code})` : ""}. Point ${variable} at a directory ${need}${example}`,
+  );
+}
+
+/**
  * Create a new temporary home for a scanner run in the directory
  * os.tmpdir() names. When that directory is missing or cannot be written,
  * the error names it and the variable that sets it.
@@ -274,36 +287,42 @@ function createScannerHome(): string {
   try {
     return mkdtempSync(join(dir, "ai-trust-scanner-"));
   } catch (err: unknown) {
-    const code = (err as NodeJS.ErrnoException | null)?.code;
-    const variable = process.platform === "win32" ? "TEMP" : "TMPDIR";
-    const example = process.platform === "win32" ? "" : ", for example: export TMPDIR=/tmp";
-    throw new Error(
-      `ai-trust runs the scanner with a new temporary home directory and could not create one in ${dir}${code ? ` (${code})` : ""}. Point ${variable} at a directory that exists and that you can write to${example}`,
+    throw scannerHomeError(err, "could not create one", dir, "that exists and that you can write to");
+  }
+}
+
+/**
+ * Remove a temporary home createScannerHome() made. When the directory it is
+ * in lets an entry be created but not removed (on macOS, one whose access
+ * control list denies delete_child), the error names that directory and the
+ * variable that sets it.
+ */
+function removeScannerHome(home: string): void {
+  try {
+    rmSync(home, { recursive: true, force: true });
+  } catch (err: unknown) {
+    throw scannerHomeError(
+      err,
+      "could not remove the one it created",
+      dirname(home),
+      "where you can both create and remove entries",
     );
   }
 }
 
 /**
  * Why the scanner cannot start for a reason a reinstall does not fix, or
- * null: the temporary directory cannot hold its temporary home. For a
+ * null: the temporary directory cannot hold its temporary home, because the
+ * home cannot be created there or, once created, cannot be removed. For a
  * caller that isHmaAvailable() answered false.
  */
 export function scannerTempDirProblem(): string | null {
-  let home: string;
   try {
-    home = createScannerHome();
+    removeScannerHome(createScannerHome());
+    return null;
   } catch (err: unknown) {
     return err instanceof Error ? err.message : String(err);
   }
-  // Once the home exists the probe has its answer. A directory that lets an
-  // entry be created but not removed keeps the probe directory; that is not
-  // the problem this function reports, so it must not escape to the caller.
-  try {
-    rmSync(home, { recursive: true, force: true });
-  } catch {
-    // The probe directory stays behind; the answer is the same.
-  }
-  return null;
 }
 
 /**
@@ -356,7 +375,7 @@ async function withScannerEnv<T>(fn: (env: NodeJS.ProcessEnv) => Promise<T>): Pr
   } finally {
     // The links go first, so removing the directory cannot reach what they point to.
     for (const link of links) rmSync(link, { force: true });
-    rmSync(home, { recursive: true, force: true });
+    removeScannerHome(home);
   }
 }
 
