@@ -31,9 +31,10 @@
  *
  * Usage: node scripts/docs-capture.mjs [--registry-url <url>] [--root <dir>]
  *        node scripts/docs-capture.mjs --check [--root <dir>]
- * Exit 0 on success, 1 when the run fails or --check finds a difference, 2 on
- * a usage error (an unknown argument, a flag with no value, or a --root that
- * does not exist or is not a directory).
+ * Exit 0 on success, 1 when a file it reads cannot be read or parsed, the run
+ * fails or --check finds a difference, 2 on a usage error (an unknown
+ * argument, a flag with no value, or a --root that does not exist or is not a
+ * directory).
  */
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -53,6 +54,26 @@ const RECAPTURE = "run npm run build, then npm run docs:capture";
 
 export function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+/** The text of `rel` under `root`, or the reason it cannot be read. */
+function readText(root, rel) {
+  try {
+    return { text: readFileSync(join(root, rel), "utf8") };
+  } catch (error) {
+    return { error: `cannot read ${rel}: ${error.message}` };
+  }
+}
+
+/** The version in package.json under `root`, or the reason it cannot be read or parsed. */
+function packageVersion(root) {
+  const pkg = readText(root, "package.json");
+  if (pkg.error) return pkg;
+  try {
+    return { version: JSON.parse(pkg.text).version };
+  } catch (error) {
+    return { error: `cannot read package.json: ${error.message}` };
+  }
 }
 
 /** A recorded value as a message shows it. */
@@ -133,8 +154,12 @@ export function checkCapture(root, notes = []) {
   } catch (error) {
     return [`cannot read ${CAPTURE} and ${SIDECAR}: ${error.message}; ${RECAPTURE}`];
   }
+  const pkg = packageVersion(root);
+  if (pkg.error) return [pkg.error];
+  const readme = readText(root, README);
+  if (readme.error) return [readme.error];
   const problems = [];
-  const version = JSON.parse(read("package.json").toString("utf8")).version;
+  const version = pkg.version;
   if (sidecar.command !== COMMAND) {
     problems.push(`${SIDECAR} records the command "${sidecar.command}", not the README's first command "${COMMAND}"`);
   }
@@ -160,7 +185,7 @@ export function checkCapture(root, notes = []) {
 
   const lines = captureLines(capture.toString("utf8"));
   const range = excerptRange(lines);
-  const sample = readmeSample(read(README).toString("utf8"));
+  const sample = readmeSample(readme.text);
   if (range === null) {
     problems.push(`${CAPTURE} holds no output; ${RECAPTURE}`);
   } else if (sample.error) {
@@ -222,11 +247,14 @@ function blankLines(count) {
 export function capture(root, registryUrl) {
   const cliPath = join(root, CLI);
   if (!existsSync(cliPath)) return { lines: [`docs:capture: ${CLI} does not exist; run npm run build first`], exitCode: 1 };
-  const readme = readFileSync(join(root, README), "utf8");
-  const sample = readmeSample(readme);
+  const readme = readText(root, README);
+  if (readme.error) return { lines: [`docs:capture: ${readme.error}`], exitCode: 1 };
+  const sample = readmeSample(readme.text);
   if (sample.error) return { lines: [`docs:capture: ${sample.error}`], exitCode: 1 };
 
-  const version = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
+  const pkg = packageVersion(root);
+  if (pkg.error) return { lines: [`docs:capture: ${pkg.error}`], exitCode: 1 };
+  const version = pkg.version;
   const scratch = mkdtempSync(join(tmpdir(), "ai-trust-docs-capture-"));
   const home = join(scratch, "home");
   const cwd = join(scratch, "cwd");
