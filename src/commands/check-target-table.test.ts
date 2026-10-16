@@ -459,12 +459,12 @@ const ROWS: Row[] = [
       },
       "--json": {
         exit: 1,
-        shows: ["Error: No package name given. Usage: ai-trust check <package>"],
+        json: {"error": "No package name given. Usage: ai-trust check <package>"},
         requests: [],
       },
       "--no-scan --json": {
         exit: 1,
-        shows: ["Error: No package name given. Usage: ai-trust check <package>"],
+        json: {"error": "No package name given. Usage: ai-trust check <package>"},
         requests: [],
       },
     },
@@ -485,12 +485,12 @@ const ROWS: Row[] = [
       },
       "--json": {
         exit: 1,
-        shows: ["Error: No package name after \"pip:\". Usage: ai-trust check pip:<package>"],
+        json: {"error": "No package name after \"pip:\". Usage: ai-trust check pip:<package>"},
         requests: [],
       },
       "--no-scan --json": {
         exit: 1,
-        shows: ["Error: No package name after \"pip:\". Usage: ai-trust check pip:<package>"],
+        json: {"error": "No package name after \"pip:\". Usage: ai-trust check pip:<package>"},
         requests: [],
       },
     },
@@ -511,12 +511,12 @@ const ROWS: Row[] = [
       },
       "--json": {
         exit: 1,
-        shows: ["Error: No package name after \"npm:\". Usage: ai-trust check npm:<package>"],
+        json: {"error": "No package name after \"npm:\". Usage: ai-trust check npm:<package>"},
         requests: [],
       },
       "--no-scan --json": {
         exit: 1,
-        shows: ["Error: No package name after \"npm:\". Usage: ai-trust check npm:<package>"],
+        json: {"error": "No package name after \"npm:\". Usage: ai-trust check npm:<package>"},
         requests: [],
       },
     },
@@ -701,12 +701,12 @@ const ROWS: Row[] = [
       },
       "--json": {
         exit: 1,
-        shows: ["Error: No package name after \"pip:\". Usage: ai-trust check pip:<package>"],
+        json: {"error": "No package name after \"pip:\". Usage: ai-trust check pip:<package>"},
         requests: ["narrative mcp:pip:"],
       },
       "--no-scan --json": {
         exit: 1,
-        shows: ["Error: No package name after \"pip:\". Usage: ai-trust check pip:<package>"],
+        json: {"error": "No package name after \"pip:\". Usage: ai-trust check pip:<package>"},
         requests: ["narrative mcp:pip:"],
       },
     },

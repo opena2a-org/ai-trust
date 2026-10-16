@@ -591,10 +591,10 @@ describe("registry answers through the built CLI", () => {
       const { stdout, stderr, status } = await runCli(["check", "npm:", "--json"]);
 
       expect(status).toBe(1);
-      expect(stdout).toBe("");
-      expect(stderr).toBe(
-        'Error: No package name after "npm:". Usage: ai-trust check npm:<package>\n',
-      );
+      expect(JSON.parse(stdout)).toEqual({
+        error: 'No package name after "npm:". Usage: ai-trust check npm:<package>',
+      });
+      expect(stderr).toBe("");
       expect(requests.slice(before)).toEqual([]);
     });
 
