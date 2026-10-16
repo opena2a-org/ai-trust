@@ -21,7 +21,7 @@ What it prints ([full output](docs/captures/quick-start.txt)):
   Level     Scanned  Blocked > Warning > Listed > Scanned > Verified
   Scans     3 community scans
   Last scan 228 days ago (stale)
-  Findings  0 critical · 1 high · scan status warnings
+  Findings  0 critical · 1 high (details not returned) · scan status warnings
   CVEs      none recorded
 
   ── Next Steps ──────────────────────────────────────────────
@@ -43,7 +43,7 @@ npx ai-trust check @modelcontextprotocol/server-filesystem
 
 Without `--no-scan`, `check` downloads the package to a temporary directory and scans it with the bundled HackMyAgent, which takes longer. A general-purpose library gets an out-of-scope notice instead.
 
-`check` exits 0 for a safe or out-of-scope package, 1 on an operational error, and 2 for a warning or blocked verdict or a package that cannot be found.
+`check` exits 0 for a safe or out-of-scope package, 1 on an operational error, and 2 for a warning or blocked verdict or a package not found.
 
 ## Gate a project's AI dependencies in CI
 

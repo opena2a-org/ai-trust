@@ -338,6 +338,9 @@ export function registerCheckCommand(program: Command): void {
       // whose name happens to match our library allowlist (e.g. a squatted
       // @types/* entry the registry hasn't catalogued yet) must still be
       // scanned. Only registry-confirmed libraries skip the scan.
+      // The registry's answer for a package it has is kept for the scan
+      // output, which prints its score beside this scan's when they differ.
+      let registryAnswer: TrustAnswer | undefined;
       try {
         const registryResult = await client.checkTrust(pkg.name, opts.type);
         const tier = classify({ name, packageType: registryResult.packageType }).tier;
@@ -350,6 +353,7 @@ export function registerCheckCommand(program: Command): void {
           return;
         }
         // native / adjacent / unknown — fall through to scan
+        if (registryResult.found) registryAnswer = registryResult;
       } catch (err) {
         if (!(err instanceof PackageNotFoundError)) {
           // Unexpected registry error — don't fail the scan, just log and continue.
@@ -372,7 +376,8 @@ export function registerCheckCommand(program: Command): void {
         globalOpts,
         opts,
         `Scanning ${name}...`,
-        textOpts
+        textOpts,
+        registryAnswer
       );
     });
 
@@ -500,7 +505,8 @@ async function handleScanFlow(
   globalOpts: { registryUrl: string; json: boolean },
   opts: CheckOptions,
   statusMessage: string,
-  textOpts: Pick<FormatScanResultOptions, "all" | "rerunCommand"> = {}
+  textOpts: Pick<FormatScanResultOptions, "all" | "rerunCommand"> = {},
+  registryAnswer?: TrustAnswer
 ): Promise<void> {
   const { spec: name, ecosystem } = target;
   if (!(await checkHmaReady())) return;
@@ -556,7 +562,9 @@ async function handleScanFlow(
   if (globalOpts.json) {
     console.log(formatJson(buildCheckJson({ kind: "scan", scan: scanResult, ecosystem })));
   } else {
-    console.log(formatScanResult(scanResult, { remote: true, ecosystem, ...textOpts }));
+    console.log(
+      formatScanResult(scanResult, { remote: true, ecosystem, ...textOpts, registry: registryAnswer }),
+    );
   }
   if (opts.analm) noteAnalystLayer(scanResult.scan.analystLayer);
 

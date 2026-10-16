@@ -662,6 +662,86 @@ describe("check command", () => {
       expect(formatScanResult).toHaveBeenCalled();
     });
 
+    it("hands the registry's answer to the scan output, so it can set the two scores side by side", async () => {
+      const answer = {
+        name: "@modelcontextprotocol/server-filesystem",
+        found: true,
+        trustLevel: 3,
+        trustScore: 0.79,
+        verdict: "passed",
+        packageType: "mcp_server",
+        scanStatus: "warnings",
+      };
+      vi.mocked(RegistryClient).mockImplementation(function () {
+        return {
+          checkTrust: vi.fn().mockResolvedValue(answer),
+          publishScan: vi.fn(),
+        } as any;
+      });
+      vi.mocked(isHmaAvailable).mockResolvedValue(true);
+      vi.mocked(scanPackage).mockResolvedValue({
+        packageName: "@modelcontextprotocol/server-filesystem",
+        scan: {
+          score: 100,
+          maxScore: 100,
+          findings: [],
+          projectType: "mcp",
+          timestamp: "2026-10-16T00:00:00Z",
+        },
+        trustScore: 1,
+        trustLevel: 3,
+        verdict: "safe",
+      });
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "check", "@modelcontextprotocol/server-filesystem", "--no-deep",
+      ]);
+
+      expect(formatScanResult).toHaveBeenCalledWith(
+        expect.objectContaining({ packageName: "@modelcontextprotocol/server-filesystem" }),
+        expect.objectContaining({ remote: true, ecosystem: "npm", registry: answer }),
+      );
+    });
+
+    it("hands no registry answer to the scan output when the registry has no such package", async () => {
+      vi.mocked(RegistryClient).mockImplementation(function () {
+        return {
+          checkTrust: vi.fn().mockResolvedValue({
+            name: "my-pkg",
+            found: false,
+            trustLevel: 0,
+            trustScore: 0,
+            verdict: "unknown",
+          }),
+          publishScan: vi.fn(),
+        } as any;
+      });
+      vi.mocked(isHmaAvailable).mockResolvedValue(true);
+      vi.mocked(scanPackage).mockResolvedValue({
+        packageName: "my-pkg",
+        scan: {
+          score: 90,
+          maxScore: 100,
+          findings: [],
+          projectType: "library",
+          timestamp: "2026-10-16T00:00:00Z",
+        },
+        trustScore: 0.9,
+        trustLevel: 3,
+        verdict: "safe",
+      });
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "check", "my-pkg"]);
+
+      expect(formatScanResult).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ remote: true, ecosystem: "npm" }),
+      );
+      expect(vi.mocked(formatScanResult).mock.calls[0][1]?.registry).toBeUndefined();
+    });
+
     it("scans and contributes a pip: target as the PyPI package, not the npm package of the same name", async () => {
       const mockPublishScan = vi.fn().mockResolvedValue({ accepted: true });
       vi.mocked(RegistryClient).mockImplementation(

@@ -20,7 +20,7 @@ Expected output (scores and scan ages come from the registry and change over tim
   Level     Scanned  Blocked > Warning > Listed > Scanned > Verified
   Scans     3 community scans
   Last scan 225 days ago (stale)
-  Findings  0 critical · 1 high · scan status warnings
+  Findings  0 critical · 1 high (details not returned) · scan status warnings
   CVEs      none recorded
 
   ── Next Steps ──────────────────────────────────────────────

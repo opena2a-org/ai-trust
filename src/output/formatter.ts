@@ -211,14 +211,20 @@ function paintNotFoundTone(tone: NotFoundTone, s: string): string {
 const CHECK_LABEL_WIDTH = 10;
 
 
-function buildCheckCtas(answer: TrustAnswer, isScanError: boolean): NextStepsCta[] {
+function buildCheckCtas(
+  answer: TrustAnswer,
+  isScanError: boolean,
+  ecosystem: "npm" | "pypi",
+): NextStepsCta[] {
   const normalized = normalizeVerdict(answer.verdict);
   const meterGate = mapScanStatusForMeter(answer.scanStatus);
   const isUnscanned = meterGate === undefined && !isScanError;
 
   const ctas: NextStepsCta[] = [];
-  // The name is the registry's string: quoted, so it stays one argument.
-  const checkCmd = `${checkCitation()} ${shellArg(answer.name)}`;
+  // The name is the registry's string: quoted, so it stays one argument. A
+  // PyPI answer keeps its pip: prefix, so the scan is of the same package.
+  const target = ecosystem === "pypi" ? `pip:${answer.name}` : answer.name;
+  const checkCmd = `${checkCitation()} ${shellArg(target)}`;
   if (isScanError) {
     ctas.push({
       label: "Rescan",
@@ -288,6 +294,9 @@ function passedWithRecordedIssuesText(profile: RegistrySecurityProfile): string 
   return `Passed, but the registry recorded ${parts.join(", plus ")}`;
 }
 
+/** Beside a recorded count: the registry's answer names no finding. */
+const DETAILS_NOT_RETURNED = "(details not returned)";
+
 /** "3 critical", or "critical not reported" for a count the registry did not report. */
 function countText(count: number | undefined, severity: string): string {
   return count === undefined ? `${severity} not reported` : `${count} ${severity}`;
@@ -300,6 +309,10 @@ function securityProfileLines(
 ): string[] {
   const { criticalCount, highCount } = profile;
   const counts = [countText(criticalCount, "critical"), countText(highCount, "high")];
+  // The answer carries counts, not the findings behind them: the last count
+  // above zero says so. The Next Steps scan is how to measure them now.
+  if ((highCount ?? 0) > 0) counts[1] += ` ${DETAILS_NOT_RETURNED}`;
+  else if ((criticalCount ?? 0) > 0) counts[0] += ` ${DETAILS_NOT_RETURNED}`;
   const status = scanStatus?.trim();
   if (status) counts.push(`scan status ${status}`);
   // Green only when both counts were reported and both are zero.
@@ -328,6 +341,56 @@ function securityProfileLines(
     `  ${"Findings".padEnd(CHECK_LABEL_WIDTH)}${paintCheckTone(findingsTone, counts.join(" · "))}`,
     `  ${"CVEs".padEnd(CHECK_LABEL_WIDTH)}${paintCheckTone(cvesTone, cves)}`,
   ];
+}
+
+/**
+ * The age of the registry's scan ("228 days ago (stale)"), or null when the
+ * answer carries no date or one that does not parse.
+ */
+function registryScanAge(lastScannedAt: string | undefined): string | null {
+  if (!lastScannedAt) return null;
+  if (Number.isNaN(new Date(lastScannedAt).getTime())) return null;
+  return formatScanAge(lastScannedAt);
+}
+
+/**
+ * A difference between the registry's score and this run's score, in points
+ * on the 0-100 scale, above which the scan output sets the two side by side.
+ */
+const REGISTRY_GAP_POINTS = 20;
+
+/**
+ * "Registry 79/100 (scanned 228 days ago) vs this scan 100/100 (today)" when
+ * the registry's score and the scan's differ by more than REGISTRY_GAP_POINTS,
+ * or null. No line when either side has no score: a failed or pending registry
+ * scan, a registry score off the 0-1 scale, or a scan with nothing to analyze.
+ * The line states the two measurements and their dates, not a cause.
+ */
+function registryGapLine(registryAnswer: TrustAnswer, result: ScanResult): string | null {
+  const answer = sanitizeRegistryValue(registryAnswer);
+  if (!answer.found || mapScanStatusForMeter(answer.scanStatus) === undefined) return null;
+  const registryScore = scorePercent(answer.trustScore);
+  if (registryScore === undefined) return null;
+  const { score, maxScore } = result.scan;
+  if (hasNoAnalyzableSurfaces(result) || !(maxScore > 0)) return null;
+  const scanScore = Math.round((score / maxScore) * 100);
+  if (Math.abs(registryScore - scanScore) <= REGISTRY_GAP_POINTS) return null;
+  const age = registryScanAge(answer.lastScannedAt);
+  // The date sits in parentheses here, so the age drops its own "(stale)".
+  const registryDate = age ? `scanned ${age.replace(/ \(stale\)$/, "")}` : "scan date not recorded";
+  return `Registry ${registryScore}/100 (${registryDate}) vs this scan ${scanScore}/100 (today)`;
+}
+
+/**
+ * True when the scan executed no static check and found nothing, static or
+ * semantic: the package had no analyzable surfaces, so its score is not a
+ * measurement.
+ */
+function hasNoAnalyzableSurfaces(result: ScanResult): boolean {
+  const failed = result.scan.findings.filter((f) => !f.passed).length;
+  const semanticCount =
+    result.semanticFindings?.length ?? result.scan.semanticFindings?.length ?? 0;
+  return result.scan.checksEvaluated === 0 && failed === 0 && semanticCount === 0;
 }
 
 /**
@@ -377,6 +440,8 @@ export function formatCheckResult(
   // the Trust line shows --, as batch and audit do.
   const unreadableScore =
     scanStatusForMeter !== undefined && scorePercent(answer.trustScore) === undefined;
+  // A date that does not parse is not a scan date: no "Last scan" line for it.
+  const scanAge = registryScanAge(answer.lastScannedAt);
   const block = renderCheckBlock({
     name: answer.name,
     packageType: answer.packageType,
@@ -385,7 +450,7 @@ export function formatCheckResult(
     verdict: answer.verdict,
     scanStatus: unreadableScore ? undefined : scanStatusForMeter,
     communityScans: answer.communityScans,
-    lastScannedAt: answer.lastScannedAt,
+    lastScannedAt: scanAge ? answer.lastScannedAt : undefined,
   });
 
   const isScanError = isScanErrorStatus(answer.scanStatus);
@@ -395,8 +460,7 @@ export function formatCheckResult(
   // Header
   out.push("");
   const meta = [...block.header.meta];
-  const scanAge = formatScanAge(answer.lastScannedAt);
-  if (scanAge) meta.push(`scanned ${scanAge}`);
+  meta.push(scanAge ? `scanned ${scanAge}` : "scan date not recorded");
   const headerMeta = meta.length > 0 ? `  ${chalk.dim(meta.join(" \u00b7 "))}` : "";
   out.push(
     `  ${chalk.bold.white(block.header.name)}${ecosystemSuffix(ecosystem)}${headerMeta}`,
@@ -463,7 +527,7 @@ export function formatCheckResult(
 
   // Next Steps
   out.push(divider("Next Steps"));
-  out.push(...renderNextStepsLines(buildCheckCtas(answer, isScanError)));
+  out.push(...renderNextStepsLines(buildCheckCtas(answer, isScanError, ecosystem)));
 
   out.push("");
   return out.join("\n");
@@ -854,6 +918,12 @@ export interface FormatScanResultOptions {
    * to `<check citation> <packageName>`.
    */
   rerunCommand?: string;
+  /**
+   * The registry's answer for the package, when the same run looked it up
+   * before scanning. A registry score more than REGISTRY_GAP_POINTS from this
+   * scan's score is printed beside it, with both dates.
+   */
+  registry?: TrustAnswer;
 }
 
 /** Findings printed in text mode when `--all` is not given. */
@@ -899,9 +969,7 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
   // checks (passed + failed); when it is explicitly 0 — and nothing semantic
   // ran either — the package had no analyzable surfaces, so a 100/100 here
   // would be a "number implies measurement" artifact, not an earned score.
-  const semanticCount = result.semanticFindings?.length ?? result.scan.semanticFindings?.length ?? 0;
-  const noAnalyzableSurfaces =
-    result.scan.checksEvaluated === 0 && total === 0 && semanticCount === 0;
+  const noAnalyzableSurfaces = hasNoAnalyzableSurfaces(result);
 
   // Single source of truth for ai-trust's human verdict: derive BOTH the top
   // headline and the Observations-block message from the score-aware enum
@@ -948,6 +1016,8 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
   lines.push(
     `  Level     ${chalk.bold(tlColor(trustLevelLabel(result.trustLevel)))} ${chalk.dim(`(${result.trustLevel}/4)`)}`
   );
+  const gap = opts.registry ? registryGapLine(opts.registry, result) : null;
+  if (gap) lines.push(`  ${chalk.yellow(gap)}`);
 
   // ── Observations + Verdict ──────────────────────────────────────────
   // Shared block from @opena2a/cli-ui so ai-trust's local-

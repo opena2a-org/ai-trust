@@ -285,7 +285,9 @@ describe("registry answers through the built CLI", () => {
 
       expect(stdout).not.toMatch(CONTROL);
       expect(stderr).not.toMatch(CONTROL);
-      expect(stdout).toMatch(/^ {2}name\]0;x-ctrl SECOND LINE {2}mcp server\[2J$/m);
+      expect(stdout).toMatch(
+        /^ {2}name\]0;x-ctrl SECOND LINE {2}mcp server\[2J · scan date not recorded$/m,
+      );
       expect(stdout).toMatch(/scan status passed$/m);
       expect(stdout).not.toMatch(/^SECOND LINE/m);
     });
@@ -407,7 +409,7 @@ describe("registry answers through the built CLI", () => {
       expect(stdout).not.toContain("No known issues");
       expect(stdout).toContain("Passed, but the registry recorded 2 high findings");
       expect(stdout).toMatch(
-        /^ {2}Findings {2}critical not reported · 2 high · scan status passed$/m,
+        /^ {2}Findings {2}critical not reported · 2 high \(details not returned\) · scan status passed$/m,
       );
       expect(stdout).toMatch(/^ {2}CVEs {6}none recorded$/m);
     });
@@ -426,7 +428,7 @@ describe("registry answers through the built CLI", () => {
         "Passed, but the registry recorded 3 critical findings, plus 1 known CVE",
       );
       expect(stdout).toMatch(
-        /^ {2}Findings {2}3 critical · high not reported · scan status passed$/m,
+        /^ {2}Findings {2}3 critical \(details not returned\) · high not reported · scan status passed$/m,
       );
       expect(stdout).toMatch(/^ {2}CVEs {6}CVE$/m);
 
