@@ -6,8 +6,9 @@
  * instead of the `npx <package>` form ai-trust uses, and the running tool
  * named as a separate CLI. This suite holds the rule on planted lines and on
  * lines ai-trust prints, then applies it to every string literal in the
- * non-test source under src/, to the output of both library paths of
- * `check`, and to the commands a registry narrative sends to `check mcp:`.
+ * non-test source under src/, to the Fix lines of a local scan, to the output
+ * of both library paths of `check`, and to the commands a registry narrative
+ * sends to `check mcp:`.
  * src/docs-examples.test.ts applies it to the output of every command the
  * docs run.
  */
@@ -20,6 +21,8 @@ import { join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import ts from "typescript";
 import { describeFinding, foreignVoice } from "../scripts/foreign-voice.mjs";
+import { formatScanResult } from "./output/formatter.js";
+import type { ScanResult } from "./scanner/index.js";
 
 const ROOT = resolve(__dirname, "..");
 const CLI_PATH = join(ROOT, "dist/index.js");
@@ -120,6 +123,51 @@ describe("the strings in src/", () => {
     expect(files.length).toBeGreaterThan(0);
     expect(count).toBeGreaterThan(0);
     expect(found).toEqual([]);
+  });
+});
+
+// Fix text in the forms the bundled scanner sends: each names an OpenA2A CLI
+// by its command, at the start of the text or inside a sentence.
+const SCANNER_FIXES = [
+  "opena2a protect . — migrates hardcoded secrets into the Secretless vault (local, keychain, 1Password, or HashiCorp Vault). Keys are injected at runtime; source files reference them by name only.",
+  "opena2a protect .  — scans for hardcoded secrets and encrypts them into a secure vault. Remove credentials from instruction files — they are sent to the AI provider on every request.",
+  "opena2a protect . — encrypts the API key into a secure vault and injects it at runtime",
+  "npx secretless-ai init",
+  "hackmyagent secure --fix",
+  "hackmyagent harden-soul .  — generates SOUL.md with required constraint sections",
+  "Add a SOUL.md or system prompt with safety boundaries. Run: hackmyagent scan-soul to generate one.",
+  "hackmyagent rollback",
+  "docker exec <sandbox-container> npx hackmyagent scan --ci /app",
+];
+
+describe("the Fix lines of a local scan", () => {
+  it("cite the scanner's commands in the npx form", () => {
+    const result: ScanResult = {
+      packageName: "demo",
+      trustScore: 0.4,
+      trustLevel: 1,
+      verdict: "warning",
+      scan: {
+        score: 40,
+        maxScore: 100,
+        checksEvaluated: 30,
+        findings: SCANNER_FIXES.map((fix, i) => ({
+          checkId: `DEMO-${i + 1}`,
+          name: `Demo finding ${i + 1}`,
+          description: "demo",
+          category: "demo",
+          severity: "high",
+          passed: false,
+          message: "demo",
+          fix,
+        })),
+        projectType: "library",
+        timestamp: "2026-01-01T00:00:00Z",
+      },
+    };
+    const output = formatScanResult(result).replace(/\x1b\[[0-9;]*m/g, "");
+    expect(output.split("\n").filter((line) => line.includes("Fix: "))).toHaveLength(SCANNER_FIXES.length);
+    expect(foreignVoice(output).map((f) => describeFinding("Fix lines", f))).toEqual([]);
   });
 });
 

@@ -39,6 +39,7 @@ import {
   type RegistrySecurityProfile,
 } from "./security-profile.js";
 import { capLength, sanitizeRegistryValue, stripControlCharacters } from "./sanitize.js";
+import { citeCommandsInText } from "./registry-command.js";
 import { mapScanStatusForMeter } from "@opena2a/check-core";
 import { classify, tierLabel } from "@opena2a/ai-classifier";
 import type { Tier } from "@opena2a/ai-classifier";
@@ -157,12 +158,13 @@ function outOfScopeNamesLine(unrelated: TrustAnswer[]): string {
 }
 
 /**
- * The scanner's fix text names its own CLI bare (`hackmyagent secure --fix`).
- * ai-trust installs hackmyagent as a dependency, not on PATH, so show the
- * `npx hackmyagent ...` form the Verdict and Next Steps lines already use.
+ * The scanner's fix text names each OpenA2A CLI by its command
+ * (`hackmyagent secure --fix`, `opena2a protect .`). A global install of
+ * ai-trust puts none of them on PATH, so show the `npx <package> ...` form the
+ * Verdict and Next Steps lines already use (`npx opena2a-cli protect .`).
  */
 function runnableFix(fix: string): string {
-  return fix.replace(/(?<![\w./@-])(?<!npx )hackmyagent(?= [a-z])/g, "npx hackmyagent");
+  return citeCommandsInText(fix);
 }
 
 // ── Formatters ────────────────────────────────────────────────────────
