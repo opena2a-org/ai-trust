@@ -120,6 +120,8 @@ ai-trust check server-filesystem --no-color                            # disable
 ai-trust check server-filesystem --registry-url http://localhost:8080  # custom registry endpoint
 ```
 
+`--registry-url` takes an http or https URL. Any other value stops the command before it runs, with exit code 1 and one line on stderr, `Error: --registry-url must be an http(s) URL, got "<value>". Example: --registry-url https://api.oa2a.org`. With `--json`, the same text is printed on stdout as `{"error": "..."}`.
+
 ## Trust levels
 
 | Level | Label | Description |
