@@ -2,11 +2,13 @@
  * SECURITY.md is the one place that states how to report a vulnerability and
  * when we reply. CONTRIBUTING.md stated its own address and a 24-hour response
  * while SECURITY.md stated 48 hours and a preferred route CONTRIBUTING.md did
- * not mention, so a reporter read two different commitments.
+ * not mention, so a reporter read two different commitments. STATUS.md said
+ * stable releases have security patches triaged within 24 hours, a third.
  *
  * These checks hold that: CONTRIBUTING.md links SECURITY.md and restates
- * neither the address nor a response window, the README and the Markdown under
- * docs/ state no response window, and SECURITY.md states one.
+ * neither the address nor a response window, STATUS.md links SECURITY.md, the
+ * README, STATUS.md and the Markdown under docs/ state no response window, and
+ * SECURITY.md states one.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
@@ -39,7 +41,16 @@ describe("security reports: one policy", () => {
     expect(read("CONTRIBUTING.md")).not.toContain(REPORT_ADDRESS);
   });
 
-  it.each(["README.md", "CONTRIBUTING.md", ...markdownUnder("docs")])(
+  it("STATUS.md links SECURITY.md for security handling", () => {
+    expect(read("STATUS.md")).toMatch(/\]\(SECURITY\.md\)/);
+  });
+
+  it.each([
+    "README.md",
+    "CONTRIBUTING.md",
+    "STATUS.md",
+    ...markdownUnder("docs"),
+  ])(
     "%s states no response window",
     (doc) => {
       expect(windowLines(doc)).toEqual([]);
