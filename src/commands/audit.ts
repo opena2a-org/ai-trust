@@ -10,7 +10,7 @@ import { createRegistryClient, isTransientRegistryError } from "../utils/registr
 import { parseDependencyFile, detectEcosystem } from "../utils/parser.js";
 import { findAuditFile } from "../utils/audit-file.js";
 import { shellArg } from "../utils/shell-arg.js";
-import { stripControlCharacters } from "../output/sanitize.js";
+import { capLength, stripControlCharacters } from "../output/sanitize.js";
 import {
   formatBatchResults,
   formatJson,
@@ -193,25 +193,28 @@ export function registerAuditCommand(program: Command): void {
             : undefined;
         const fileMissing = errno === "ENOENT";
         const isDirectory = errno === "EISDIR";
+        const nameTooLong = errno === "ENAMETOOLONG";
         const message = fileMissing
           ? `File not found: ${file}`
           : isDirectory
             ? `${file} is a directory, not a dependency file`
-            : err instanceof Error
-              ? err.message
-              : String(err);
+            : nameTooLong
+              ? nameTooLongMessage(file)
+              : err instanceof Error
+                ? err.message
+                : String(err);
 
         if (globalOpts.json) {
           console.log(formatJson({ file, error: message }));
         } else {
           // A registry error can quote the registry's response body.
           console.error(`Error: ${stripControlCharacters(message)}`);
-          if (fileMissing || isDirectory) {
+          if (fileMissing || isDirectory || nameTooLong) {
             console.error(
               "  No dependencies were checked. The audit command reads package.json or requirements.txt."
             );
             console.error(
-              `  Next: ${fileMissing ? missingFileNextCommand(file) : directoryNextCommand(file)}`
+              `  Next: ${isDirectory ? directoryNextCommand(file) : missingFileNextCommand(file)}`
             );
           } else if (isTransientRegistryError(err)) {
             console.error(
@@ -229,11 +232,24 @@ export function registerAuditCommand(program: Command): void {
     });
 }
 
+/** The longest a file name is shown in an error message, "..." included. */
+const MAX_SHOWN_NAME = 60;
+
 /**
- * The command to suggest after `audit <file>` found no file, or was given a
- * file it does not read. When the argument was a bare name and the current
- * directory holds a file audit reads, that file is the next step; otherwise
- * the help, which runs anywhere and lists what the command accepts.
+ * The error for a file name the file system refused as too long. Node's
+ * ENAMETOOLONG message repeats the whole name; this one shows the name's
+ * length in bytes and its first characters.
+ */
+function nameTooLongMessage(file: string): string {
+  return `File name is longer than the file system allows (${Buffer.byteLength(file)} bytes): ${capLength(file, MAX_SHOWN_NAME)}`;
+}
+
+/**
+ * The command to suggest after `audit <file>` found no file, was given a
+ * file it does not read, or a name too long to open. When the argument was
+ * a bare name and the current directory holds a file audit reads, that file
+ * is the next step; otherwise the help, which runs anywhere and lists what
+ * the command accepts.
  */
 function missingFileNextCommand(file: string): string {
   const found = basename(file) === file ? findAuditFile() : null;
