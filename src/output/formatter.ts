@@ -825,7 +825,21 @@ export interface FormatScanResultOptions {
    * the notice for a scan that read 0 files, with a command that lists it.
    */
   scanPath?: string;
+  /**
+   * Print every failed finding (`check --all`). Without it the first ten are
+   * printed, by severity, and a line counts the rest.
+   */
+  all?: boolean;
+  /**
+   * The command that printed this result, without `--all`. The line that
+   * counts the findings not printed cites it with `--all` appended. Defaults
+   * to `<check citation> <packageName>`.
+   */
+  rerunCommand?: string;
 }
+
+/** Findings printed in text mode when `--all` is not given. */
+const FINDINGS_SHOWN_BY_DEFAULT = 10;
 
 export function formatScanResult(result: ScanResult, opts: FormatScanResultOptions = {}): string {
   const remote = opts.remote === true;
@@ -993,8 +1007,10 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
       (a, b) => (sevWeight[b.severity] || 0) - (sevWeight[a.severity] || 0)
     );
 
-    // Show top 10 findings with colored borders
-    const limit = Math.min(failed.length, 10);
+    // Show the top findings (every one with --all) with colored borders
+    const limit = opts.all
+      ? failed.length
+      : Math.min(failed.length, FINDINGS_SHOWN_BY_DEFAULT);
     for (let i = 0; i < limit; i++) {
       const f = failed[i];
       const sevColor =
@@ -1029,8 +1045,10 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
     }
 
     if (failed.length > limit) {
+      const rerun =
+        opts.rerunCommand ?? `${checkCitation()} ${shellArg(result.packageName)}`;
       lines.push(
-        `\n  ${chalk.dim(`+ ${failed.length - limit} more findings`)}`
+        `\n  ${chalk.dim(`+ ${failed.length - limit} more findings (show all: ${rerun} --all)`)}`
       );
     }
 
