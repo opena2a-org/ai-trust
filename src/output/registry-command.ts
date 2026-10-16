@@ -12,6 +12,10 @@
  * Only the program of a command is rewritten: the start of the command, or
  * the start of one after `;`, `&&`, `||` or `|`. Arguments are kept as sent.
  * `--json` output carries the registry's strings as sent (see sanitize.ts).
+ *
+ * The scanner's fix text names the same CLIs the same way, inside prose
+ * (`opena2a protect . — migrates hardcoded secrets ...`). citeCommandsInText
+ * finds each such command in a text and rewrites it with citeRegistryCommand.
  */
 import type { CheckRichBlockInput } from "@opena2a/cli-ui";
 
@@ -31,6 +35,33 @@ export function citeRegistryCommand(command: string): string {
     OTHER_CLI_PROGRAM,
     (_match, separator: string, space: string, yes: string | undefined, bin: string) =>
       `${separator}${space}npx${yes ?? ""} ${PACKAGE_OF.get(bin)}`,
+  );
+}
+
+// Words that make a name the subject of a sentence rather than a command,
+// as scripts/foreign-voice.mjs lists them.
+const SENTENCE_WORDS: ReadonlySet<string> = new Set([
+  "a", "also", "an", "and", "are", "as", "at", "by", "can", "cli", "does",
+  "for", "from", "has", "in", "is", "itself", "not", "of", "on", "or",
+  "reads", "runs", "the", "to", "uses", "was", "will", "with", "writes",
+]);
+
+const OTHER_CLI_IN_TEXT =
+  /(?<![\w./@-])(?:npx\s+(?:(?:-y|--yes)\s+)?)?(?:hackmyagent|opena2a|secretless-ai)(?![\w-])(?=[ \t]+([a-z.<-][^\s`"')]*))/g;
+
+/**
+ * `text` with each command of another OpenA2A CLI in it written as
+ * `npx <package> <arguments>`. A name counts as a command when it starts a
+ * word and the word after it looks like an argument (lower case, `.`, `-` or
+ * `<`): `Run: hackmyagent scan-soul to generate one.` A name followed by an
+ * English word (`hackmyagent is ...`) is the subject of a sentence and is
+ * kept. Each command found is rewritten by citeRegistryCommand.
+ */
+export function citeCommandsInText(text: string): string {
+  return text.replace(OTHER_CLI_IN_TEXT, (command: string, argument: string) =>
+    !command.startsWith("npx") && SENTENCE_WORDS.has(argument.toLowerCase())
+      ? command
+      : citeRegistryCommand(command),
   );
 }
 

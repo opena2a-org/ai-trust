@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { CheckRichBlockInput } from "@opena2a/cli-ui";
-import { citeRegistryCommand, citeRegistryCommands } from "./registry-command.js";
+import { citeCommandsInText, citeRegistryCommand, citeRegistryCommands } from "./registry-command.js";
 import { foreignVoice } from "../../scripts/foreign-voice.mjs";
 
 describe("citeRegistryCommand", () => {
@@ -40,6 +40,52 @@ describe("citeRegistryCommand", () => {
   for (const command of kept) {
     it(`keeps "${command}"`, () => {
       expect(citeRegistryCommand(command)).toBe(command);
+    });
+  }
+});
+
+describe("citeCommandsInText", () => {
+  const rewritten: Array<[string, string]> = [
+    [
+      "opena2a protect . — migrates hardcoded secrets into the Secretless vault.",
+      "npx opena2a-cli protect . — migrates hardcoded secrets into the Secretless vault.",
+    ],
+    ["opena2a protect .  — scans for hardcoded secrets", "npx opena2a-cli protect .  — scans for hardcoded secrets"],
+    ["secretless-ai scan .", "npx secretless-ai scan ."],
+    ["hackmyagent secure --fix", "npx hackmyagent secure --fix"],
+    [
+      "Add a SOUL.md with safety boundaries. Run: hackmyagent scan-soul to generate one.",
+      "Add a SOUL.md with safety boundaries. Run: npx hackmyagent scan-soul to generate one.",
+    ],
+    ["Rotate the key, then run opena2a protect .", "Rotate the key, then run npx opena2a-cli protect ."],
+    ["Run `secretless-ai init` in the project root", "Run `npx secretless-ai init` in the project root"],
+    ["Run npx opena2a review again", "Run npx opena2a-cli review again"],
+    ["Run npx -y opena2a review", "Run npx -y opena2a-cli review"],
+    ["hackmyagent harden-soul . (adds the missing sections)", "npx hackmyagent harden-soul . (adds the missing sections)"],
+  ];
+  for (const [sent, printed] of rewritten) {
+    it(`prints "${sent}" as "${printed}"`, () => {
+      expect(citeCommandsInText(sent)).toBe(printed);
+      expect(foreignVoice(citeCommandsInText(sent))).toEqual([]);
+    });
+  }
+
+  const kept = [
+    "Run npx hackmyagent secure --fix, or add the patterns by hand",
+    "docker exec <sandbox-container> npx hackmyagent scan --ci /app",
+    "npx -y hackmyagent secure .",
+    "npx opena2a-cli protect .",
+    "npx secretless-ai init",
+    "hackmyagent is the scanner ai-trust runs for a local scan.",
+    "Report it to opena2a.org/security",
+    "Install @opena2a/cli-ui first",
+    "See node_modules/hackmyagent dist for the rules",
+    "Add .env to .gitignore to prevent committing secrets",
+    "",
+  ];
+  for (const text of kept) {
+    it(`keeps "${text}"`, () => {
+      expect(citeCommandsInText(text)).toBe(text);
     });
   }
 });

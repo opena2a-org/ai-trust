@@ -1371,6 +1371,51 @@ describe("formatScanResult", () => {
     expect(output).not.toMatch(/(?<!npx )hackmyagent secure --fix/);
   });
 
+  it("prints a Fix line that names opena2a or secretless-ai in the npx form of its package", () => {
+    // The scanner's fix text names each OpenA2A CLI by its command
+    // (`opena2a protect .`). A global install of ai-trust puts none of them on
+    // PATH, and npm has no package named opena2a: the package is opena2a-cli.
+    const finding = (checkId: string, fix: string) => ({
+      checkId,
+      name: checkId,
+      description: checkId,
+      category: "secrets",
+      severity: "high" as const,
+      passed: false,
+      message: checkId,
+      fix,
+    });
+    const result = makeScanResult({
+      scan: {
+        score: 40,
+        maxScore: 100,
+        checksEvaluated: 30,
+        findings: [
+          finding(
+            "CRED-001",
+            "opena2a protect . — migrates hardcoded secrets into the Secretless vault (local, keychain, 1Password, or HashiCorp Vault).",
+          ),
+          finding("CRED-002", "secretless-ai scan ."),
+          finding("CRED-003", "hackmyagent secure --fix"),
+          finding(
+            "SOUL-001",
+            "Add a SOUL.md or system prompt with safety boundaries. Run: hackmyagent scan-soul to generate one.",
+          ),
+        ],
+        projectType: "library",
+        timestamp: "2026-03-15T00:00:00Z",
+      },
+    });
+    const output = formatScanResult(result).replace(/\x1b\[[0-9;]*m/g, "");
+    expect(output).toContain(
+      "Fix: npx opena2a-cli protect . — migrates hardcoded secrets into the Secretless vault (local, keychain, 1Password, or HashiCorp Vault).\n",
+    );
+    expect(output).toContain("Fix: npx secretless-ai scan .\n");
+    expect(output).toContain("Fix: npx hackmyagent secure --fix\n");
+    expect(output).toContain("Run: npx hackmyagent scan-soul to generate one.\n");
+    expect(output).not.toMatch(/(?<!npx )(?:opena2a|secretless-ai) (?:protect|scan)\b/);
+  });
+
   it("still shows the score on a clean scan that DID run checks (suppression must not over-fire)", () => {
     // Guards against a regression that drops the `checksEvaluated === 0`
     // conjunct and suppresses any 0-finding scan — a fully-measured clean
