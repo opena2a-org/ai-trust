@@ -295,7 +295,14 @@ export function scannerTempDirProblem(): string | null {
   } catch (err: unknown) {
     return err instanceof Error ? err.message : String(err);
   }
-  rmSync(home, { recursive: true, force: true });
+  // Once the home exists the probe has its answer. A directory that lets an
+  // entry be created but not removed keeps the probe directory; that is not
+  // the problem this function reports, so it must not escape to the caller.
+  try {
+    rmSync(home, { recursive: true, force: true });
+  } catch {
+    // The probe directory stays behind; the answer is the same.
+  }
   return null;
 }
 

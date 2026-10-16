@@ -5,7 +5,7 @@
  * Exercises the built `dist/index.js` end-to-end.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -64,4 +64,26 @@ describe.skipIf(process.platform === "win32")("check --scan-path with an unusabl
     expect(stderr).not.toContain("Reinstall");
     expect(status).toBe(2);
   });
+
+  // macOS access control lists can deny removing a directory's entries while creating them stays allowed.
+  it.skipIf(process.platform !== "darwin")(
+    "exits 2 with one error line, not a stack trace, when TMPDIR lets the temporary home be created but not removed",
+    () => {
+      if (!existsSync(CLI_PATH)) return;
+      const createOnly = join(scratch, "create-only");
+      mkdirSync(createOnly);
+      execFileSync("chmod", ["+a", "everyone deny delete_child", createOnly]);
+      try {
+        const { stderr, status } = checkScanPath(createOnly);
+
+        expect(stderr).not.toContain("node:fs");
+        expect(stderr).not.toContain("    at ");
+        expect(stderr.trim().split("\n")).toHaveLength(1);
+        expect(stderr).toContain("error: HMA");
+        expect(status).toBe(2);
+      } finally {
+        execFileSync("chmod", ["-a", "everyone deny delete_child", createOnly]);
+      }
+    },
+  );
 });

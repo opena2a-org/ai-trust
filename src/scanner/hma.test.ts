@@ -29,6 +29,12 @@ vi.mock("node:util", async (importOriginal) => {
   };
 });
 
+// rmSync runs as itself unless a test makes it refuse a path.
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = (await importOriginal()) as typeof import("node:fs");
+  return { ...actual, rmSync: vi.fn(actual.rmSync) };
+});
+
 import { execFile } from "node:child_process";
 import { isHmaAvailable, runHmaScan, scannerTempDirProblem } from "./hma.js";
 
@@ -523,5 +529,27 @@ describe.skipIf(process.platform === "win32")("a temporary directory that cannot
     expect(scannerTempDirProblem()).toBeNull();
     expect(readdirSync(writable)).toEqual([]);
     expect(await isHmaAvailable()).toBe(true);
+  });
+
+  it("finds no problem, and does not throw, in a TMPDIR where the probe directory can be created but not removed", async () => {
+    const createOnly = join(scratch, "create-only");
+    mkdirSync(createOnly);
+    process.env.TMPDIR = createOnly;
+    const probe = join(createOnly, "ai-trust-scanner-");
+    const refused = Object.assign(new Error(`EACCES, Permission denied: ${probe}`), { code: "EACCES" });
+    const { rmSync: realRmSync } = await vi.importActual<typeof import("node:fs")>("node:fs");
+    vi.mocked(rmSync).mockImplementation((path, options) => {
+      if (String(path).startsWith(probe)) throw refused;
+      return realRmSync(path, options);
+    });
+
+    try {
+      expect(scannerTempDirProblem()).toBeNull();
+      expect(rmSync).toHaveBeenCalledWith(expect.stringContaining(probe), expect.anything());
+      // The probe directory stays, since removing it was refused.
+      expect(readdirSync(createOnly)).toHaveLength(1);
+    } finally {
+      vi.mocked(rmSync).mockImplementation(realRmSync);
+    }
   });
 });
