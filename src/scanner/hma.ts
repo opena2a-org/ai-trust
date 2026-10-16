@@ -90,6 +90,21 @@ export interface HmaScanResult {
    * Unset when HMA reported no whole-number count.
    */
   unreadableInputs?: number;
+  /**
+   * `checksEvaluated` without the semantic layer's records (`AST-*`,
+   * `SEM-*`), so the Checks line does not count those as static checks.
+   */
+  staticChecksEvaluated?: number;
+  /**
+   * Artifacts the scanner's semantic layer compiled, the number HMA itself
+   * prints as `N semantic (NanoMind AST)`. Read from
+   * `coverage.semanticFamilyCoverage.artifactsCompiled`; undefined when the
+   * scanner JSON carries no such count (an older HMA), so a missing count is
+   * never shown as 0.
+   */
+  semanticCount?: number;
+  /** True when HMA ran with --static-only, so the semantic layer did not run. */
+  staticOnly?: boolean;
   /** Semantic analysis results from NanoMind (present when --deep is used) */
   semanticFindings?: SemanticFinding[];
   /** AnaLM findings (present when --analm is used) */
@@ -479,6 +494,11 @@ export async function runHmaScan(
         if (analm) {
           result.analystLayer = analystLayerStatus(result, deep, attemptArgs.includes("--analm"));
         }
+        // Only when HMA accepted the flag: an older HMA that rejected it ran
+        // its default semantic analysis on the retry.
+        if (attemptArgs.includes("--static-only")) {
+          result.staticOnly = true;
+        }
         return result;
       } catch (err: unknown) {
         // If an optional flag caused "unknown option", retry without it (older HMA version)
@@ -582,16 +602,23 @@ function parseHmaOutput(stdout: string): HmaScanResult {
   // `allFindings` lists every executed check (passed + failed); `findings` is
   // failures only. Prefer the former as the executed-checks count, falling
   // back to the failures count when an older HMA omits `allFindings`.
-  const checksEvaluated = Array.isArray(raw.allFindings)
-    ? raw.allFindings.length
+  const executed: Array<Record<string, unknown> | null> = Array.isArray(raw.allFindings)
+    ? raw.allFindings
     : Array.isArray(raw.findings)
-      ? raw.findings.length
-      : 0;
+      ? raw.findings
+      : [];
+  const checksEvaluated = executed.length;
+  // HMA files `AST-*` (NanoMind) and `SEM-*` (structural) records under its
+  // semantic layer, so they are not counted as static checks.
+  const staticChecksEvaluated = executed.filter(
+    (f) => !/^(AST|SEM)-/.test(String(f?.checkId ?? "")),
+  ).length;
 
   const result: HmaScanResult = {
     score: raw.score ?? 0,
     maxScore: raw.maxScore ?? 100,
     checksEvaluated,
+    staticChecksEvaluated,
     findings: (raw.findings ?? []).map((f: Record<string, unknown>) => ({
       checkId: f.checkId ?? "",
       name: f.name ?? "",
@@ -616,6 +643,13 @@ function parseHmaOutput(stdout: string): HmaScanResult {
   const unreadableInputs = raw.coverage?.unreadableInputs?.count;
   if (Number.isInteger(unreadableInputs) && unreadableInputs >= 0) {
     result.unreadableInputs = unreadableInputs;
+  }
+  // HMA's own `N semantic (NanoMind AST)` is its compile count. Not
+  // `semanticAnalysis.layer2Findings`: that counts structural findings, is
+  // omitted when there are none, and stays set under --static-only.
+  const compiled = raw.coverage?.semanticFamilyCoverage?.artifactsCompiled;
+  if (typeof compiled === "number") {
+    result.semanticCount = compiled;
   }
 
   // Parse NanoMind semantic findings when present (from --deep mode)

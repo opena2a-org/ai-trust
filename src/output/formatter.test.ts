@@ -1466,6 +1466,76 @@ describe("formatScanResult", () => {
     expect(output).not.toContain("1 static");
   });
 
+  describe("semantic count on the Checks line", () => {
+    const checksLine = (output: string): string | undefined =>
+      output.split("\n").find((l) => l.trim().startsWith("Checks"));
+
+    // Counts from the scanner on test/dvaa: 127 executed records, 34 of them
+    // AST-*/SEM-*, and 12 artifacts compiled by the semantic layer.
+    const semanticFinding = {
+      checkId: "SEM-CRED-001",
+      name: "Credential in agent instructions",
+      description: "Credential in agent instructions",
+      category: "credentials",
+      severity: "critical" as const,
+      passed: false,
+      message: "Credential in agent instructions",
+    };
+
+    it("prints the scanner's semantic count and leaves AST-*/SEM-* records out of the static count", () => {
+      const result = makeScanResult({
+        scan: {
+          score: 4,
+          maxScore: 100,
+          checksEvaluated: 127,
+          staticChecksEvaluated: 93,
+          semanticCount: 12,
+          findings: [semanticFinding],
+          projectType: "api",
+          timestamp: "2026-10-16T00:00:00Z",
+        },
+      });
+
+      const line = checksLine(formatScanResult(result));
+      expect(line).toBe("  Checks      93 static · 12 semantic (NanoMind AST) · 0 skipped");
+    });
+
+    it("says the semantic layer did not run when the scan used --no-deep", () => {
+      const result = makeScanResult({
+        scan: {
+          score: 13,
+          maxScore: 100,
+          checksEvaluated: 109,
+          staticChecksEvaluated: 93,
+          semanticCount: 0,
+          staticOnly: true,
+          findings: [semanticFinding],
+          projectType: "api",
+          timestamp: "2026-10-16T00:00:00Z",
+        },
+      });
+
+      const line = checksLine(formatScanResult(result));
+      expect(line).toBe("  Checks      93 static · 0 semantic (not run: --no-deep) · 0 skipped");
+    });
+
+    it("says the semantic count was not reported, never 0, when the scanner omits it", () => {
+      const result = makeScanResult({
+        scan: {
+          score: 85,
+          maxScore: 100,
+          checksEvaluated: 40,
+          findings: [],
+          projectType: "node",
+          timestamp: "2026-10-16T00:00:00Z",
+        },
+      });
+
+      const line = checksLine(formatScanResult(result));
+      expect(line).toBe("  Checks      40 static · semantic not reported · 0 skipped");
+    });
+  });
+
   it("names pypi in the header of a downloaded pip:<name> package (#141)", () => {
     const header = (opts: Parameters<typeof formatScanResult>[1]) =>
       formatScanResult(makeScanResult(), opts)
