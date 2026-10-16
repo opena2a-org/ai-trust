@@ -1391,6 +1391,95 @@ describe("formatScanResult", () => {
     expect(header({ remote: true, ecosystem: "npm" })).toBe("  test-pkg  downloaded package");
     expect(header({ remote: true })).toBe("  test-pkg  downloaded package");
   });
+
+  function scanWithFindings(findings: ScanResult["scan"]["findings"]): ScanResult {
+    return makeScanResult({
+      verdict: "warning",
+      scan: {
+        score: 60,
+        maxScore: 100,
+        checksEvaluated: 40,
+        findings,
+        projectType: "node",
+        timestamp: "2026-03-15T00:00:00Z",
+      },
+    });
+  }
+
+  it("prints file:line under a finding that carries both", () => {
+    const output = formatScanResult(
+      scanWithFindings([
+        {
+          checkId: "CLAUDE-002",
+          name: "Overly Permissive Permissions",
+          description: "",
+          category: "claude-code",
+          severity: "high",
+          passed: false,
+          message: "Scope permissions to specific paths",
+          file: ".claude/settings.json",
+          line: 4,
+        },
+      ]),
+    );
+    const lines = output.split("\n");
+    const header = lines.indexOf("  │ HIGH  Overly Permissive Permissions");
+    expect(header).toBeGreaterThan(-1);
+    expect(lines[header + 1]).toBe("  │ .claude/settings.json:4");
+  });
+
+  it("prints the file alone under a finding with no line, and nothing for one with no file", () => {
+    const output = formatScanResult(
+      scanWithFindings([
+        {
+          checkId: "SEM-PERM-002",
+          name: "Unrestricted Bash access",
+          description: "",
+          category: "permissions",
+          severity: "high",
+          passed: false,
+          message: "Bash is allowed with no restriction",
+          file: ".claude/settings.json",
+        },
+        {
+          checkId: "SEC-001",
+          name: "Missing CSP",
+          description: "",
+          category: "headers",
+          severity: "medium",
+          passed: false,
+          message: "Content-Security-Policy header missing",
+        },
+      ]),
+    );
+    const lines = output.split("\n");
+    const withFile = lines.indexOf("  │ HIGH  Unrestricted Bash access");
+    expect(withFile).toBeGreaterThan(-1);
+    expect(lines[withFile + 1]).toBe("  │ .claude/settings.json");
+    const noFile = lines.indexOf("  │ MEDIUM  Missing CSP");
+    expect(noFile).toBeGreaterThan(-1);
+    expect(lines[noFile + 1]).toBe("  │ Content-Security-Policy header missing");
+  });
+
+  it("removes control characters from a scanned file path before printing it", () => {
+    const output = formatScanResult(
+      scanWithFindings([
+        {
+          checkId: "SKILL-001",
+          name: "Unsigned skill",
+          description: "",
+          category: "skills",
+          severity: "medium",
+          passed: false,
+          message: "Skill has no signature",
+          file: "skills/a\u001b[2Jb.md",
+          line: 2,
+        },
+      ]),
+    );
+    expect(output).not.toContain("\u001b");
+    expect(output).toContain("skills/a[2Jb.md:2");
+  });
 });
 
 describe("formatNotFound", () => {

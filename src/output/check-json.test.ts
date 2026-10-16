@@ -275,6 +275,62 @@ describe("buildCheckJsonFromScan (scan path)", () => {
     expect(f).not.toHaveProperty("attackClass");
     // category is "" -> still defined on the source, so it is preserved as ""
     expect(f.category).toBe("");
+    expect(f).not.toHaveProperty("file");
+    expect(f).not.toHaveProperty("line");
+    expect(f).not.toHaveProperty("fix");
+  });
+
+  function withFinding(finding: Partial<ScanResult["scan"]["findings"][number]>): ScanResult {
+    return {
+      ...baseScan,
+      scan: {
+        ...baseScan.scan,
+        findings: [
+          {
+            checkId: "CLAUDE-002",
+            name: "Overly Permissive Permissions",
+            description: "",
+            category: "claude-code",
+            severity: "high",
+            passed: false,
+            message: "Scope permissions to specific paths",
+            ...finding,
+          },
+        ],
+      },
+    };
+  }
+
+  it("carries the scanner's file, line and fix on each finding", () => {
+    const json = buildCheckJsonFromScan(
+      withFinding({
+        file: ".claude/settings.json",
+        line: 4,
+        fix: "Replace Bash(*) with the specific commands the agent needs",
+      }),
+    );
+    expect(json.findings![0]).toMatchObject({
+      checkId: "CLAUDE-002",
+      file: ".claude/settings.json",
+      line: 4,
+      fix: "Replace Bash(*) with the specific commands the agent needs",
+    });
+  });
+
+  it("emits the file and omits the line when the scanner supplied no line", () => {
+    const json = buildCheckJsonFromScan(withFinding({ file: ".claude/settings.json" }));
+    const f = json.findings![0];
+    expect(f.file).toBe(".claude/settings.json");
+    expect(f).not.toHaveProperty("line");
+  });
+
+  it("omits a line the scanner sent as null", () => {
+    const json = buildCheckJsonFromScan(
+      withFinding({ file: ".claude/settings.json", line: null as unknown as number }),
+    );
+    const f = json.findings![0];
+    expect(f.file).toBe(".claude/settings.json");
+    expect(f).not.toHaveProperty("line");
   });
 
   it("records the number of files the scanner read", () => {
