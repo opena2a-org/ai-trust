@@ -100,12 +100,14 @@ $AI batch mcp-server-kubernetes mcp-server-docker mcp-server-git
 
 # --- Audit ---
 $AI audit package.json                            # partitions by tier
-echo -e "fastapi==0.109.0\npydantic>=2.0\nrequests" > /tmp/test-req.txt
-$AI audit /tmp/test-req.txt               # PyPI packages, ecosystem: pypi
+mkdir -p /tmp/ai-trust-req
+echo -e "fastapi==0.109.0\npydantic>=2.0\nrequests" > /tmp/ai-trust-req/requirements.txt
+$AI audit /tmp/ai-trust-req/requirements.txt   # PyPI packages, ecosystem: pypi
 
 # --- Edge cases ---
 $AI check nonexistent-xyz-999 --no-scan   # not found, exit 2
 $AI batch                                  # error: no args, exit 1
+$AI audit README.md                        # refused before any lookup, exit 1
 ```
 
 For each command verify:
@@ -186,7 +188,7 @@ $AI check nonexistent-xyz-999 --no-scan; echo "exit: $?"
 
 # R5 — Python packages parsed as pypi ecosystem
 # (< /dev/null keeps the "Scan locally?" prompt from waiting on a terminal)
-$AI audit /tmp/test-req.txt --json < /dev/null 2>/dev/null | \
+$AI audit /tmp/ai-trust-req/requirements.txt --json < /dev/null 2>/dev/null | \
   python3 -c "import sys,json; r=json.load(sys.stdin).get('results',[]); \
   print('OK' if r and all(p.get('ecosystem')=='pypi' for p in r) \
   else 'BAD: ' + str([(p.get('name'), p.get('ecosystem')) for p in r]))"
@@ -236,7 +238,7 @@ unset OPENA2A_TELEMETRY_URL
 ## 6. Cleanup
 
 ```bash
-rm -f /tmp/test-req.txt
+rm -rf /tmp/ai-trust-req
 # Restore telemetry config if overwritten:
 # rm ~/.config/opena2a/telemetry.json
 ```

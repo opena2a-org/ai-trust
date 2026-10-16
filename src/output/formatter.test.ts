@@ -912,6 +912,74 @@ describe("formatBatchResults", () => {
       expect(output).not.toContain("unclassified");
     });
 
+    // audit exits 2 for every dependency the registry does not have, so the
+    // text names each one, whatever section its tier puts it in.
+    describe("names every dependency the registry does not have", () => {
+      const foundLibraries = [
+        "express", "pg", "redis", "jsonwebtoken", "axios", "cors",
+        "dotenv", "fs", "path", "nodemon", "morgan",
+      ].map((name) =>
+        makeTrustAnswer({ name, packageType: "library", trustLevel: 2, verdict: "listed" })
+      );
+
+      function plain(output: string): string[] {
+        return output.replace(/\x1b\[[0-9;]*m/g, "").split("\n");
+      }
+
+      it("lists an unclassified name next to libraries when no AI package is present", () => {
+        const response = makeBatchResponse([
+          ...foundLibraries.slice(0, 7),
+          makeTrustAnswer({ name: "child_process", found: false, packageType: undefined }),
+          ...foundLibraries.slice(7),
+        ]);
+        const lines = plain(formatBatchResults(response, 2));
+
+        expect(lines).toContain("  No AI packages found in 12 dependencies");
+        const header = lines.findIndex((l) => l.includes("Unclassified"));
+        expect(header).toBeGreaterThan(-1);
+        expect(lines.slice(header + 1)).toContain("  │ child_process");
+        expect(header).toBeLessThan(lines.findIndex((l) => l.includes("Next Steps")));
+      });
+
+      it("names a not-found library-tier name past the out-of-scope preview", () => {
+        const response = makeBatchResponse([
+          ...foundLibraries.slice(0, 8),
+          makeTrustAnswer({ name: "@types/node", found: false, packageType: undefined }),
+        ]);
+        const lines = plain(formatBatchResults(response, 2));
+
+        expect(lines).toContain("  Not found in registry: @types/node");
+      });
+
+      it("names a not-found library-tier name in the mixed-batch footer", () => {
+        const response = makeBatchResponse([
+          makeTrustAnswer({ name: "my-mcp", packageType: "mcp_server", trustLevel: 3 }),
+          ...foundLibraries.slice(0, 8),
+          makeTrustAnswer({ name: "@types/node", found: false, packageType: undefined }),
+          makeTrustAnswer({ name: "@types/react", found: false, packageType: undefined }),
+        ]);
+        const lines = plain(formatBatchResults(response, 2));
+
+        expect(lines).toContain("  Not found in registry: @types/node, @types/react");
+      });
+
+      it("lists every unclassified name, past six", () => {
+        const unknownNames = Array.from({ length: 8 }, (_, i) => `zz-unknown-pkg-${i}`);
+        const response = makeBatchResponse([
+          makeTrustAnswer({ name: "my-mcp", packageType: "mcp_server", trustLevel: 3 }),
+          ...unknownNames.map((name) =>
+            makeTrustAnswer({ name, found: false, packageType: undefined })
+          ),
+        ]);
+        const lines = plain(formatBatchResults(response, 2));
+
+        for (const name of unknownNames) {
+          expect(lines).toContain(`  │ ${name}`);
+        }
+        expect(lines.join("\n")).not.toContain("+ 2 more");
+      });
+    });
+
     it("shows a package scanned by --scan-missing in the trust table with its verdict", () => {
       // audit --scan-missing marks each locally scanned package found with
       // scanStatus "local" but no packageType, so the classifier alone

@@ -18,7 +18,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { spawn } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -226,6 +226,22 @@ function runCli(
   });
 }
 
+/**
+ * Writes a package.json listing `dependencies` in the directory `dir` under
+ * the scratch directory, which is where the CLI runs, and returns its path
+ * from there. audit reads only a file named package.json or a requirements
+ * file, so each test that needs its own file gets its own directory.
+ */
+function writeManifest(dir: string, dependencies: Record<string, string>): string {
+  const file = join(dir, "package.json");
+  mkdirSync(join(scratch, dir), { recursive: true });
+  writeFileSync(
+    join(scratch, file),
+    JSON.stringify({ name: "fixture", version: "1.0.0", dependencies }),
+  );
+  return file;
+}
+
 beforeAll(async () => {
   scratch = mkdtempSync(join(tmpdir(), "ai-trust-answers-"));
   requests = [];
@@ -310,13 +326,10 @@ describe("registry answers through the built CLI", () => {
     });
 
     it("batch and audit print the name, type and scan status of a row without them", async () => {
-      writeFileSync(
-        join(scratch, "rows.json"),
-        JSON.stringify({ name: "fixture", version: "1.0.0", dependencies: { "row-ctrl": "1.0.0" } }),
-      );
+      const manifest = writeManifest("rows", { "row-ctrl": "1.0.0" });
       for (const args of [
         ["batch", "row-ctrl", "--min-trust", "3"],
-        ["audit", "rows.json", "--min-trust", "3"],
+        ["audit", manifest, "--min-trust", "3"],
       ]) {
         const { stdout, stderr, status } = await runCli(args);
 
@@ -332,15 +345,12 @@ describe("registry answers through the built CLI", () => {
     });
 
     it("audit --scan-missing prints the name the registry returned for a missing package without them", async () => {
-      writeFileSync(
-        join(scratch, "missing.json"),
-        JSON.stringify({ name: "fixture", version: "1.0.0", dependencies: { "missing-ctrl": "1.0.0" } }),
-      );
+      const manifest = writeManifest("missing", { "missing-ctrl": "1.0.0" });
       // The answer's name is not one the dependency file lists, so audit
       // reports it and downloads nothing. npm is pointed at the fixture
       // server, which has no such package, in case a download is attempted.
       const { stdout, stderr } = await runCli(
-        ["audit", "missing.json", "--scan-missing", "--no-contribute"],
+        ["audit", manifest, "--scan-missing", "--no-contribute"],
         {
           npm_config_registry: registryUrl,
           npm_config_cache: join(scratch, "npm-cache"),
@@ -357,14 +367,11 @@ describe("registry answers through the built CLI", () => {
     }, 60000);
 
     it("check --no-scan, batch and audit print a registry error without them", async () => {
-      writeFileSync(
-        join(scratch, "bad-body.json"),
-        JSON.stringify({ name: "fixture", version: "1.0.0", dependencies: { "bad-body": "1.0.0" } }),
-      );
+      const manifest = writeManifest("bad-body", { "bad-body": "1.0.0" });
       for (const args of [
         ["check", BAD_BODY_PACKAGE, "--no-scan"],
         ["batch", BAD_BODY_PACKAGE],
-        ["audit", "bad-body.json"],
+        ["audit", manifest],
       ]) {
         const { stdout, stderr, status } = await runCli(args);
 
@@ -473,15 +480,11 @@ describe("registry answers through the built CLI", () => {
     const OFF_SCALE = ["score-55", "score-negative", "score-text"];
 
     it("batch and audit print the table with no score for it", async () => {
-      writeFileSync(
-        join(scratch, "off-scale.json"),
-        JSON.stringify({
-          name: "fixture",
-          version: "1.0.0",
-          dependencies: Object.fromEntries(OFF_SCALE.map((name) => [name, "1.0.0"])),
-        }),
+      const manifest = writeManifest(
+        "off-scale",
+        Object.fromEntries(OFF_SCALE.map((name) => [name, "1.0.0"])),
       );
-      for (const args of [["batch", ...OFF_SCALE], ["audit", "off-scale.json"]]) {
+      for (const args of [["batch", ...OFF_SCALE], ["audit", manifest]]) {
         const { stdout, stderr, status } = await runCli(args);
 
         expect(stderr, args.join(" ")).not.toContain("Invalid count value");

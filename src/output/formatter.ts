@@ -158,6 +158,28 @@ function outOfScopeNamesLine(unrelated: TrustAnswer[]): string {
 }
 
 /**
+ * The out-of-scope libraries the registry does not have, every one by name:
+ * audit exits 2 for each, and the preview above may not show it.
+ */
+function notFoundLibrariesLines(unrelated: TrustAnswer[]): string[] {
+  const names = unrelated.filter((r) => !r.found).map((r) => r.name);
+  if (names.length === 0) return [];
+  return [`  ${chalk.yellow("Not found in registry:")} ${names.join(", ")}`];
+}
+
+/**
+ * The Unclassified section of a batch. Every name is listed: audit exits 2
+ * for each one the registry does not have.
+ */
+function unclassifiedSectionLines(unknown: TrustAnswer[]): string[] {
+  return [
+    divider("Unclassified"),
+    chalk.dim(`  Not in registry and not on the known-library list. Classify them:`),
+    ...unknown.map((pkg) => `  ${chalk.yellow("│")} ${pkg.name}`),
+  ];
+}
+
+/**
  * The scanner's fix text names each OpenA2A CLI by its command
  * (`hackmyagent secure --fix`, `opena2a protect .`). A global install of
  * ai-trust puts none of them on PATH, so show the `npx <package> ...` form the
@@ -518,6 +540,10 @@ export function formatBatchResults(
     );
     lines.push(divider("Out of scope (libraries)"));
     lines.push(outOfScopeNamesLine(unrelated));
+    lines.push(...notFoundLibrariesLines(unrelated));
+    if (unknown.length > 0) {
+      lines.push(...unclassifiedSectionLines(unknown));
+    }
     lines.push(divider("Next Steps"));
     lines.push(`  ${chalk.cyan("General security scan:")}  npx hackmyagent secure .`);
     if (unknown.length > 0) {
@@ -744,22 +770,12 @@ export function formatBatchResults(
       )
     );
     lines.push(outOfScopeNamesLine(unrelated));
+    lines.push(...notFoundLibrariesLines(unrelated));
   }
 
   // Unknown: packages we couldn't classify. Surface clearly.
   if (unknown.length > 0) {
-    lines.push(divider("Unclassified"));
-    lines.push(
-      chalk.dim(
-        `  Not in registry and not on the known-library list. Classify them:`
-      )
-    );
-    for (const pkg of unknown.slice(0, 6)) {
-      lines.push(`  ${chalk.yellow("\u2502")} ${pkg.name}`);
-    }
-    if (unknown.length > 6) {
-      lines.push(`  ${chalk.dim(`  + ${unknown.length - 6} more`)}`);
-    }
+    lines.push(...unclassifiedSectionLines(unknown));
   }
 
   // Trust level legend (only meaningful if there are native packages)

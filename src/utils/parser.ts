@@ -5,41 +5,42 @@
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
 import type { PackageQuery } from "@opena2a/registry-client";
+import {
+  auditFileRefusal,
+  isRequirementsFileName,
+  NotAnAuditFileError,
+} from "./audit-file.js";
 
+/**
+ * The packages a package.json or requirements file lists. Any other file
+ * is refused with NotAnAuditFileError before it is read, so none of its
+ * lines is looked up as a package name. A path that does not exist, or is
+ * a directory, fails on the read with ENOENT or EISDIR.
+ */
 export async function parseDependencyFile(
   filePath: string
 ): Promise<PackageQuery[]> {
+  const refusal = auditFileRefusal(filePath);
+  if (refusal) throw refusal;
+
   const fileName = basename(filePath);
   const content = await readFile(filePath, "utf-8");
-
-  // Detect format by filename or extension
-  if (fileName.endsWith(".json")) {
-    return parsePackageJson(content, fileName);
-  }
-
-  if (fileName.endsWith(".txt") || fileName === "requirements") {
+  if (isRequirementsFileName(fileName)) {
     return parseRequirementsTxt(content);
   }
-
-  // Try JSON first, fall back to requirements.txt format
-  try {
-    JSON.parse(content);
+  if (fileName === "package.json") {
     return parsePackageJson(content, fileName);
-  } catch {
-    return parseRequirementsTxt(content);
   }
+  // Another name that was not there to refuse before the read.
+  throw new NotAnAuditFileError(fileName);
 }
 
 /**
  * Detect the ecosystem from a dependency file path.
- * Returns "pypi" for requirements.txt files, "npm" for package.json.
+ * Returns "pypi" for a requirements file, "npm" for package.json.
  */
 export function detectEcosystem(filePath: string): "npm" | "pypi" {
-  const fileName = basename(filePath);
-  if (fileName.endsWith(".txt") || fileName === "requirements") {
-    return "pypi";
-  }
-  return "npm";
+  return isRequirementsFileName(basename(filePath)) ? "pypi" : "npm";
 }
 
 function parsePackageJson(content: string, fileName = "package.json"): PackageQuery[] {
