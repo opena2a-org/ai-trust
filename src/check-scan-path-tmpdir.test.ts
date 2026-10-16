@@ -1,6 +1,7 @@
 /**
  * `check --scan-path` with a TMPDIR the scanner's temporary home cannot be
- * created in: the error names that directory and TMPDIR, not a reinstall.
+ * created or removed in: the error names that directory and TMPDIR, not a
+ * reinstall.
  *
  * Exercises the built `dist/index.js` end-to-end.
  */
@@ -67,7 +68,7 @@ describe.skipIf(process.platform === "win32")("check --scan-path with an unusabl
 
   // macOS access control lists can deny removing a directory's entries while creating them stays allowed.
   it.skipIf(process.platform !== "darwin")(
-    "exits 2 with one error line, not a stack trace, when TMPDIR lets the temporary home be created but not removed",
+    "exits 2 with one error line that names TMPDIR, not a stack trace or a reinstall, when TMPDIR lets the temporary home be created but not removed",
     () => {
       if (!existsSync(CLI_PATH)) return;
       const createOnly = join(scratch, "create-only");
@@ -79,7 +80,10 @@ describe.skipIf(process.platform === "win32")("check --scan-path with an unusabl
         expect(stderr).not.toContain("node:fs");
         expect(stderr).not.toContain("    at ");
         expect(stderr.trim().split("\n")).toHaveLength(1);
-        expect(stderr).toContain("error: HMA");
+        expect(stderr).toContain(
+          `error: HMA could not be started. ai-trust runs the scanner with a new temporary home directory and could not remove the one it created in ${createOnly} (EACCES). Point TMPDIR at a directory where you can both create and remove entries, for example: export TMPDIR=/tmp`,
+        );
+        expect(stderr).not.toContain("Reinstall");
         expect(status).toBe(2);
       } finally {
         execFileSync("chmod", ["-a", "everyone deny delete_child", createOnly]);

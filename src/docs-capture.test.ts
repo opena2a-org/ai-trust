@@ -13,8 +13,8 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { execFileSync, spawn } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import {
@@ -292,6 +292,30 @@ describe("docs:capture --check and the commit the record names", { timeout: 3000
     expect(notes).toEqual([`the record's commit was not checked: ${root} is not the top of a git work tree`]);
   });
 
+  it("checks the commit, and a capture records it, when the root is typed in another letter case on a case-insensitive file system", async (ctx) => {
+    const { root, head } = gitRoot();
+    const swapped = basename(root).replace(/[a-z]/gi, (c) => (c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase()));
+    const otherCase = join(dirname(root), swapped);
+    expect(otherCase).not.toBe(root);
+    // On a case-sensitive file system no directory has that name.
+    if (!existsSync(otherCase)) ctx.skip();
+
+    const offHistory = git(root, "commit-tree", `${head}^{tree}`, "-p", head, "-m", "rebased away");
+    recordCommit(root, offHistory);
+    const notes: string[] = [];
+    expect(checkCapture(otherCase, notes)).toEqual([notInHistory(offHistory)]);
+    expect(notes).toEqual([]);
+    const check = await run(SCRIPT, ["--check", "--root", otherCase]);
+    expect(check.stdout).not.toContain("was not checked");
+    expect(check.stderr).toContain(notInHistory(offHistory));
+    expect(check.status).toBe(1);
+
+    const capture = await run(SCRIPT, ["--root", otherCase, "--registry-url", registryUrl]);
+    expect(capture.stderr).toBe("");
+    expect(capture.status).toBe(0);
+    expect(JSON.parse(read(root, SIDECAR)).artifact.commit).toBe(head);
+  });
+
   it("reads the repository at the root when GIT_DIR or GIT_WORK_TREE is exported to it, as git does to hooks and in a linked work tree", async () => {
     const { root, head } = gitRoot();
     recordCommit(root, head);
@@ -356,6 +380,24 @@ describe("docs:capture reports a file it cannot read on one line, exit 1", () =>
       expect(kept.map((other) => read(root, other))).toEqual(before);
     });
   }
+
+  it("--check, with a record that is valid JSON but not an object", async () => {
+    for (const [content, kind] of [
+      ["null", "null"],
+      ["[]", "an array"],
+      ["5", "a number"],
+      ['"record"', "a string"],
+    ]) {
+      const root = scratchRoot();
+      writeFileSync(join(root, SIDECAR), `${content}\n`);
+      const reason = `${SIDECAR} holds ${kind}, not a record object; run npm run build, then npm run docs:capture`;
+
+      expect(checkCapture(root), content).toEqual([reason]);
+      const { stderr, status } = await run(SCRIPT, ["--check", "--root", root]);
+      expect(stderr.split("\n"), stderr).toEqual([`docs:capture --check: ${reason}`, ""]);
+      expect(status).toBe(1);
+    }
+  });
 });
 
 describe("npm run docs:capture", { timeout: 60000 }, () => {

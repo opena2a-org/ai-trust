@@ -144,6 +144,16 @@ function gitEnv() {
 }
 
 /**
+ * Whether `top`, the top-level directory git reports, is the directory `root`
+ * names. realpathSync.native, unlike realpathSync, also gives each name its
+ * stored letter case, so a root typed in another case on a case-insensitive
+ * file system still matches.
+ */
+function isWorkTreeTop(top, root) {
+  return realpathSync.native(top) === realpathSync.native(root);
+}
+
+/**
  * Whether `commit`, the commit the record names, is HEAD or an ancestor of it
  * in the work tree whose top is `root`: { problem } when it is not, { unchecked }
  * with the reason when that cannot be told here, and {} when it is.
@@ -152,7 +162,7 @@ export function checkRecordedCommit(root, commit) {
   const git = (...args) => spawnSync("git", ["-C", root, ...args], { encoding: "utf8", env: gitEnv() });
   const top = git("rev-parse", "--show-toplevel");
   if (top.error) return { unchecked: `git could not be run (${top.error.message})` };
-  if (top.status !== 0 || realpathSync(top.stdout.replace(/\n+$/, "")) !== realpathSync(root)) {
+  if (top.status !== 0 || !isWorkTreeTop(top.stdout.replace(/\n+$/, ""), root)) {
     return { unchecked: `${root} is not the top of a git work tree` };
   }
   if (typeof commit !== "string" || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(commit)) {
@@ -181,6 +191,10 @@ export function checkCapture(root, notes = []) {
     sidecar = JSON.parse(read(SIDECAR).toString("utf8"));
   } catch (error) {
     return [`cannot read ${CAPTURE} and ${SIDECAR}: ${error.message}; ${RECAPTURE}`];
+  }
+  if (sidecar === null || typeof sidecar !== "object" || Array.isArray(sidecar)) {
+    const kind = sidecar === null ? "null" : Array.isArray(sidecar) ? "an array" : `a ${typeof sidecar}`;
+    return [`${SIDECAR} holds ${kind}, not a record object; ${RECAPTURE}`];
   }
   const pkg = packageVersion(root);
   if (pkg.error) return [pkg.error];
@@ -253,7 +267,7 @@ function gitState(root, version) {
       "",
     );
   try {
-    if (realpathSync(git("rev-parse", "--show-toplevel")) !== realpathSync(root)) throw new Error("not the top of a work tree");
+    if (!isWorkTreeTop(git("rev-parse", "--show-toplevel"), root)) throw new Error("not the top of a work tree");
     const inputs = ["src", ":(exclude,glob)src/**/*.test.ts", "package.json", "package-lock.json", "tsconfig.json"];
     const changed = git("status", "--porcelain", "--untracked-files=all", "--", ...inputs)
       .split("\n")
