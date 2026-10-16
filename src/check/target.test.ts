@@ -100,8 +100,11 @@ describe("classifyCheckTarget", () => {
       "skill:mcp:table-tool",
       { kind: "skill", name: "mcp:table-tool", fallback: npm("mcp:table-tool") },
     ],
-    ["skill: with nothing after", "skill:", npm("skill:")],
-    ["mcp: with nothing after", "mcp:", npm("mcp:")],
+    // A bare skill: or mcp: names nothing, as a bare pip: does (#193).
+    ["skill: with nothing after", "skill:", { kind: "invalid", reason: "no-package-name", prefix: "skill:" }],
+    ["mcp: with nothing after", "mcp:", { kind: "invalid", reason: "no-package-name", prefix: "mcp:" }],
+    ["skill: with spaces around", " skill: ", { kind: "invalid", reason: "no-package-name", prefix: "skill:" }],
+    ["mcp: with spaces after", "mcp:   ", { kind: "invalid", reason: "no-package-name", prefix: "mcp:" }],
     ["control characters", "\u001b[31mtable-tool", npm("\u001b[31mtable-tool")],
     ["upper case", "Table-Tool", npm("Table-Tool")],
     ["URL", "https://github.com/table-owner/table-repo", npm("https://github.com/table-owner/table-repo")],

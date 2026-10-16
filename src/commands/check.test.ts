@@ -1722,6 +1722,29 @@ describe("check command", () => {
     }
   });
 
+  // A bare skill: or mcp: is the same usage error as a bare pip: (#193), not a
+  // narrative request and a download of a package named "skill:" or "mcp:".
+  describe("skill: or mcp: with nothing after names nothing to check (#193)", () => {
+    for (const [target, error] of [
+      ["skill:", 'Error: No package name after "skill:". Usage: ai-trust check skill:<name>'],
+      ["mcp:", 'Error: No package name after "mcp:". Usage: ai-trust check mcp:<name>'],
+      [" skill: ", 'Error: No package name after "skill:". Usage: ai-trust check skill:<name>'],
+    ] as const) {
+      for (const flags of [[], ["--no-scan"]]) {
+        it(`check ${JSON.stringify(target)} ${flags.join(" ") || "with no flag"}: a usage error before any lookup or scan`, async () => {
+          await createProgram().parseAsync(["node", "test", "check", target, ...flags]);
+
+          expect(consoleErrSpy.mock.calls.map((c) => c.join(" "))).toEqual([error]);
+          expect(consoleSpy).not.toHaveBeenCalled();
+          expect(process.exitCode).toBe(1);
+          expect(RegistryClient).not.toHaveBeenCalled();
+          expect(isHmaAvailable).not.toHaveBeenCalled();
+          expect(scanPackage).not.toHaveBeenCalled();
+        });
+      }
+    }
+  });
+
   // With --json the usage error is one JSON object on stdout and nothing on
   // stderr, as for a --registry-url usage error.
   describe("a target that names no package, with --json (#183)", () => {
@@ -1730,6 +1753,8 @@ describe("check command", () => {
       ["   ", "No package name given. Usage: ai-trust check <package>"],
       ["pip:", 'No package name after "pip:". Usage: ai-trust check pip:<package>'],
       ["npm:", 'No package name after "npm:". Usage: ai-trust check npm:<package>'],
+      ["skill:", 'No package name after "skill:". Usage: ai-trust check skill:<name>'],
+      ["mcp:", 'No package name after "mcp:". Usage: ai-trust check mcp:<name>'],
     ] as const) {
       for (const flags of [["--json"], ["--no-scan", "--json"]]) {
         it(`check ${JSON.stringify(target)} ${flags.join(" ")}: {"error"} on stdout, exit 1`, async () => {

@@ -521,6 +521,59 @@ const ROWS: Row[] = [
       },
     },
   },
+  // A bare skill: or mcp: is the same usage error as a bare pip: (#193).
+  {
+    form: "skill: with nothing after",
+    target: "skill:",
+    cells: {
+      "no flag": {
+        exit: 1,
+        shows: ["Error: No package name after \"skill:\". Usage: ai-trust check skill:<name>"],
+        requests: [],
+      },
+      "--no-scan": {
+        exit: 1,
+        shows: ["Error: No package name after \"skill:\". Usage: ai-trust check skill:<name>"],
+        requests: [],
+      },
+      "--json": {
+        exit: 1,
+        json: {"error": "No package name after \"skill:\". Usage: ai-trust check skill:<name>"},
+        requests: [],
+      },
+      "--no-scan --json": {
+        exit: 1,
+        json: {"error": "No package name after \"skill:\". Usage: ai-trust check skill:<name>"},
+        requests: [],
+      },
+    },
+  },
+  {
+    form: "mcp: with nothing after",
+    target: "mcp:",
+    cells: {
+      "no flag": {
+        exit: 1,
+        shows: ["Error: No package name after \"mcp:\". Usage: ai-trust check mcp:<name>"],
+        requests: [],
+      },
+      "--no-scan": {
+        exit: 1,
+        shows: ["Error: No package name after \"mcp:\". Usage: ai-trust check mcp:<name>"],
+        requests: [],
+      },
+      "--json": {
+        exit: 1,
+        json: {"error": "No package name after \"mcp:\". Usage: ai-trust check mcp:<name>"},
+        requests: [],
+      },
+      "--no-scan --json": {
+        exit: 1,
+        json: {"error": "No package name after \"mcp:\". Usage: ai-trust check mcp:<name>"},
+        requests: [],
+      },
+    },
+  },
   {
     form: "<owner>/<repo>",
     target: "table-owner/table-repo",

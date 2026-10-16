@@ -237,15 +237,19 @@ export function registerCheckCommand(program: Command): void {
         pkg = target;
       }
 
-      // An empty target, or `pip:` or `npm:` with nothing after it, names no
-      // package: a usage error, not a lookup of a package called "" or "pip:".
-      // With --json the message is the `error` of one object on stdout, as
-      // for a --registry-url usage error.
+      // An empty target, or `pip:`, `npm:`, `skill:` or `mcp:` with nothing
+      // after it, names no package: a usage error, not a lookup of a package
+      // called "" or "pip:". With --json the message is the `error` of one
+      // object on stdout, as for a --registry-url usage error.
       if (pkg.kind === "invalid") {
+        const placeholder =
+          pkg.reason === "no-package-name" && (pkg.prefix === "skill:" || pkg.prefix === "mcp:")
+            ? "<name>"
+            : "<package>";
         const problem =
           pkg.reason === "empty"
             ? `No package name given. Usage: ${checkCitation()} <package>`
-            : `No package name after "${pkg.prefix}". Usage: ${checkCitation()} ${pkg.prefix}<package>`;
+            : `No package name after "${pkg.prefix}". Usage: ${checkCitation()} ${pkg.prefix}${placeholder}`;
         if (globalOpts.json) {
           console.log(formatJson({ error: problem }));
         } else {

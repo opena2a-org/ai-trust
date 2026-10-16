@@ -56,9 +56,9 @@ export type InvalidTarget =
     }
   | {
       kind: "invalid";
-      /** `pip:` or `npm:` with nothing after it. */
+      /** `pip:`, `npm:`, `skill:` or `mcp:` with nothing after it. */
       reason: "no-package-name";
-      prefix: "pip:" | "npm:";
+      prefix: "pip:" | "npm:" | "skill:" | "mcp:";
     };
 
 export type PackageTarget = NpmTarget | GitTarget | PypiTarget;
@@ -75,8 +75,17 @@ export type RichTarget = ({ kind: "skill" } | { kind: "mcp" }) & {
 
 export type CheckTarget = RichTarget | PackageTarget | InvalidTarget;
 
+/** `skill:` or `mcp:` with nothing after it, ignoring spaces around it. */
+function bareRichPrefix(raw: string): "skill:" | "mcp:" | undefined {
+  const trimmed = raw.trim();
+  return trimmed === "skill:" || trimmed === "mcp:" ? trimmed : undefined;
+}
+
 /** Read a `check` argument. */
 export function classifyCheckTarget(raw: string): CheckTarget {
+  // A bare `skill:` or `mcp:` names nothing to look up, as a bare `pip:` does.
+  const richPrefix = bareRichPrefix(raw);
+  if (richPrefix) return { kind: "invalid", reason: "no-package-name", prefix: richPrefix };
   const rich = parseRichTarget(raw);
   if (rich) {
     return { kind: rich.artifactType, name: rich.name, fallback: classifyPackageTarget(rich.name) };
