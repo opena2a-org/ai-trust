@@ -23,7 +23,11 @@
  * capture whose size or SHA-256 differs from its record, a record whose
  * command, version or exit code is not the README's first command, the
  * version in package.json and 0, and a README sample that is not the
- * capture's lines.
+ * capture's lines. When the root is the top of a git work tree, it also
+ * reports a record whose commit is not a full commit hash naming HEAD or an
+ * ancestor of it. It leaves that commit unchecked, and says so on stdout,
+ * when the root is not the top of a work tree, and in a shallow clone that
+ * finds no path from HEAD to the commit.
  *
  * Usage: node scripts/docs-capture.mjs [--registry-url <url>] [--root <dir>]
  *        node scripts/docs-capture.mjs --check [--root <dir>]
@@ -90,8 +94,36 @@ export function readmeSample(readme) {
   return { lines, open, close };
 }
 
-/** Where the capture, its record and the README sample under `root` disagree; empty when they agree. */
-export function checkCapture(root) {
+/**
+ * Whether `commit`, the commit the record names, is HEAD or an ancestor of it
+ * in the work tree whose top is `root`: { problem } when it is not, { unchecked }
+ * with the reason when that cannot be told here, and {} when it is.
+ */
+export function checkRecordedCommit(root, commit) {
+  const git = (...args) => spawnSync("git", ["-C", root, ...args], { encoding: "utf8" });
+  const top = git("rev-parse", "--show-toplevel");
+  if (top.error) return { unchecked: `git could not be run (${top.error.message})` };
+  if (top.status !== 0 || realpathSync(top.stdout.replace(/\n+$/, "")) !== realpathSync(root)) {
+    return { unchecked: `${root} is not the top of a git work tree` };
+  }
+  if (typeof commit !== "string" || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(commit)) {
+    return { problem: `${SIDECAR} records commit ${shown(commit)}, not a full commit hash; ${RECAPTURE}` };
+  }
+  if (git("merge-base", "--is-ancestor", commit, "HEAD").status === 0) return {};
+  if (git("rev-parse", "--is-shallow-repository").stdout?.trim() === "true") {
+    return {
+      unchecked: `this clone is shallow and finds no path from HEAD to commit ${commit}, so it cannot tell whether the record's commit is in the history of HEAD; run git fetch --unshallow, then the check again`,
+    };
+  }
+  return { problem: `${SIDECAR} records commit ${commit}, which is not HEAD or an ancestor of it; ${RECAPTURE}` };
+}
+
+/**
+ * Where the capture, its record and the README sample under `root` disagree;
+ * empty when they agree. A check that could not be made here is added to
+ * `notes` with the reason.
+ */
+export function checkCapture(root, notes = []) {
   const read = (rel) => readFileSync(join(root, rel));
   let capture;
   let sidecar;
@@ -109,6 +141,9 @@ export function checkCapture(root) {
   if (sidecar.artifact?.version !== version) {
     problems.push(`${SIDECAR} records version ${shown(sidecar.artifact?.version)} and package.json holds ${version}; ${RECAPTURE}`);
   }
+  const commit = checkRecordedCommit(root, sidecar.artifact?.commit);
+  if (commit.problem) problems.push(commit.problem);
+  if (commit.unchecked) notes.push(`the record's commit was not checked: ${commit.unchecked}`);
   if (sidecar.exitCode !== 0) {
     problems.push(`${SIDECAR} records exit code ${shown(sidecar.exitCode)}, not 0`);
   }
@@ -306,7 +341,9 @@ function main() {
   }
   const root = resolve(args.root);
   if (args.check) {
-    const problems = checkCapture(root);
+    const notes = [];
+    const problems = checkCapture(root, notes);
+    for (const note of notes) console.log(`docs:capture --check: ${note}`);
     for (const problem of problems) console.error(`docs:capture --check: ${problem}`);
     if (problems.length === 0) console.log(`docs:capture --check: ${CAPTURE}, ${SIDECAR} and the ${README} sample agree.`);
     process.exit(problems.length === 0 ? 0 : 1);

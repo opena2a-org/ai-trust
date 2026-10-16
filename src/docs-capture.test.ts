@@ -10,12 +10,13 @@
  * the suite needs no network and writes nothing in the repository.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { pathToFileURL } from "node:url";
 import {
   CAPTURE,
   COMMAND,
@@ -58,6 +59,41 @@ function scratchRoot(stub?: string): string {
     writeFileSync(join(root, "dist/index.js"), stub);
   }
   return root;
+}
+
+/** Runs git in `cwd` with no system or user configuration; returns its stdout less the final newline. */
+function git(cwd: string, ...args: string[]): string {
+  const name = "docs-capture test";
+  const email = "docs-capture@example.invalid";
+  return execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    env: {
+      PATH: process.env.PATH,
+      HOME: scratch,
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_AUTHOR_NAME: name,
+      GIT_AUTHOR_EMAIL: email,
+      GIT_COMMITTER_NAME: name,
+      GIT_COMMITTER_EMAIL: email,
+    },
+  }).replace(/\n$/, "");
+}
+
+/** A scratch root that is also a git work tree with one commit of the files it copies; returns it and that commit. */
+function gitRoot(): { root: string; head: string } {
+  const root = scratchRoot();
+  git(root, "init", "-q");
+  git(root, "add", "--", "package.json", ...WRITTEN);
+  git(root, "commit", "-q", "-m", "copies");
+  return { root, head: git(root, "rev-parse", "HEAD") };
+}
+
+/** Rewrites the record under `root` to name `commit` as the commit captured. */
+function recordCommit(root: string, commit: unknown) {
+  const sidecar = JSON.parse(read(root, SIDECAR));
+  writeFileSync(join(root, SIDECAR), JSON.stringify({ ...sidecar, artifact: { ...sidecar.artifact, commit } }));
 }
 
 function run(
@@ -180,6 +216,83 @@ describe("docs:capture --check reports a hand edit", () => {
   });
 });
 
+describe("docs:capture --check and the commit the record names", { timeout: 30000 }, () => {
+  const notInHistory = (commit: string) =>
+    `${SIDECAR} records commit ${commit}, which is not HEAD or an ancestor of it; run npm run build, then npm run docs:capture`;
+
+  it("reports a commit the repository holds off the history of HEAD, and one it does not hold, exit 1", async () => {
+    const { root, head } = gitRoot();
+    // A child of HEAD that no branch points at: in the repository, not in the history of HEAD.
+    const offHistory = git(root, "commit-tree", `${head}^{tree}`, "-p", head, "-m", "rebased away");
+    const notHeld = "0".repeat(40);
+    for (const commit of [offHistory, notHeld]) {
+      recordCommit(root, commit);
+      expect(checkCapture(root)).toEqual([notInHistory(commit)]);
+    }
+
+    recordCommit(root, offHistory);
+    const { stderr, status } = await run(SCRIPT, ["--check", "--root", root]);
+    expect(status).toBe(1);
+    expect(stderr).toContain(notInHistory(offHistory));
+  });
+
+  it("reports a recorded commit that is not a full commit hash", () => {
+    const { root, head } = gitRoot();
+    for (const commit of ["HEAD", head.slice(0, 12), `--${head}`, null]) {
+      recordCommit(root, commit);
+      expect(checkCapture(root), String(commit)).toEqual([
+        expect.stringContaining(`${SIDECAR} records commit ${JSON.stringify(commit)}, not a full commit hash`),
+      ]);
+    }
+  });
+
+  it("accepts HEAD, and a commit that is an ancestor of HEAD", () => {
+    const { root, head } = gitRoot();
+    recordCommit(root, head);
+    const notes: string[] = [];
+    expect(checkCapture(root, notes)).toEqual([]);
+
+    writeFileSync(join(root, "later.txt"), "a later change\n");
+    git(root, "add", "--", "later.txt");
+    git(root, "commit", "-q", "-m", "later");
+    expect(git(root, "rev-parse", "HEAD")).not.toBe(head);
+    expect(checkCapture(root, notes)).toEqual([]);
+    expect(notes).toEqual([]);
+  });
+
+  it("leaves the commit unchecked, and says so, in a shallow clone that finds no path from HEAD to it", async () => {
+    const { root, head } = gitRoot();
+    recordCommit(root, head);
+    git(root, "add", "--", SIDECAR);
+    git(root, "commit", "-q", "-m", "record");
+    const shallow = join(mkdtempSync(join(scratch, "clone-")), "depth-1");
+    git(scratch, "clone", "-q", "--depth", "1", pathToFileURL(root).href, shallow);
+    expect(git(shallow, "rev-parse", "--is-shallow-repository")).toBe("true");
+
+    const notes: string[] = [];
+    expect(checkCapture(shallow, notes)).toEqual([]);
+    expect(notes).toEqual([expect.stringContaining(`this clone is shallow and finds no path from HEAD to commit ${head}`)]);
+    const { stdout, status } = await run(SCRIPT, ["--check", "--root", shallow]);
+    expect(status).toBe(0);
+    expect(stdout).toContain("run git fetch --unshallow, then the check again");
+    expect(stdout).toContain("agree");
+
+    // A shallow clone deep enough to hold the commit checks it.
+    const deeper = join(mkdtempSync(join(scratch, "clone-")), "depth-2");
+    git(scratch, "clone", "-q", "--depth", "2", pathToFileURL(root).href, deeper);
+    const deeperNotes: string[] = [];
+    expect(checkCapture(deeper, deeperNotes)).toEqual([]);
+    expect(deeperNotes).toEqual([]);
+  });
+
+  it("leaves the commit unchecked, and says so, when the root is not the top of a git work tree", () => {
+    const root = scratchRoot();
+    const notes: string[] = [];
+    expect(checkCapture(root, notes)).toEqual([]);
+    expect(notes).toEqual([`the record's commit was not checked: ${root} is not the top of a git work tree`]);
+  });
+});
+
 describe("npm run docs:capture", { timeout: 60000 }, () => {
   it("writes what dist/index.js prints for the README's first command, its record and the README sample", async () => {
     const root = scratchRoot();
@@ -221,6 +334,17 @@ describe("npm run docs:capture", { timeout: 60000 }, () => {
     if ("error" in before || "error" in after) throw new Error("the README sample block is missing");
     expect(after.lines.slice(0, after.open + 1)).toEqual(before.lines.slice(0, before.open + 1));
     expect(after.lines.slice(after.close)).toEqual(before.lines.slice(before.close));
+  });
+
+  it("records the commit a git work tree has checked out, which --check then accepts", async () => {
+    const { root, head } = gitRoot();
+    const { stderr, status } = await run(SCRIPT, ["--root", root, "--registry-url", registryUrl]);
+    expect(stderr).toBe("");
+    expect(status).toBe(0);
+    expect(JSON.parse(read(root, SIDECAR)).artifact.commit).toBe(head);
+    const notes: string[] = [];
+    expect(checkCapture(root, notes)).toEqual([]);
+    expect(notes).toEqual([]);
   });
 
   it("writes nothing when the CLI run fails", async () => {
