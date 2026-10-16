@@ -644,6 +644,36 @@ describe("audit command", () => {
       expect(consoleErrSpy).not.toHaveBeenCalled();
       expect(process.exitCode).toBe(1);
     });
+
+    describe("an emoji where the name is cut (#195)", () => {
+      // 310 bytes. The emoji's two UTF-16 code units sit at indexes 56 and
+      // 57, so a cut at 57 characters would keep only its high half.
+      const emojiName = `${"a".repeat(56)}\u{1F600}${"b".repeat(250)}`;
+      const shown = `${"a".repeat(56)}...`;
+
+      it("ends the shown name before the emoji, not inside it", async () => {
+        await useRealParser();
+        await createProgram().parseAsync(["node", "test", "audit", emojiName]);
+
+        expect(stderrLines()[0]).toBe(
+          `Error: File name is longer than the file system allows (310 bytes): ${shown}`
+        );
+        expect(stderrLines()[0]).not.toMatch(/\p{Cs}/u);
+        expect(process.exitCode).toBe(1);
+      });
+
+      it("--json gives an error field with no lone surrogate", async () => {
+        await useRealParser();
+        await createProgram().parseAsync(["node", "test", "--json", "audit", emojiName]);
+
+        const printed = String(consoleSpy.mock.calls[0][0]);
+        expect(printed).not.toContain("\\ud83d");
+        expect(JSON.parse(printed).error).toBe(
+          `File name is longer than the file system allows (310 bytes): ${shown}`
+        );
+        expect(process.exitCode).toBe(1);
+      });
+    });
   });
 
   describe("a registry that does not answer: the next step (#177)", () => {
