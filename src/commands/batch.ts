@@ -105,8 +105,12 @@ export function registerBatchCommand(program: Command): void {
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          // A registry error can quote the registry's response body.
-          console.error(`Error: ${stripControlCharacters(message)}`);
+          if (globalOpts.json) {
+            console.log(formatJson({ error: message }));
+          } else {
+            // A registry error can quote the registry's response body.
+            console.error(`Error: ${stripControlCharacters(message)}`);
+          }
           process.exitCode = 1;
         }
       }
