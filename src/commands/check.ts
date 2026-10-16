@@ -138,8 +138,10 @@ export function registerCheckCommand(program: Command): void {
           console.log(formatJson(buildCheckJson({ kind: "scan", scan: result })));
         } else {
           // --scan-path scans the user's own on-disk tree → local verdict.
-          console.log(formatScanResult(result, { remote: false }));
+          console.log(formatScanResult(result, { remote: false, scanPath: opts.scanPath }));
         }
+        // A scan that read 0 files measured nothing, which is not a pass.
+        if (result.scan.filesExamined === 0) finish("not-measured");
         return;
       }
 
@@ -570,6 +572,8 @@ const EXIT_CODES = {
   "policy-signal": 2,
   // No registry data with --no-scan, or no package to download.
   "not-found": 2,
+  // check --scan-path read 0 files: nothing was scored.
+  "not-measured": 2,
   // The target names no package.
   "usage-error": 1,
   // The registry lookup or the download failed, or the scanner cannot run.

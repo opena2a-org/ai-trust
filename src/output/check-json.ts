@@ -75,6 +75,18 @@ export interface CheckJsonResult {
   maxScore?: number;
   /** Failed security findings (scan path only; omitted when none). */
   findings?: CheckJsonFinding[];
+  /**
+   * Number of files the scanner read (scan path only; omitted when the
+   * scanner did not report it).
+   */
+  filesExamined?: number;
+  /**
+   * `false` when the scan read 0 files. The result then carries no score,
+   * verdict, trust level, package type or findings, because nothing was
+   * measured; `notScoredReason` says why.
+   */
+  scored?: false;
+  notScoredReason?: string;
 }
 
 function mapFinding(f: {
@@ -127,6 +139,19 @@ export function buildCheckJsonFromScan(
   scan: ScanResult,
   ecosystem?: "npm" | "pypi",
 ): CheckJsonResult {
+  // A scan that read 0 files measured nothing: the not-scored shape, as the
+  // out-of-scope answer uses, with the count that makes it so.
+  if (scan.scan.filesExamined === 0) {
+    return {
+      name: scan.packageName,
+      ...(ecosystem !== undefined ? { ecosystem } : {}),
+      source: "scan",
+      found: true,
+      scored: false,
+      notScoredReason: "nothing to scan: the scanner read 0 files",
+      filesExamined: 0,
+    };
+  }
   const out: CheckJsonResult = {
     name: scan.packageName,
     ...(ecosystem !== undefined ? { ecosystem } : {}),
@@ -142,6 +167,7 @@ export function buildCheckJsonFromScan(
   if (scan.scan.projectType !== undefined) out.packageType = scan.scan.projectType;
   const failed = (scan.scan.findings ?? []).filter((f) => !f.passed);
   if (failed.length > 0) out.findings = failed.map(mapFinding);
+  if (scan.scan.filesExamined !== undefined) out.filesExamined = scan.scan.filesExamined;
   return out;
 }
 

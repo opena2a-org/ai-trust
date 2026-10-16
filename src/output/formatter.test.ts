@@ -1086,6 +1086,105 @@ describe("formatScanResult", () => {
     expect(output).not.toContain("looks safe to use");
   });
 
+  describe("a scan that read 0 files", () => {
+    // What the scanner returns for an empty directory: two absent-file
+    // findings and a score, from 0 files read.
+    function emptyDirResult(filesExamined: number): ScanResult {
+      return makeScanResult({
+        packageName: "x",
+        trustScore: 0.93,
+        trustLevel: 3,
+        verdict: "safe",
+        scan: {
+          score: 93,
+          maxScore: 100,
+          checksEvaluated: 22,
+          filesExamined,
+          findings: [
+            {
+              checkId: "GIT-001",
+              name: "Missing .gitignore",
+              description: "",
+              category: "git hygiene",
+              severity: "low",
+              passed: false,
+              message: "Create .gitignore to protect sensitive files",
+              file: ".gitignore",
+            },
+            {
+              checkId: "DEP-001",
+              name: "Dependency Lock File",
+              description: "",
+              category: "supply-chain",
+              severity: "medium",
+              passed: false,
+              message: "No lock file found - dependency versions may vary between installs",
+              file: "package-lock.json",
+            },
+          ],
+          projectType: "library",
+          timestamp: "2026-10-16T00:00:00Z",
+        },
+      });
+    }
+
+    it("says there was nothing to scan, with no score, level, verdict or findings", () => {
+      const output = formatScanResult(emptyDirResult(0), { remote: false, scanPath: "/tmp/fx/empty" });
+
+      expect(output).toContain("Nothing to scan in /tmp/fx/empty: 0 files read.");
+      expect(output).not.toContain("/100");
+      expect(output).not.toMatch(/looks safe/i);
+      expect(output).not.toContain("Level");
+      expect(output).not.toContain("Scanned (3/4)");
+      expect(output).not.toContain("Dependency Lock File");
+      expect(output).not.toContain("Missing .gitignore");
+      expect(output).not.toContain("package-lock.json");
+      expect(output).not.toContain("Findings");
+    });
+
+    it("gives a command that lists the directory and the fix", () => {
+      const output = formatScanResult(emptyDirResult(0), { remote: false, scanPath: "/tmp/fx/empty" });
+
+      expect(output).toContain("Verify:  ls -A /tmp/fx/empty");
+      expect(output).toContain("Fix:     pass --scan-path a directory that holds the files to scan");
+    });
+
+    it("quotes a directory with shell syntax in the Verify command and prints it without control characters", () => {
+      const output = formatScanResult(emptyDirResult(0), {
+        remote: false,
+        scanPath: "/tmp/my dir\u001b[31m;rm",
+      });
+
+      expect(output).toContain("Nothing to scan in /tmp/my dir[31m;rm: 0 files read.");
+      expect(output).toContain("Verify:  ls -A '/tmp/my dir[31m;rm'");
+      expect(output).not.toContain("\u001b");
+    });
+
+    it("names the package when no directory is given", () => {
+      const output = formatScanResult(emptyDirResult(0), { remote: true });
+
+      expect(output).toContain("Nothing to scan in x: 0 files read.");
+      expect(output).not.toContain("/100");
+      expect(output).not.toContain("ls -A");
+    });
+
+    it("keeps the score when the scanner read files", () => {
+      const output = formatScanResult(emptyDirResult(12), { remote: false, scanPath: "/tmp/project" });
+
+      expect(output).toContain("93/100");
+      expect(output).not.toContain("Nothing to scan");
+    });
+
+    it("keeps the score when the scanner did not report a count", () => {
+      const result = emptyDirResult(0);
+      delete result.scan.filesExamined;
+      const output = formatScanResult(result, { remote: false, scanPath: "/tmp/project" });
+
+      expect(output).toContain("93/100");
+      expect(output).not.toContain("Nothing to scan");
+    });
+  });
+
   it("remote verdict (downloaded package): medium-only findings avoid `secure --fix`", () => {
     // cli-ui 0.5.2 surface.remote: a downloaded third-party package's verdict
     // guidance must be review / choose-a-vetted-version, never `secure --fix`

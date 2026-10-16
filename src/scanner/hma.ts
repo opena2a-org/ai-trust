@@ -53,6 +53,13 @@ export interface HmaScanResult {
    * the live parser always sets it.
    */
   checksEvaluated?: number;
+  /**
+   * Number of files HMA read in the target, from HMA's
+   * `coverage.filesExamined`. 0 means there was nothing to scan: the checks
+   * that still ran report files that are absent, so the score measures
+   * nothing. Unset when HMA reported no whole-number count.
+   */
+  filesExamined?: number;
   /** Semantic analysis results from NanoMind (present when --deep is used) */
   semanticFindings?: SemanticFinding[];
   /** AnaLM findings (present when --analm is used) */
@@ -534,6 +541,11 @@ function parseHmaOutput(stdout: string): HmaScanResult {
     projectType: raw.projectType ?? "unknown",
     timestamp: raw.timestamp ?? new Date().toISOString(),
   };
+
+  const filesExamined = raw.coverage?.filesExamined;
+  if (Number.isInteger(filesExamined) && filesExamined >= 0) {
+    result.filesExamined = filesExamined;
+  }
 
   // Parse NanoMind semantic findings when present (from --deep mode)
   if (Array.isArray(raw.semanticFindings) && raw.semanticFindings.length > 0) {

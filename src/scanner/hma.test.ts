@@ -226,6 +226,99 @@ ${JSON.stringify({
     expect(result.score).toBe(92);
     expect(result.findings).toHaveLength(0);
   });
+
+  describe("files the scanner read", () => {
+    // From the `secure --format json --no-contribute --static-only` output of
+    // hackmyagent 0.33.2 on an empty directory: its two failed findings, its
+    // score and its `coverage` block, with `coverage.executions` cut to its
+    // first two entries and the other top-level fields and per-category
+    // lists left out.
+    const emptyDirScan = {
+      hackmyagentVersion: "0.33.2",
+      projectType: "library",
+      findings: [
+        {
+          checkId: "GIT-001",
+          name: "Missing .gitignore",
+          category: "git hygiene",
+          severity: "low",
+          passed: false,
+          message: "Create .gitignore to protect sensitive files",
+          file: ".gitignore",
+        },
+        {
+          checkId: "DEP-001",
+          name: "Dependency Lock File",
+          category: "supply-chain",
+          severity: "medium",
+          passed: false,
+          message: "No lock file found - dependency versions may vary between installs",
+          file: "package-lock.json",
+        },
+      ],
+      score: 93,
+      maxScore: 100,
+      coverage: {
+        filesExamined: 0,
+        executions: [
+          { method: "checkCredentialExposure", prefixes: ["CRED"], completed: true, filesRead: 0, pathsInspected: 1 },
+          { method: "checkClaudeMd", prefixes: ["CLAUDE"], completed: true, filesRead: 0, pathsInspected: 0 },
+        ],
+        truncations: [],
+        filesReadByCategory: {},
+        decode: {
+          maxDepth: 3,
+          artifactsRead: 0,
+          artifactsWithPayloads: 0,
+          payloads: 0,
+          deepestDepth: 0,
+          haltedAtBound: false,
+        },
+        unevidencedFailures: 0,
+        unreadableInputs: { count: 0, codes: {}, directories: 0 },
+        measured: true,
+        examined: 0,
+        total: 0,
+        unit: "file",
+      },
+    };
+
+    it("reads coverage.filesExamined as the number of files read", async () => {
+      vi.mocked(execFile as any).mockResolvedValue({
+        stdout: JSON.stringify(emptyDirScan),
+        stderr: "",
+      });
+
+      const result = await runHmaScan("/tmp/empty");
+      expect(result.filesExamined).toBe(0);
+      expect(result.score).toBe(93);
+    });
+
+    it("carries a non-zero count as given", async () => {
+      vi.mocked(execFile as any).mockResolvedValue({
+        stdout: JSON.stringify({
+          ...emptyDirScan,
+          coverage: { ...emptyDirScan.coverage, filesExamined: 12 },
+        }),
+        stderr: "",
+      });
+
+      const result = await runHmaScan("/tmp/project");
+      expect(result.filesExamined).toBe(12);
+    });
+
+    it("leaves it unset when the scanner reports no coverage or a count that is not a whole number", async () => {
+      for (const coverage of [undefined, {}, { filesExamined: "0" }, { filesExamined: -1 }, { filesExamined: 1.5 }]) {
+        vi.mocked(execFile as any).mockResolvedValue({
+          stdout: JSON.stringify({ ...emptyDirScan, coverage }),
+          stderr: "",
+        });
+
+        const result = await runHmaScan("/tmp/project");
+        expect(result.filesExamined, JSON.stringify(coverage)).toBeUndefined();
+      }
+    });
+  });
 });
 
 describe("runHmaScan contribution", () => {
