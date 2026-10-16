@@ -22,6 +22,7 @@ import {
 import { buildNotFoundOutput, translateDownloadError } from "@opena2a/check-core";
 import { logResolved } from "../utils/resolve.js";
 import { stripControlCharacters } from "../output/sanitize.js";
+import { analystLayerNote } from "../output/analyst-note.js";
 import {
   isHmaAvailable,
   reinstallCommand,
@@ -87,7 +88,7 @@ export function registerCheckCommand(program: Command): void {
     )
     .option(
       "--analm",
-      "AI-powered threat analysis using AnaLM"
+      "also run the scanner's analyst layer, which needs a NanoMind analyst daemon on this machine (npx hackmyagent nanomind setup); a note on stderr after the result says whether it ran"
     )
     .option(
       "--scan-path <dir>",
@@ -144,6 +145,7 @@ export function registerCheckCommand(program: Command): void {
         // A scan that read 0 files and found none it could not read measured
         // nothing, which is not a pass.
         if (nothingToScan(result.scan)) finish("not-measured");
+        if (opts.analm) noteAnalystLayer(result.scan.analystLayer);
         return;
       }
 
@@ -227,6 +229,7 @@ export function registerCheckCommand(program: Command): void {
 
       // --no-scan: registry lookup only (fast mode)
       if (opts.scan === false) {
+        if (opts.analm) noteAnalystLayer("no-scan");
         try {
           // The registry looks a package up by its name: a `<name>@<version>`
           // target is looked up as `<name>`.
@@ -300,6 +303,7 @@ export function registerCheckCommand(program: Command): void {
         if (tier === "unrelated") {
           notePackageAnswer(pkg);
           printLibraryWithTrust(registryResult, globalOpts.json, ecosystem);
+          if (opts.analm) noteAnalystLayer("registry-library");
           // Policy signals propagate even for out-of-scope libraries.
           finish(verdictOutcome(registryResult.verdict));
           return;
@@ -511,6 +515,7 @@ async function handleScanFlow(
   } else {
     console.log(formatScanResult(scanResult, { remote: true, ecosystem }));
   }
+  if (opts.analm) noteAnalystLayer(scanResult.scan.analystLayer);
 
   // Set exit code based on verdict (2 = policy signal, matching audit/batch)
   finish(verdictOutcome(scanResult.verdict));
@@ -523,6 +528,14 @@ async function handleScanFlow(
     ecosystem,
     type: opts.type,
   });
+}
+
+/**
+ * Print the --analm note: whether the scanner's analyst layer ran, or why
+ * not. On stderr, so `--json` output on stdout stays one JSON document.
+ */
+function noteAnalystLayer(status: Parameters<typeof analystLayerNote>[0]): void {
+  console.error(chalk.dim(`  ${analystLayerNote(status)}`));
 }
 
 function handleNoScanNotFound(
