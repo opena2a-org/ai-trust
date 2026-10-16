@@ -16,6 +16,9 @@ import { registerConfigCommand } from "./commands/config.js";
 import { helpFooter, onKeptOffByVariable, withEnableSteps } from "./utils/help-footer.js";
 import { helpDocsLine } from "./utils/help-docs.js";
 import { scanPingsSettled } from "./telemetry/contribute.js";
+import { DEFAULT_REGISTRY_URL, registryUrlProblem } from "./utils/registry-url.js";
+import { formatJson } from "./output/formatter.js";
+import { stripControlCharacters } from "./output/sanitize.js";
 
 const require = createRequire(import.meta.url);
 const pkg = require("../package.json");
@@ -39,6 +42,9 @@ function drained(stream: NodeJS.WriteStream): Promise<void> {
   });
 }
 
+// Thrown by a check that has already printed its error and set the exit code.
+class ReportedUsageError extends Error {}
+
 const program = new Command();
 
 program
@@ -47,10 +53,27 @@ program
   .option(
     "--registry-url <url>",
     "registry base URL",
-    "https://api.oa2a.org"
+    DEFAULT_REGISTRY_URL
   )
   .option("--json", "output raw JSON", false)
   .option("--no-color", "disable colored output");
+
+// The registry client throws a TypeError for a base URL that is not http(s),
+// which ended a command in a stack trace. The value is checked here, before
+// any command's action runs; this hook is registered ahead of the telemetry
+// hooks, so a refused value starts no telemetry timing.
+program.hook("preAction", (thisCommand) => {
+  const { registryUrl, json } = thisCommand.opts() as { registryUrl: string; json: boolean };
+  const problem = registryUrlProblem(registryUrl);
+  if (problem === undefined) return;
+  if (json) {
+    console.log(formatJson({ error: problem }));
+  } else {
+    console.error(`Error: ${stripControlCharacters(problem)}`);
+  }
+  process.exitCode = 1;
+  throw new ReportedUsageError(problem);
+});
 
 registerCheckCommand(program);
 registerAuditCommand(program);
@@ -155,6 +178,7 @@ program.addHelpText("afterAll", ({ command }) => helpDocsLine(command));
   try {
     await program.parseAsync(process.argv);
   } catch (err) {
+    if (err instanceof ReportedUsageError) return;
     const inFlight = telemetryStartedAt.keys().next().value;
     if (inFlight) {
       const code = err instanceof Error ? err.name : "unknown";
