@@ -30,6 +30,7 @@ import {
   scannerTempDirProblem,
 } from "../scanner/index.js";
 import type { ScanResult } from "../scanner/index.js";
+import { nothingToScan } from "../scanner/hma.js";
 import { confirm } from "../utils/prompt.js";
 import { shareScans } from "../telemetry/index.js";
 import { checkSkillOrMcp } from "../check/skill-mcp-check.js";
@@ -140,8 +141,9 @@ export function registerCheckCommand(program: Command): void {
           // --scan-path scans the user's own on-disk tree → local verdict.
           console.log(formatScanResult(result, { remote: false, scanPath: opts.scanPath }));
         }
-        // A scan that read 0 files measured nothing, which is not a pass.
-        if (result.scan.filesExamined === 0) finish("not-measured");
+        // A scan that read 0 files and found none it could not read measured
+        // nothing, which is not a pass.
+        if (nothingToScan(result.scan)) finish("not-measured");
         return;
       }
 

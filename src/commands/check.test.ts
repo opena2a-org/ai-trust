@@ -1701,6 +1701,42 @@ describe("documented exit codes match check outcomes", () => {
     expect(process.exitCode ?? 0).toBe(0);
   });
 
+  it("check --scan-path exits 0 for a scan that read 0 files because the scanner found files it could not read", async () => {
+    vi.mocked(isHmaAvailable).mockResolvedValue(true);
+    vi.mocked(scanLocalPath).mockResolvedValue({
+      packageName: "fixture",
+      scan: {
+        score: 69,
+        maxScore: 100,
+        checksEvaluated: 22,
+        filesExamined: 0,
+        unreadableInputs: 1,
+        findings: [
+          {
+            checkId: "SCAN-UNREAD-001",
+            name: "Input Discovered But Not Read",
+            description: "",
+            category: "coverage",
+            severity: "medium",
+            passed: false,
+            message: ".env could not be read (EACCES)",
+            file: ".env",
+            fix: "chmod u+r .env",
+          },
+        ],
+        projectType: "library",
+        timestamp: "2026-10-16T00:00:00Z",
+      },
+      trustScore: 0.69,
+      trustLevel: 2,
+      verdict: "warning",
+    });
+
+    await createProgram().parseAsync(["node", "test", "check", "fixture", "--scan-path", "/tmp/unreadable"]);
+
+    expect(process.exitCode ?? 0).toBe(0);
+  });
+
   it('Exit-code table row "Local scan could not run" gives the code check --scan-path exits with', async () => {
     vi.mocked(isHmaAvailable).mockResolvedValue(true);
     vi.mocked(scanLocalPath).mockRejectedValue(new Error("ENOENT: no such file or directory"));

@@ -1183,6 +1183,47 @@ describe("formatScanResult", () => {
       expect(output).toContain("93/100");
       expect(output).not.toContain("Nothing to scan");
     });
+
+    it("keeps the score and the findings when the scanner found files it could not read", () => {
+      // A directory holding one `.env` the scanner cannot read: 0 files read,
+      // one unreadable input, and findings that name the file and its fix.
+      const result = emptyDirResult(0);
+      result.scan.unreadableInputs = 1;
+      result.scan.score = 69;
+      result.trustScore = 0.69;
+      result.verdict = "warning";
+      result.scan.findings.push(
+        {
+          checkId: "GIT-003",
+          name: ".env Not Ignored",
+          description: "",
+          category: "git hygiene",
+          severity: "high",
+          passed: false,
+          message: ".env is not in .gitignore",
+          file: ".env",
+        },
+        {
+          checkId: "SCAN-UNREAD-001",
+          name: "Input Discovered But Not Read",
+          description: "",
+          category: "coverage",
+          severity: "medium",
+          passed: false,
+          message: ".env could not be read (EACCES)",
+          file: ".env",
+          fix: "chmod u+r .env",
+        },
+      );
+      const output = formatScanResult(result, { remote: false, scanPath: "/tmp/fx/unreadable" });
+
+      expect(output).toContain("69/100");
+      expect(output).toContain(".env Not Ignored");
+      expect(output).toContain("Input Discovered But Not Read");
+      expect(output).toContain("chmod u+r .env");
+      expect(output).not.toContain("Nothing to scan");
+      expect(output).not.toContain("pass --scan-path a directory that holds the files to scan");
+    });
   });
 
   it("remote verdict (downloaded package): medium-only findings avoid `secure --fix`", () => {
