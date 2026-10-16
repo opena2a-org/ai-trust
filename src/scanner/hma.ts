@@ -40,6 +40,28 @@ export interface AnalystFinding {
   backend: string;
 }
 
+/**
+ * Counts from HMA's `coverageSweep`, which its JSON report carries when its
+ * analyst layer ran: `swept` artifacts were sent to the analyst, and
+ * `nullVerdicts` of them came back without a verdict.
+ */
+export interface AnalystSweep {
+  swept: number;
+  nullVerdicts: number;
+}
+
+/**
+ * Whether HMA's analyst layer ran on a scan that asked for it (--analm).
+ * `ran` is read from the report: an analyst finding or a coverage sweep.
+ * When it did not run, `reason` is "flag-rejected" when the scanner refused
+ * --analm, "static-only" when the scan ran with --static-only (HMA skips its
+ * semantic pass, which the analyst runs inside), and "no-analyst-output"
+ * otherwise (HMA runs the analyst only when its analyst daemon answers).
+ */
+export type AnalystLayerStatus =
+  | { ran: true; findingsAnalyzed: number; sweep?: AnalystSweep }
+  | { ran: false; reason: "flag-rejected" | "static-only" | "no-analyst-output" };
+
 export interface HmaScanResult {
   score: number;
   maxScore: number;
@@ -72,6 +94,10 @@ export interface HmaScanResult {
   semanticFindings?: SemanticFinding[];
   /** AnaLM findings (present when --analm is used) */
   analystFindings?: AnalystFinding[];
+  /** HMA's coverage sweep counts (present when its analyst layer ran) */
+  analystSweep?: AnalystSweep;
+  /** Whether the analyst layer ran; set only when the scan asked for it (--analm) */
+  analystLayer?: AnalystLayerStatus;
   projectType: string;
   timestamp: string;
 }
@@ -449,7 +475,11 @@ export async function runHmaScan(
     let attemptArgs = args;
     for (;;) {
       try {
-        return await runHmaWithArgs(hma.cmd, attemptArgs, deep, env);
+        const result = await runHmaWithArgs(hma.cmd, attemptArgs, deep, env);
+        if (analm) {
+          result.analystLayer = analystLayerStatus(result, deep, attemptArgs.includes("--analm"));
+        }
+        return result;
       } catch (err: unknown) {
         // If an optional flag caused "unknown option", retry without it (older HMA version)
         const rejected = OPTIONAL_HMA_FLAGS.find(
@@ -467,6 +497,25 @@ export async function runHmaScan(
 
 /** Flags that older HMA versions may not recognise; the scan retries without them. */
 const OPTIONAL_HMA_FLAGS = ["--static-only", "--analm"];
+
+/**
+ * Read whether the analyst layer ran from the scan's report. A report with
+ * analyst output says it ran; without any, the reason is the first of: the
+ * scanner refused --analm, the scan was static-only, or no analyst output.
+ */
+function analystLayerStatus(
+  scan: HmaScanResult,
+  deep: boolean,
+  flagAccepted: boolean,
+): AnalystLayerStatus {
+  const findingsAnalyzed = scan.analystFindings?.length ?? 0;
+  if (scan.analystSweep || findingsAnalyzed > 0) {
+    return { ran: true, findingsAnalyzed, ...(scan.analystSweep ? { sweep: scan.analystSweep } : {}) };
+  }
+  if (!flagAccepted) return { ran: false, reason: "flag-rejected" };
+  if (!deep) return { ran: false, reason: "static-only" };
+  return { ran: false, reason: "no-analyst-output" };
+}
 
 function isUnknownOptionError(err: unknown, flag: string): boolean {
   if (!err || typeof err !== "object") return false;
@@ -593,6 +642,15 @@ function parseHmaOutput(stdout: string): HmaScanResult {
         backend: (af.backend as string) ?? "unknown",
       })
     );
+  }
+
+  // HMA reports its coverage sweep only when its analyst layer ran.
+  if (raw.coverageSweep && typeof raw.coverageSweep === "object") {
+    const sweep = raw.coverageSweep as Record<string, unknown>;
+    result.analystSweep = {
+      swept: typeof sweep.swept === "number" ? sweep.swept : 0,
+      nullVerdicts: typeof sweep.nullVerdicts === "number" ? sweep.nullVerdicts : 0,
+    };
   }
 
   return result;

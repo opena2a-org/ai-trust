@@ -444,6 +444,89 @@ describe("runHmaScan contribution", () => {
   });
 });
 
+// HMA's JSON report carries `coverageSweep` only when its analyst layer ran;
+// without a daemon, `secure --analm` returns the same keys as a plain scan.
+describe("runHmaScan analyst layer status (--analm)", () => {
+  const base = { score: 100, maxScore: 100, findings: [], projectType: "library" };
+
+  function answer(report: Record<string, unknown>): void {
+    vi.mocked(execFile as any).mockResolvedValue({ stdout: JSON.stringify(report), stderr: "" });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("is not set when the scan did not ask for the analyst", async () => {
+    answer({ ...base, coverageSweep: { swept: 2, nullVerdicts: 0 } });
+
+    const result = await runHmaScan("/tmp/test-pkg");
+
+    expect(result.analystLayer).toBeUndefined();
+  });
+
+  it("reports no analyst output when the report has no coverage sweep and no analyst findings", async () => {
+    answer(base);
+
+    const result = await runHmaScan("/tmp/test-pkg", { analm: true });
+
+    expect(result.analystLayer).toEqual({ ran: false, reason: "no-analyst-output" });
+  });
+
+  it("reports that it ran, with the sweep counts, when the report has a coverage sweep", async () => {
+    answer({
+      ...base,
+      coverageSweep: { candidates: 2, swept: 2, skipped: 0, nullVerdicts: 1, policy: "abstention-gated" },
+    });
+
+    const result = await runHmaScan("/tmp/test-pkg", { analm: true });
+
+    expect(result.analystLayer).toEqual({
+      ran: true,
+      findingsAnalyzed: 0,
+      sweep: { swept: 2, nullVerdicts: 1 },
+    });
+  });
+
+  it("reports that it ran when the report has analyst findings and no coverage sweep", async () => {
+    answer({
+      ...base,
+      analystFindings: [
+        { taskType: "threatAnalysis", result: {}, confidence: 0.9, modelVersion: "3.0.0", durationMs: 10, backend: "daemon" },
+      ],
+    });
+
+    const result = await runHmaScan("/tmp/test-pkg", { analm: true });
+
+    expect(result.analystLayer).toEqual({ ran: true, findingsAnalyzed: 1 });
+  });
+
+  it("reports static-only when the scan ran with --static-only", async () => {
+    answer(base);
+
+    const result = await runHmaScan("/tmp/test-pkg", { analm: true, deep: false });
+
+    expect(result.analystLayer).toEqual({ ran: false, reason: "static-only" });
+  });
+
+  it("reports flag-rejected when the scanner refused --analm and the scan ran without it", async () => {
+    vi.mocked(execFile as any).mockImplementation(async (_cmd: string, args: string[]) => {
+      if (args.includes("--analm")) {
+        const stderr = "error: unknown option '--analm'";
+        throw Object.assign(
+          new Error(`Command failed: hackmyagent ${args.join(" ")}\n${stderr}`),
+          { stdout: "", stderr },
+        );
+      }
+      return { stdout: JSON.stringify(base), stderr: "" };
+    });
+
+    const result = await runHmaScan("/tmp/test-pkg", { analm: true });
+
+    expect(result.analystLayer).toEqual({ ran: false, reason: "flag-rejected" });
+  });
+});
+
 // The scanner reads, rewrites and acts on the saved contribution choice in
 // ~/.opena2a/config.json and ~/.hackmyagent/config.json, and sends usage
 // telemetry unless told not to. It runs with those files out of reach and its

@@ -79,6 +79,7 @@ import {
   formatNotFound,
 } from "../output/formatter.js";
 import { isHmaAvailable, scanPackage, scanLocalPath } from "../scanner/index.js";
+import type { AnalystLayerStatus } from "../scanner/index.js";
 import { confirm } from "../utils/prompt.js";
 import { sendScanPing } from "../telemetry/contribute.js";
 import { readContributeChoice } from "../telemetry/opt-in.js";
@@ -1798,5 +1799,129 @@ describe("documented exit codes match check outcomes", () => {
     expect(readDoc("docs/use-cases/check-before-install.md")).toMatch(
       /# Exit code 0 = safe or out of scope, 1 = operational error, 2 = warning, blocked or not found/,
     );
+  });
+});
+
+// #178: `check --analm` printed the same output as `check` when the scanner's
+// analyst layer did not run. Every path below prints one line saying whether
+// it ran or why not.
+describe("check --analm says whether the analyst layer ran", () => {
+  let consoleSpy: ReturnType<typeof vi.spyOn>;
+  let consoleErrSpy: ReturnType<typeof vi.spyOn>;
+  let savedExitCode: number | undefined;
+
+  const NOT_RUN =
+    "AnaLM: the analyst layer did not run; the scanner runs it only when a NanoMind analyst daemon answers on this machine. Set one up: npx hackmyagent nanomind setup";
+
+  function scanResult(analystLayer?: AnalystLayerStatus) {
+    return {
+      packageName: "fixture",
+      scan: {
+        score: 90,
+        maxScore: 100,
+        findings: [],
+        projectType: "library",
+        timestamp: "2026-10-16T00:00:00Z",
+        ...(analystLayer ? { analystLayer } : {}),
+      },
+      trustScore: 0.9,
+      trustLevel: 3,
+      verdict: "safe" as const,
+    };
+  }
+
+  function analmLines(): string[] {
+    return consoleErrSpy.mock.calls
+      .map((args) => args.join(" ").replace(/\x1b\[[0-9;]*m/g, "").trim())
+      .filter((line) => line.startsWith("AnaLM:"));
+  }
+
+  function registry(checkTrust: () => Promise<unknown>): void {
+    vi.mocked(RegistryClient).mockImplementation(function () {
+      return { checkTrust: vi.fn(checkTrust), batchQuery: vi.fn(), publishScan: vi.fn() } as any;
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    savedExitCode = process.exitCode;
+    process.exitCode = undefined;
+    vi.mocked(isHmaAvailable).mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    consoleSpy.mockRestore();
+    consoleErrSpy.mockRestore();
+    process.exitCode = savedExitCode;
+  });
+
+  it("--scan-path --analm says the analyst layer did not run when the scanner reported no analyst output", async () => {
+    vi.mocked(scanLocalPath).mockResolvedValue(
+      scanResult({ ran: false, reason: "no-analyst-output" }),
+    );
+
+    await createProgram().parseAsync(["node", "test", "check", "fixture", "--scan-path", "/tmp/fixture", "--analm"]);
+
+    expect(scanLocalPath).toHaveBeenCalledWith("/tmp/fixture", { deep: true, analm: true });
+    expect(analmLines()).toEqual([NOT_RUN]);
+  });
+
+  it("--scan-path --analm --json keeps stdout one JSON document and puts the note on stderr", async () => {
+    vi.mocked(scanLocalPath).mockResolvedValue(
+      scanResult({ ran: true, findingsAnalyzed: 0, sweep: { swept: 2, nullVerdicts: 0 } }),
+    );
+
+    await createProgram().parseAsync([
+      "node", "test", "--json", "check", "fixture", "--scan-path", "/tmp/fixture", "--analm",
+    ]);
+
+    expect(consoleSpy).toHaveBeenCalledTimes(1);
+    expect(() => JSON.parse(String(consoleSpy.mock.calls[0][0]))).not.toThrow();
+    expect(analmLines()).toEqual(["AnaLM: the analyst layer ran (0 findings analyzed, 2 files checked)."]);
+  });
+
+  it("--scan-path without --analm prints no AnaLM line", async () => {
+    vi.mocked(scanLocalPath).mockResolvedValue(scanResult());
+
+    await createProgram().parseAsync(["node", "test", "check", "fixture", "--scan-path", "/tmp/fixture"]);
+
+    expect(analmLines()).toEqual([]);
+  });
+
+  it("a downloaded package scanned with --analm --no-deep names --no-deep", async () => {
+    registry(async () => {
+      throw new PackageNotFoundError("my-pkg");
+    });
+    vi.mocked(scanPackage).mockResolvedValue(scanResult({ ran: false, reason: "static-only" }));
+
+    await createProgram().parseAsync(["node", "test", "check", "my-pkg", "--analm", "--no-deep"]);
+
+    expect(scanPackage).toHaveBeenCalledWith("my-pkg", { deep: false, analm: true, ecosystem: "npm" });
+    expect(analmLines()).toEqual([
+      "AnaLM: the analyst layer did not run: --no-deep turns off the scanner's semantic layer, which the analyst runs inside.",
+    ]);
+  });
+
+  it("--no-scan --analm says no local scan ran", async () => {
+    registry(async () => ({ name: "some-mcp", found: true, verdict: "safe", trustLevel: 3, packageType: "mcp_server" }));
+
+    await createProgram().parseAsync(["node", "test", "check", "some-mcp", "--no-scan", "--analm"]);
+
+    expect(analmLines()).toEqual([
+      "AnaLM: the analyst layer did not run: --no-scan skips the local scan it runs in.",
+    ]);
+  });
+
+  it("a registry library checked with --analm says no local scan ran", async () => {
+    registry(async () => ({ name: "express", found: true, verdict: "safe", trustLevel: 3, packageType: "library" }));
+
+    await createProgram().parseAsync(["node", "test", "check", "express", "--analm"]);
+
+    expect(scanPackage).not.toHaveBeenCalled();
+    expect(analmLines()).toEqual([
+      "AnaLM: the analyst layer did not run: the registry lists this package as a library, so no local scan ran.",
+    ]);
   });
 });
