@@ -253,4 +253,25 @@ describe("batch command", () => {
     expect(process.exitCode).toBe(1);
     expect(consoleErrSpy).toHaveBeenCalledWith("Error: timeout");
   });
+
+  it("prints an API error as one JSON object on stdout when --json is set", async () => {
+    const mockBatchQuery = vi
+      .fn()
+      .mockRejectedValue(new Error("Registry network error: fetch failed"));
+    vi.mocked(RegistryClient).mockImplementation(
+      function () {
+        return { checkTrust: vi.fn(), batchQuery: mockBatchQuery } as any;
+      }
+    );
+
+    const program = createProgram();
+    await program.parseAsync(["node", "test", "--json", "batch", "pkg-a"]);
+
+    expect(process.exitCode).toBe(1);
+    expect(consoleSpy).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(consoleSpy.mock.calls[0][0] as string)).toEqual({
+      error: "Registry network error: fetch failed",
+    });
+    expect(consoleErrSpy).not.toHaveBeenCalled();
+  });
 });
