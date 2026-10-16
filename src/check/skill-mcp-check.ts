@@ -14,6 +14,7 @@ import { fetchNarrative } from "./narrative-fetch.js";
 import { buildRichBlockInput } from "./rich-block-adapter.js";
 import { printRichBlock, type RichBlockPalette } from "./render-rich-block.js";
 import { sanitizeRegistryValue } from "../output/sanitize.js";
+import { citeRegistryCommands } from "../output/registry-command.js";
 
 const SKILL_PREFIX = "skill:";
 const MCP_PREFIX = "mcp:";
@@ -159,9 +160,10 @@ export async function checkSkillOrMcp(
   }
 
   // The narrative and trust fields are the registry's strings: control
-  // characters are removed before rendering. The returned `input` stays as
-  // received.
-  const rendered = renderCheckRichBlock(sanitizeRegistryValue(input));
+  // characters are removed before rendering, and a command that runs another
+  // OpenA2A CLI is printed in ai-trust's `npx <package>` form. The returned
+  // `input` stays as received.
+  const rendered = renderCheckRichBlock(citeRegistryCommands(sanitizeRegistryValue(input)));
   printRichBlock(rendered, { palette: options.palette });
 
   return { rendered: true, input };

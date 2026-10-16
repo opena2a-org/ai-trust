@@ -6,9 +6,10 @@
  * instead of the `npx <package>` form ai-trust uses, and the running tool
  * named as a separate CLI. This suite holds the rule on planted lines and on
  * lines ai-trust prints, then applies it to every string literal in the
- * non-test source under src/ and to the output of both library paths of
- * `check`. src/docs-examples.test.ts applies it to the output of every
- * command the docs run.
+ * non-test source under src/, to the output of both library paths of
+ * `check`, and to the commands a registry narrative sends to `check mcp:`.
+ * src/docs-examples.test.ts applies it to the output of every command the
+ * docs run.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { spawn } from "node:child_process";
@@ -135,6 +136,43 @@ const LIBRARY_ANSWER = {
   communityScans: 1,
 };
 
+// A narrative for demo-mcp whose commands cite the other CLIs in their own
+// forms, next to one in ai-trust's form and one of ai-trust's own commands.
+const NARRATIVE = {
+  artifactType: "mcp",
+  packageName: "demo-mcp",
+  packageVersion: "1.0.0",
+  schemaVersion: 1,
+  generatedAt: "2026-01-01T00:00:00Z",
+  summary: "demo",
+  hardcodedSecrets: {
+    scanCovered: true,
+    detected: [
+      {
+        type: "demo_token",
+        typeLabel: "Demo token",
+        file: "src/index.js",
+        line: 3,
+        maskedValue: "FAKE****",
+        shownChars: 4,
+        totalChars: 12,
+        shipsInArtifact: true,
+        severity: "high",
+        rotationCommand: "secretless-ai scan .",
+      },
+    ],
+  },
+  mcp: { mcpName: "demo-mcp", tools: [], pathScope: "", network: "", persistence: "", auth: "", sideEffects: [] },
+  verdictReasoning: [],
+  nextSteps: [
+    { weight: "primary", label: "Scan locally", command: "hackmyagent check mcp:demo-mcp" },
+    { weight: "secondary", label: "Protect", command: "opena2a protect ." },
+    { weight: "secondary", label: "Review", command: "npx opena2a review" },
+    { weight: "secondary", label: "Harden", command: "npx hackmyagent secure ." },
+    { weight: "secondary", label: "Recheck", command: "ai-trust check mcp:demo-mcp" },
+  ],
+};
+
 let server: Server;
 let registryUrl: string;
 let scratch: string;
@@ -142,7 +180,13 @@ let scratch: string;
 function startRegistry(): Promise<Server> {
   const srv = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
-    const found = req.method === "GET" && url.pathname === "/api/v1/trust/query" && url.searchParams.get("name") === "chalk";
+    const name = url.searchParams.get("name");
+    if (req.method === "GET" && url.pathname === "/api/v1/trust/narrative" && name === "demo-mcp") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(NARRATIVE));
+      return;
+    }
+    const found = req.method === "GET" && url.pathname === "/api/v1/trust/query" && name === "chalk";
     res.writeHead(found ? 200 : 404, { "Content-Type": "application/json" });
     res.end(JSON.stringify(found ? LIBRARY_ANSWER : { error: "package not found" }));
   });
@@ -206,4 +250,33 @@ describe("check on a library points to hackmyagent in the npx form", () => {
       expect(foreignVoice(stdout)).toEqual([]);
     }, 30000);
   }
+});
+
+describe("check mcp:<name> prints the commands the registry sends in the npx form", () => {
+  it("check mcp:demo-mcp", async () => {
+    const { status, stdout, stderr } = await runCli(["check", "mcp:demo-mcp"]);
+    expect(status).toBe(0);
+    const printed = stdout.split("\n").map((l) => l.trim().replace(/: +/, ": "));
+    expect(printed).toEqual(
+      expect.arrayContaining([
+        "Scan locally: npx hackmyagent check mcp:demo-mcp",
+        "Protect: npx opena2a-cli protect .",
+        "Review: npx opena2a-cli review",
+        "Harden: npx hackmyagent secure .",
+        "Recheck: ai-trust check mcp:demo-mcp",
+        "Rotate (Demo token): npx secretless-ai scan .",
+      ]),
+    );
+    expect([...foreignVoice(stdout), ...foreignVoice(stderr)]).toEqual([]);
+  }, 30000);
+
+  it("check mcp:demo-mcp --json carries them as the registry sent them", async () => {
+    const { status, stdout } = await runCli(["check", "mcp:demo-mcp", "--json"]);
+    expect(status).toBe(0);
+    const json = JSON.parse(stdout);
+    expect(json.nextSteps.map((s: { command: string }) => s.command)).toEqual(
+      NARRATIVE.nextSteps.map((s) => s.command),
+    );
+    expect(json.hardcodedSecrets.detected[0].rotationCommand).toBe("secretless-ai scan .");
+  }, 30000);
 });

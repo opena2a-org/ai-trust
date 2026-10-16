@@ -1,0 +1,57 @@
+/**
+ * Commands the registry sends, in the form ai-trust cites them.
+ *
+ * A narrative's next steps and a detected secret's rotation command are
+ * written by the registry for the users of every OpenA2A CLI. They can name
+ * another CLI the way that CLI names itself (`hackmyagent check mcp:x`) or
+ * through npx under its command name (`npx opena2a review`; npm has no
+ * package named opena2a, the CLI's package is opena2a-cli). A global install
+ * of ai-trust puts only `ai-trust` on PATH, so ai-trust prints such a command
+ * as `npx <package> <arguments>`, the form scripts/foreign-voice.mjs expects.
+ *
+ * Only the program of a command is rewritten: the start of the command, or
+ * the start of one after `;`, `&&`, `||` or `|`. Arguments are kept as sent.
+ * `--json` output carries the registry's strings as sent (see sanitize.ts).
+ */
+import type { CheckRichBlockInput } from "@opena2a/cli-ui";
+
+/** The other OpenA2A CLIs: the command each installs, and its npm package. */
+const PACKAGE_OF: ReadonlyMap<string, string> = new Map([
+  ["hackmyagent", "hackmyagent"],
+  ["opena2a", "opena2a-cli"],
+  ["secretless-ai", "secretless-ai"],
+]);
+
+const OTHER_CLI_PROGRAM =
+  /(^|;|&&|\|\||\|)(\s*)(?:npx(\s+(?:-y|--yes))?\s+)?(hackmyagent|opena2a|secretless-ai)(?=\s|$|;|&|\|)/g;
+
+/** `command` with each other-CLI program written as `npx <package>`. */
+export function citeRegistryCommand(command: string): string {
+  return command.replace(
+    OTHER_CLI_PROGRAM,
+    (_match, separator: string, space: string, yes: string | undefined, bin: string) =>
+      `${separator}${space}npx${yes ?? ""} ${PACKAGE_OF.get(bin)}`,
+  );
+}
+
+/**
+ * A copy of the rich-block input with the commands the registry sent (each
+ * next step's command, each detected secret's rotation command) in the form
+ * ai-trust cites them. Every other value is the same.
+ */
+export function citeRegistryCommands(input: CheckRichBlockInput): CheckRichBlockInput {
+  return {
+    ...input,
+    hardcodedSecrets: {
+      ...input.hardcodedSecrets,
+      detected: input.hardcodedSecrets.detected.map((secret) =>
+        secret.rotationCommand === undefined
+          ? secret
+          : { ...secret, rotationCommand: citeRegistryCommand(secret.rotationCommand) },
+      ),
+    },
+    nextSteps: input.nextSteps.map((step) =>
+      step.command === undefined ? step : { ...step, command: citeRegistryCommand(step.command) },
+    ),
+  };
+}
