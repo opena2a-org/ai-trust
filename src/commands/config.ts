@@ -30,7 +30,17 @@ function describeChoice(choice: boolean | undefined): string {
 export function registerConfigCommand(program: Command): void {
   const config = program
     .command("config")
-    .description("Read and change ai-trust settings");
+    .description("Read and change ai-trust settings")
+    // Commander adds `config help` only to a command without an action.
+    .helpCommand(true)
+    .action((_opts: unknown, cmd: Command) => {
+      // Bare `config`, like bare `ai-trust`, prints its help to stdout and
+      // exits 0; without an action Commander prints it as an error (exit 1).
+      if (cmd.args.length === 0) cmd.help();
+      // A word that is not a subcommand stays Commander's own error, with its
+      // "Did you mean" suggestion.
+      (cmd as Command & { unknownCommand(): never }).unknownCommand();
+    });
 
   config
     .command("contribute [action]")

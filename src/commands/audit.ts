@@ -6,9 +6,10 @@
 import chalk from "chalk";
 import type { Command } from "commander";
 import type { TrustAnswer } from "@opena2a/registry-client";
-import { createRegistryClient } from "../utils/registry-client.js";
+import { createRegistryClient, isTransientRegistryError } from "../utils/registry-client.js";
 import { parseDependencyFile, detectEcosystem } from "../utils/parser.js";
 import { findAuditFile } from "../utils/audit-file.js";
+import { shellArg } from "../utils/shell-arg.js";
 import { stripControlCharacters } from "../output/sanitize.js";
 import {
   formatBatchResults,
@@ -24,7 +25,7 @@ import type { ScanResult } from "../scanner/index.js";
 import { confirm } from "../utils/prompt.js";
 import { shareScans } from "../telemetry/index.js";
 import { createRequire } from "node:module";
-import { basename } from "node:path";
+import { basename, join } from "node:path";
 
 const require = createRequire(import.meta.url);
 const pkg = require("../../package.json");
@@ -51,7 +52,7 @@ export function registerAuditCommand(program: Command): void {
     )
     .option(
       "--scan-missing",
-      "scan packages not found in registry using HMA"
+      "download and scan the packages the registry has no data for"
     )
     .option(
       "--contribute",
@@ -170,26 +171,41 @@ export function registerAuditCommand(program: Command): void {
           process.exitCode = 2;
         }
       } catch (err: unknown) {
-        const fileMissing =
-          err instanceof Error &&
-          "code" in err &&
-          (err as NodeJS.ErrnoException).code === "ENOENT";
+        const errno =
+          err instanceof Error && "code" in err
+            ? (err as NodeJS.ErrnoException).code
+            : undefined;
+        const fileMissing = errno === "ENOENT";
+        const isDirectory = errno === "EISDIR";
         const message = fileMissing
           ? `File not found: ${file}`
-          : err instanceof Error
-            ? err.message
-            : String(err);
+          : isDirectory
+            ? `${file} is a directory, not a dependency file`
+            : err instanceof Error
+              ? err.message
+              : String(err);
 
         if (globalOpts.json) {
           console.log(formatJson({ file, error: message }));
         } else {
           // A registry error can quote the registry's response body.
           console.error(`Error: ${stripControlCharacters(message)}`);
-          if (fileMissing) {
+          if (fileMissing || isDirectory) {
             console.error(
               "  No dependencies were checked. The audit command reads package.json or requirements.txt."
             );
-            console.error(`  Next: ${missingFileNextCommand(file)}`);
+            console.error(
+              `  Next: ${fileMissing ? missingFileNextCommand(file) : directoryNextCommand(file)}`
+            );
+          } else if (isTransientRegistryError(err)) {
+            console.error(
+              `  No dependencies were checked: the registry at ${stripControlCharacters(globalOpts.registryUrl)} did not answer.`
+            );
+            // `check` scans the package when the registry does not answer.
+            const target = detectEcosystem(file) === "pypi" ? "pip:<package>" : "<package>";
+            console.error(
+              `  Next: run the audit again when the registry answers, or scan one package locally with ai-trust check ${target}`
+            );
           }
         }
         process.exitCode = 1;
@@ -206,6 +222,15 @@ export function registerAuditCommand(program: Command): void {
 function missingFileNextCommand(file: string): string {
   const found = basename(file) === file ? findAuditFile() : null;
   return found && found !== file ? `ai-trust audit ${found}` : "ai-trust audit --help";
+}
+
+/**
+ * The command to suggest after `audit <directory>`: the file audit reads in
+ * that directory when there is one, otherwise the help.
+ */
+function directoryNextCommand(dir: string): string {
+  const found = findAuditFile(dir);
+  return found ? `ai-trust audit ${shellArg(join(dir, found))}` : "ai-trust audit --help";
 }
 
 /**

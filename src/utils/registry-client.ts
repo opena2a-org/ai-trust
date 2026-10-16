@@ -65,7 +65,7 @@ export interface CreateRegistryClientOptions {
  * PackageNotFoundError, 4xx/5xx → other RegistryApiError codes) is a
  * registry that answered, and is not transient.
  */
-function isTransientRegistryError(err: unknown): boolean {
+export function isTransientRegistryError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const code = (err as Error & { code?: unknown }).code;
   return code === "timeout" || code === "network";

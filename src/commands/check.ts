@@ -91,7 +91,7 @@ export function registerCheckCommand(program: Command): void {
     )
     .option(
       "--scan-path <dir>",
-      "scan a local directory directly (skip npm-pack download); used for adversarial-corpus fixtures and on-disk scans"
+      "scan a local directory instead of downloading a package; <name> labels the result"
     )
     .action(async (rawName: string, opts: CheckOptions) => {
       const globalOpts = program.opts() as {
@@ -194,11 +194,13 @@ export function registerCheckCommand(program: Command): void {
         pkg = target;
       }
 
-      // `pip:` or `npm:` with nothing after it names no package: a usage
-      // error, not a lookup of a package called "pip:".
+      // An empty target, or `pip:` or `npm:` with nothing after it, names no
+      // package: a usage error, not a lookup of a package called "" or "pip:".
       if (pkg.kind === "invalid") {
         console.error(
-          `Error: No package name after "${pkg.prefix}". Usage: ${checkCitation()} ${pkg.prefix}<package>`
+          pkg.reason === "empty"
+            ? `Error: No package name given. Usage: ${checkCitation()} <package>`
+            : `Error: No package name after "${pkg.prefix}". Usage: ${checkCitation()} ${pkg.prefix}<package>`
         );
         finish("usage-error");
         return;

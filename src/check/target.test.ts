@@ -31,6 +31,8 @@ describe("classifyCheckTarget", () => {
     ["pip: with nothing after", "pip:", { kind: "invalid", reason: "no-package-name", prefix: "pip:" }],
     ["npm: with nothing after", "npm:", { kind: "invalid", reason: "no-package-name", prefix: "npm:" }],
     ["pip: with spaces around", " pip: ", { kind: "invalid", reason: "no-package-name", prefix: "pip:" }],
+    ["empty", "", { kind: "invalid", reason: "empty" }],
+    ["spaces only", "   ", { kind: "invalid", reason: "empty" }],
     ["<owner>/<repo>", "table-owner/table-repo", git("table-owner/table-repo")],
     ["npm:<owner>/<repo>", "npm:table-owner/table-repo", git("table-owner/table-repo")],
     // A pip: target is not an npm name, so it is never read as git-style.

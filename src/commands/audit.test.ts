@@ -3,11 +3,12 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Command } from "commander";
 import { registerAuditCommand } from "./audit.js";
+import { shellArg } from "../utils/shell-arg.js";
 
 vi.mock("@opena2a/registry-client", () => ({
   firstPartySignerFromEnv: vi.fn().mockReturnValue(undefined),
@@ -323,6 +324,157 @@ describe("audit command", () => {
       expect(consoleErrSpy).not.toHaveBeenCalled();
       expect(process.exitCode).toBe(1);
     });
+  });
+
+  describe("a directory given as the file: what audit reads and the next command (#177)", () => {
+    let dir: string;
+
+    // What readFile throws for a directory.
+    function isDirectory(): void {
+      const err = new Error(
+        "EISDIR: illegal operation on a directory, read"
+      ) as NodeJS.ErrnoException;
+      err.code = "EISDIR";
+      vi.mocked(parseDependencyFile).mockRejectedValue(err);
+    }
+
+    function stderrLines(): string[] {
+      return consoleErrSpy.mock.calls.map((c) => String(c[0]));
+    }
+
+    beforeEach(() => {
+      dir = mkdtempSync(join(tmpdir(), "ai-trust-audit-dir-"));
+    });
+
+    afterEach(() => {
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    it("names the package.json in that directory", async () => {
+      writeFileSync(join(dir, "package.json"), "{}");
+      writeFileSync(join(dir, "requirements.txt"), "");
+      isDirectory();
+      await createProgram().parseAsync(["node", "test", "audit", dir]);
+
+      expect(parseDependencyFile).toHaveBeenCalledWith(dir);
+      expect(stderrLines()).toEqual([
+        `Error: ${dir} is a directory, not a dependency file`,
+        "  No dependencies were checked. The audit command reads package.json or requirements.txt.",
+        `  Next: ai-trust audit ${shellArg(join(dir, "package.json"))}`,
+      ]);
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("names the requirements.txt in that directory when it holds no package.json", async () => {
+      writeFileSync(join(dir, "requirements.txt"), "");
+      isDirectory();
+      await createProgram().parseAsync(["node", "test", "audit", dir]);
+
+      expect(stderrLines()[2]).toBe(`  Next: ai-trust audit ${shellArg(join(dir, "requirements.txt"))}`);
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("quotes a directory name the shell would split", async () => {
+      const spaced = join(dir, "my project");
+      mkdirSync(spaced);
+      writeFileSync(join(spaced, "package.json"), "{}");
+      isDirectory();
+      await createProgram().parseAsync(["node", "test", "audit", spaced]);
+
+      const next = stderrLines()[2];
+      expect(next).toBe(`  Next: ai-trust audit ${shellArg(join(spaced, "package.json"))}`);
+      expect(next).toMatch(/^ {2}Next: ai-trust audit '.*my project\/package\.json'$/);
+    });
+
+    it("points to the help when the directory holds no file audit reads", async () => {
+      isDirectory();
+      await createProgram().parseAsync(["node", "test", "audit", dir]);
+
+      expect(stderrLines()[2]).toBe("  Next: ai-trust audit --help");
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("--json reports the directory in the error object", async () => {
+      isDirectory();
+      await createProgram().parseAsync(["node", "test", "--json", "audit", dir]);
+
+      expect(consoleSpy).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(String(consoleSpy.mock.calls[0][0]))).toEqual({
+        file: dir,
+        error: `${dir} is a directory, not a dependency file`,
+      });
+      expect(consoleErrSpy).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(1);
+    });
+  });
+
+  describe("a registry that does not answer: the next step (#177)", () => {
+    function registryFails(message: string, code: string): void {
+      vi.mocked(parseDependencyFile).mockResolvedValue([{ name: "some-mcp" }]);
+      const err = Object.assign(new Error(message), { code });
+      vi.mocked(RegistryClient).mockImplementation(function () {
+        return { checkTrust: vi.fn(), batchQuery: vi.fn().mockRejectedValue(err) } as any;
+      });
+    }
+
+    function stderrLines(): string[] {
+      return consoleErrSpy.mock.calls.map((c) => String(c[0]));
+    }
+
+    it("says nothing was checked and names check, which scans when the registry does not answer", async () => {
+      registryFails("Registry network error: fetch failed", "network");
+      await createProgram().parseAsync([
+        "node", "test", "audit", "package.json", "--registry-url", "http://127.0.0.1:9",
+      ]);
+
+      expect(stderrLines()).toEqual([
+        "Error: Registry network error: fetch failed",
+        "  No dependencies were checked: the registry at http://127.0.0.1:9 did not answer.",
+        "  Next: run the audit again when the registry answers, or scan one package locally with ai-trust check <package>",
+      ]);
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("gives the same next step for a request that timed out", async () => {
+      registryFails("Registry request timed out after 15000ms", "timeout");
+      await createProgram().parseAsync(["node", "test", "audit", "package.json"]);
+
+      expect(stderrLines()[1]).toBe(
+        "  No dependencies were checked: the registry at https://api.test.com did not answer."
+      );
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("names the pip: form of check for a requirements.txt", async () => {
+      vi.mocked(detectEcosystem).mockReturnValue("pypi");
+      try {
+        registryFails("Registry network error: fetch failed", "network");
+        await createProgram().parseAsync(["node", "test", "audit", "requirements.txt"]);
+
+        expect(stderrLines()[2]).toBe(
+          "  Next: run the audit again when the registry answers, or scan one package locally with ai-trust check pip:<package>"
+        );
+      } finally {
+        vi.mocked(detectEcosystem).mockReturnValue("npm");
+      }
+    });
+
+    it("adds no next step when the registry answered with an error", async () => {
+      registryFails("Registry server error (500)", "server_error");
+      await createProgram().parseAsync(["node", "test", "audit", "package.json"]);
+
+      expect(stderrLines()).toEqual(["Error: Registry server error (500)"]);
+      expect(process.exitCode).toBe(1);
+    });
+  });
+
+  it("describes --scan-missing without the scanner's abbreviation (#177)", () => {
+    const audit = createProgram().commands.find((c) => c.name() === "audit")!;
+    const help = audit.helpInformation().replace(/\s+/g, " ");
+    expect(help).not.toContain("HMA");
+    expect(help).toContain(
+      "--scan-missing download and scan the packages the registry has no data for"
+    );
   });
 
   describe("scan ping consent gating (regression: package name + verdict + score is scan-result data, requires the same consent as full contribution)", () => {
