@@ -527,6 +527,86 @@ describe("audit command", () => {
     });
   });
 
+  describe("a file name longer than the file system allows (#189)", () => {
+    // 300 bytes: opening it fails with ENAMETOOLONG.
+    const longName = "requirements".repeat(25);
+    let dir: string;
+    let cwdSpy: MockInstance<() => string>;
+
+    function stderrLines(): string[] {
+      return consoleErrSpy.mock.calls.map((c) => String(c[0]));
+    }
+
+    // The file system's own ENAMETOOLONG, not a constructed one.
+    async function useRealParser(): Promise<void> {
+      const actual = await vi.importActual<typeof import("../utils/parser.js")>(
+        "../utils/parser.js"
+      );
+      vi.mocked(parseDependencyFile).mockImplementationOnce(actual.parseDependencyFile);
+    }
+
+    beforeEach(() => {
+      dir = mkdtempSync(join(tmpdir(), "ai-trust-audit-long-"));
+      cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(dir);
+    });
+
+    afterEach(() => {
+      cwdSpy.mockRestore();
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    it("says the name is too long, shows its first 57 characters, and points to the help", async () => {
+      await useRealParser();
+      await createProgram().parseAsync(["node", "test", "audit", longName]);
+
+      expect(stderrLines()).toEqual([
+        `Error: File name is longer than the file system allows (300 bytes): ${longName.slice(0, 57)}...`,
+        "  No dependencies were checked. The audit command reads package.json or requirements.txt.",
+        "  Next: ai-trust audit --help",
+      ]);
+      expect(process.exitCode).toBe(1);
+      expect(RegistryClient).not.toHaveBeenCalled();
+    });
+
+    it("names the package.json in the current directory as the next step", async () => {
+      writeFileSync(join(dir, "package.json"), "{}");
+      await useRealParser();
+      await createProgram().parseAsync(["node", "test", "audit", longName]);
+
+      expect(stderrLines()[2]).toBe("  Next: ai-trust audit package.json");
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("keeps a 100,011-character name to one short line", async () => {
+      const huge = "a".repeat(100_011);
+      await useRealParser();
+      await createProgram().parseAsync(["node", "test", "audit", huge]);
+
+      const first = stderrLines()[0];
+      expect(first).toBe(
+        `Error: File name is longer than the file system allows (100011 bytes): ${"a".repeat(57)}...`
+      );
+      expect(first.length).toBe(131);
+      expect(stderrLines()).toHaveLength(3);
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("--json gives the shortened name in the error and the argument in file", async () => {
+      await useRealParser();
+      await createProgram().parseAsync(["node", "test", "--json", "audit", longName]);
+
+      expect(consoleSpy).toHaveBeenCalledTimes(1);
+      const out = JSON.parse(String(consoleSpy.mock.calls[0][0]));
+      expect(out).toEqual({
+        file: longName,
+        error: `File name is longer than the file system allows (300 bytes): ${longName.slice(0, 57)}...`,
+      });
+      expect(out.error).not.toContain(longName);
+      expect(consoleErrSpy).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(1);
+    });
+  });
+
   describe("a registry that does not answer: the next step (#177)", () => {
     function registryFails(message: string, code: string): void {
       vi.mocked(parseDependencyFile).mockResolvedValue([{ name: "some-mcp" }]);
