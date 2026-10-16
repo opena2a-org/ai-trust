@@ -36,7 +36,7 @@ vi.mock("node:fs", async (importOriginal) => {
 });
 
 import { execFile } from "node:child_process";
-import { isHmaAvailable, runHmaScan, scannerTempDirProblem } from "./hma.js";
+import { isHmaAvailable, nothingToScan, runHmaScan, scannerTempDirProblem } from "./hma.js";
 
 describe("isHmaAvailable", () => {
   beforeEach(() => {
@@ -317,6 +317,66 @@ ${JSON.stringify({
         const result = await runHmaScan("/tmp/project");
         expect(result.filesExamined, JSON.stringify(coverage)).toBeUndefined();
       }
+    });
+
+    it("reads coverage.unreadableInputs.count as the number of inputs found but not read", async () => {
+      // The same scanner's output for a directory that holds one file the
+      // scanner could not read: 0 files read, one unreadable input.
+      vi.mocked(execFile as any).mockResolvedValue({
+        stdout: JSON.stringify({
+          ...emptyDirScan,
+          coverage: {
+            ...emptyDirScan.coverage,
+            unreadableInputs: { count: 1, codes: { EACCES: 1 }, directories: 0 },
+          },
+        }),
+        stderr: "",
+      });
+
+      const result = await runHmaScan("/tmp/unreadable");
+      expect(result.filesExamined).toBe(0);
+      expect(result.unreadableInputs).toBe(1);
+      expect(nothingToScan(result)).toBe(false);
+    });
+
+    it("reports nothing to scan for 0 files read and 0 unreadable inputs", async () => {
+      vi.mocked(execFile as any).mockResolvedValue({
+        stdout: JSON.stringify(emptyDirScan),
+        stderr: "",
+      });
+
+      const result = await runHmaScan("/tmp/empty");
+      expect(result.unreadableInputs).toBe(0);
+      expect(nothingToScan(result)).toBe(true);
+    });
+
+    it("leaves the unreadable count unset when the scanner reports none or one that is not a whole number", async () => {
+      for (const unreadableInputs of [undefined, {}, { count: "1" }, { count: -1 }, { count: 0.5 }]) {
+        vi.mocked(execFile as any).mockResolvedValue({
+          stdout: JSON.stringify({
+            ...emptyDirScan,
+            coverage: { ...emptyDirScan.coverage, unreadableInputs },
+          }),
+          stderr: "",
+        });
+
+        const result = await runHmaScan("/tmp/project");
+        expect(result.unreadableInputs, JSON.stringify(unreadableInputs)).toBeUndefined();
+        // With no unreadable count reported, 0 files read is nothing to scan.
+        expect(nothingToScan(result), JSON.stringify(unreadableInputs)).toBe(true);
+      }
+    });
+  });
+
+  describe("nothingToScan", () => {
+    it("is true only for 0 files read with no unreadable input", () => {
+      expect(nothingToScan({ filesExamined: 0 })).toBe(true);
+      expect(nothingToScan({ filesExamined: 0, unreadableInputs: 0 })).toBe(true);
+      expect(nothingToScan({ filesExamined: 0, unreadableInputs: 1 })).toBe(false);
+      expect(nothingToScan({ filesExamined: 3, unreadableInputs: 0 })).toBe(false);
+      expect(nothingToScan({ filesExamined: 3, unreadableInputs: 2 })).toBe(false);
+      expect(nothingToScan({})).toBe(false);
+      expect(nothingToScan({ unreadableInputs: 0 })).toBe(false);
     });
   });
 });

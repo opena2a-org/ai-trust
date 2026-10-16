@@ -44,6 +44,7 @@ import { classify, tierLabel } from "@opena2a/ai-classifier";
 import type { Tier } from "@opena2a/ai-classifier";
 import type { TrustAnswer, BatchResponse } from "@opena2a/registry-client";
 import type { ScanResult } from "../scanner/index.js";
+import { nothingToScan } from "../scanner/hma.js";
 import { findAuditFile } from "../utils/audit-file.js";
 import { checkCitation } from "../utils/cli-prefix.js";
 import { shellArg } from "../utils/shell-arg.js";
@@ -836,11 +837,13 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
     `  ${chalk.bold.white(result.packageName)}${ecosystemSuffix(opts.ecosystem ?? "npm")}  ${chalk.dim(remote ? "downloaded package" : "local scan")}`,
   ];
 
-  // The scanner read no file. The checks that still ran report files that
-  // are absent (no lock file, no .gitignore), so the score, the level, the
-  // verdict and those findings would describe a measurement that did not
-  // happen. Say there was nothing to scan and print none of them.
-  if (result.scan.filesExamined === 0) {
+  // The scanner read no file and found none it could not read. The checks
+  // that still ran report files that are absent (no lock file, no
+  // .gitignore), so the score, the level, the verdict and those findings
+  // would describe a measurement that did not happen. Say there was nothing
+  // to scan and print none of them. A directory whose files were found but
+  // could not be read keeps its score and findings: they name those files.
+  if (nothingToScan(result.scan)) {
     const target = stripControlCharacters(opts.scanPath ?? result.packageName);
     lines.push(`  ${chalk.bold(`Nothing to scan in ${target}: 0 files read.`)}`);
     if (opts.scanPath !== undefined) {

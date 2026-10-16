@@ -364,6 +364,42 @@ describe("buildCheckJsonFromScan (scan path)", () => {
       filesExamined: 0,
     });
   });
+
+  it("keeps the score, verdict and findings of a scan that read 0 files because they could not be read", () => {
+    // A directory holding one `.env` the scanner cannot read: 0 files read,
+    // one unreadable input, and a finding that names the file.
+    const json = buildCheckJsonFromScan({
+      ...baseScan,
+      scan: {
+        ...baseScan.scan,
+        filesExamined: 0,
+        unreadableInputs: 1,
+        score: 69,
+        findings: [
+          {
+            checkId: "SCAN-UNREAD-001",
+            name: "Input Discovered But Not Read",
+            description: "",
+            category: "coverage",
+            severity: "medium",
+            passed: false,
+            message: ".env could not be read (EACCES)",
+            file: ".env",
+            fix: "chmod u+r .env",
+          },
+        ],
+      },
+      trustScore: 0.69,
+      trustLevel: 2,
+      verdict: "warning",
+    });
+    expect(json).not.toHaveProperty("scored");
+    expect(json).not.toHaveProperty("notScoredReason");
+    expect(json.score).toBe(69);
+    expect(json.verdict).toBe("warning");
+    expect(json.filesExamined).toBe(0);
+    expect(json.findings?.map((f) => f.checkId)).toEqual(["SCAN-UNREAD-001"]);
+  });
 });
 
 describe("buildCheckJson (union)", () => {

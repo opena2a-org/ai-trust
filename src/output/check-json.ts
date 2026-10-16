@@ -12,6 +12,7 @@
 
 import type { TrustAnswer } from "@opena2a/registry-client";
 import type { ScanResult } from "../scanner/index.js";
+import { nothingToScan } from "../scanner/hma.js";
 import {
   readSecurityProfile,
   type RegistrySecurityProfile,
@@ -153,9 +154,11 @@ export function buildCheckJsonFromScan(
   scan: ScanResult,
   ecosystem?: "npm" | "pypi",
 ): CheckJsonResult {
-  // A scan that read 0 files measured nothing: the not-scored shape, as the
-  // out-of-scope answer uses, with the count that makes it so.
-  if (scan.scan.filesExamined === 0) {
+  // A scan that read 0 files and found none it could not read measured
+  // nothing: the not-scored shape, as the out-of-scope answer uses, with the
+  // count that makes it so. A scan whose files could not be read keeps its
+  // score and the findings that name them.
+  if (nothingToScan(scan.scan)) {
     return {
       name: scan.packageName,
       ...(ecosystem !== undefined ? { ecosystem } : {}),

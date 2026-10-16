@@ -60,6 +60,14 @@ export interface HmaScanResult {
    * nothing. Unset when HMA reported no whole-number count.
    */
   filesExamined?: number;
+  /**
+   * Number of inputs HMA discovered in the target but could not read (a
+   * permission error, for example), from HMA's
+   * `coverage.unreadableInputs.count`. When it is above 0, a scan that read
+   * 0 files still found files, and its findings say which could not be read.
+   * Unset when HMA reported no whole-number count.
+   */
+  unreadableInputs?: number;
   /** Semantic analysis results from NanoMind (present when --deep is used) */
   semanticFindings?: SemanticFinding[];
   /** AnaLM findings (present when --analm is used) */
@@ -231,6 +239,16 @@ function installingDir(pkgDir: string): string | null {
 
 function shellPath(path: string): string {
   return /^[\w@%+=:,./-]+$/.test(path) ? path : `'${path.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * Whether the scan found nothing to scan: HMA read 0 files and discovered
+ * no input it could not read. A scan of a directory whose files were found
+ * but could not be read also read 0 files, but its findings name those files
+ * and how to make them readable, so it keeps its score and findings.
+ */
+export function nothingToScan(scan: Pick<HmaScanResult, "filesExamined" | "unreadableInputs">): boolean {
+  return scan.filesExamined === 0 && (scan.unreadableInputs ?? 0) === 0;
 }
 
 /**
@@ -545,6 +563,10 @@ function parseHmaOutput(stdout: string): HmaScanResult {
   const filesExamined = raw.coverage?.filesExamined;
   if (Number.isInteger(filesExamined) && filesExamined >= 0) {
     result.filesExamined = filesExamined;
+  }
+  const unreadableInputs = raw.coverage?.unreadableInputs?.count;
+  if (Number.isInteger(unreadableInputs) && unreadableInputs >= 0) {
+    result.unreadableInputs = unreadableInputs;
   }
 
   // Parse NanoMind semantic findings when present (from --deep mode)
