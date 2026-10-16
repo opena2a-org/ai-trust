@@ -961,6 +961,20 @@ describe("formatBatchResults", () => {
     expect(output).toContain("...");
   });
 
+  it("does not cut a surrogate pair in half when it shortens a name (#198)", () => {
+    // The emoji's two code units sit at indexes 30 and 31; a cut at 31 would
+    // keep only its high half.
+    const longName = "mcp-server-" + "a".repeat(19) + "\u{1F600}bbbbbbbb";
+    const response = makeBatchResponse([
+      makeTrustAnswer({ name: longName, packageType: "mcp_server" }),
+    ]);
+    const output = formatBatchResults(response, 3);
+
+    expect(output).toContain(`mcp-server-${"a".repeat(19)}...`);
+    // With the u flag, \p{Cs} matches only a surrogate that is not in a pair.
+    expect(output).not.toMatch(/\p{Cs}/u);
+  });
+
   it("shows dimmed meter for unscanned packages (not a numeric score)", () => {
     const response = makeBatchResponse([
       makeTrustAnswer({

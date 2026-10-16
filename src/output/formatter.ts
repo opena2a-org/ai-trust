@@ -695,10 +695,7 @@ export function formatBatchResults(
   );
 
   for (const result of native) {
-    const name =
-      result.name.length > nameWidth - 2
-        ? result.name.substring(0, nameWidth - 5) + "..."
-        : result.name;
+    const name = capLength(result.name, nameWidth - 2);
 
     if (!result.found) {
       lines.push(
