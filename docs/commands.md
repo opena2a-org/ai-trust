@@ -31,7 +31,7 @@ ai-trust check server-filesystem --no-scan                    # registry lookup 
 ai-trust check /path/to/local --scan-path /path/to/local      # scan a local directory
 ```
 
-Flags: `--type`, `--contribute`, `--no-scan`, `--no-deep`, `--scan-path`, `--json`.
+Flags: `--type`, `--contribute`, `--no-scan`, `--no-deep`, `--scan-path`, `--all`, `--json`.
 
 ### MCP server shorthand
 
@@ -60,6 +60,8 @@ ai-trust check server-filesystem --no-scan                     # registry lookup
 With `--no-scan`, a package the registry does not have exits 2 and points at the plain `check` command to scan it. `--scan-if-missing` is accepted for compatibility and changes nothing, since every package is scanned.
 
 Local scans run HMA with NanoMind semantic analysis enabled by default. Pass `--no-deep` for static-only.
+
+Text output prints the first 10 findings, by severity, then a line that counts the rest and gives the command that prints them: `+ 33 more findings (show all: ai-trust check dvaa --scan-path ./dvaa --no-deep --all)`. `--all` prints every finding with its fix. `--json` output is not truncated.
 
 ### `audit`
 

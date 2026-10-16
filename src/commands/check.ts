@@ -19,6 +19,7 @@ import {
   formatJson,
   formatNotFound,
 } from "../output/formatter.js";
+import type { FormatScanResultOptions } from "../output/formatter.js";
 import { buildNotFoundOutput, translateDownloadError } from "@opena2a/check-core";
 import { logResolved } from "../utils/resolve.js";
 import { stripControlCharacters } from "../output/sanitize.js";
@@ -58,6 +59,30 @@ interface CheckOptions {
   analm?: boolean;
   /** Scan a local directory directly, skipping the npm-pack download. */
   scanPath?: string;
+  /** Print every finding in text output, not the first ten (--all). */
+  all?: boolean;
+}
+
+/**
+ * The `check` command that printed a scan result, without `--all`, for the
+ * line that counts the findings text output did not print. It carries the
+ * name and the options that change what is scanned or where the result is
+ * sent; `--json` is left out because the line is printed in text output only.
+ */
+function rerunCommand(
+  rawName: string,
+  opts: CheckOptions,
+  registryUrlFromCli: string | undefined,
+): string {
+  const parts = [checkCitation(), shellArg(rawName)];
+  if (opts.scanPath) parts.push("--scan-path", shellArg(opts.scanPath));
+  if (opts.type) parts.push("--type", shellArg(opts.type));
+  if (opts.deep === false) parts.push("--no-deep");
+  if (opts.analm) parts.push("--analm");
+  if (opts.contribute === true) parts.push("--contribute");
+  if (opts.contribute === false) parts.push("--no-contribute");
+  if (registryUrlFromCli) parts.push("--registry-url", shellArg(registryUrlFromCli));
+  return parts.join(" ");
 }
 
 export function registerCheckCommand(program: Command): void {
@@ -94,10 +119,24 @@ export function registerCheckCommand(program: Command): void {
       "--scan-path <dir>",
       "scan a local directory instead of downloading a package; <name> labels the result"
     )
+    .option(
+      "--all",
+      "print every finding with its fix (text output prints the first 10 by default)"
+    )
     .action(async (rawName: string, opts: CheckOptions) => {
       const globalOpts = program.opts() as {
         registryUrl: string;
         json: boolean;
+      };
+      const textOpts = {
+        all: opts.all === true,
+        rerunCommand: rerunCommand(
+          rawName,
+          opts,
+          program.getOptionValueSource("registryUrl") === "cli"
+            ? globalOpts.registryUrl
+            : undefined,
+        ),
       };
 
       // --scan-path: scan a local directory directly. No registry lookup, no
@@ -140,7 +179,9 @@ export function registerCheckCommand(program: Command): void {
           console.log(formatJson(buildCheckJson({ kind: "scan", scan: result })));
         } else {
           // --scan-path scans the user's own on-disk tree → local verdict.
-          console.log(formatScanResult(result, { remote: false, scanPath: opts.scanPath }));
+          console.log(
+            formatScanResult(result, { remote: false, scanPath: opts.scanPath, ...textOpts })
+          );
         }
         // A scan that read 0 files and found none it could not read measured
         // nothing, which is not a pass.
@@ -330,7 +371,8 @@ export function registerCheckCommand(program: Command): void {
         client,
         globalOpts,
         opts,
-        `Scanning ${name}...`
+        `Scanning ${name}...`,
+        textOpts
       );
     });
 
@@ -457,7 +499,8 @@ async function handleScanFlow(
   client: RegistryClient,
   globalOpts: { registryUrl: string; json: boolean },
   opts: CheckOptions,
-  statusMessage: string
+  statusMessage: string,
+  textOpts: Pick<FormatScanResultOptions, "all" | "rerunCommand"> = {}
 ): Promise<void> {
   const { spec: name, ecosystem } = target;
   if (!(await checkHmaReady())) return;
@@ -513,7 +556,7 @@ async function handleScanFlow(
   if (globalOpts.json) {
     console.log(formatJson(buildCheckJson({ kind: "scan", scan: scanResult, ecosystem })));
   } else {
-    console.log(formatScanResult(scanResult, { remote: true, ecosystem }));
+    console.log(formatScanResult(scanResult, { remote: true, ecosystem, ...textOpts }));
   }
   if (opts.analm) noteAnalystLayer(scanResult.scan.analystLayer);
 

@@ -79,7 +79,7 @@ import {
   formatNotFound,
 } from "../output/formatter.js";
 import { isHmaAvailable, scanPackage, scanLocalPath } from "../scanner/index.js";
-import type { AnalystLayerStatus } from "../scanner/index.js";
+import type { AnalystLayerStatus, ScanResult } from "../scanner/index.js";
 import { confirm } from "../utils/prompt.js";
 import { sendScanPing } from "../telemetry/contribute.js";
 import { readContributeChoice } from "../telemetry/opt-in.js";
@@ -939,6 +939,84 @@ describe("check command", () => {
       ]);
 
       expect(sendScanPing).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("--all prints every finding", () => {
+    const scanned: ScanResult = {
+      packageName: "fixture",
+      scan: {
+        score: 20,
+        maxScore: 100,
+        findings: [],
+        projectType: "repo",
+        timestamp: "2026-03-14T00:00:00Z",
+      },
+      trustScore: 0.2,
+      trustLevel: 0,
+      verdict: "blocked",
+    };
+
+    beforeEach(() => {
+      vi.stubEnv("AI_TRUST_CLI_PREFIX", "");
+      vi.mocked(isHmaAvailable).mockResolvedValue(true);
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("is a registered option that check --scan-path passes to the formatter, with the command it re-runs", async () => {
+      vi.mocked(scanLocalPath).mockResolvedValue({ ...scanned });
+      const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+        throw new Error(`process.exit(${code})`);
+      }) as never);
+      try {
+        await createProgram().parseAsync([
+          "node", "test", "check", "fixture", "--scan-path", "/tmp/fixture", "--no-deep", "--all",
+        ]);
+      } finally {
+        exit.mockRestore();
+      }
+
+      expect(formatScanResult).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          remote: false,
+          all: true,
+          rerunCommand: "ai-trust check fixture --scan-path /tmp/fixture --no-deep",
+        }),
+      );
+    });
+
+    it("without --all, a downloaded package's result cites the arguments it was checked with", async () => {
+      vi.mocked(RegistryClient).mockImplementation(function () {
+        return {
+          checkTrust: vi.fn().mockRejectedValue(new PackageNotFoundError("my-pkg")),
+          publishScan: vi.fn(),
+        } as any;
+      });
+      vi.mocked(scanPackage).mockResolvedValue({ ...scanned, packageName: "my-pkg" });
+
+      await createProgram().parseAsync([
+        "node", "test", "check", "pip:my-pkg", "--registry-url", "https://registry.example.test",
+        "--analm", "--no-contribute",
+      ]);
+
+      expect(formatScanResult).toHaveBeenCalledWith(expect.anything(), {
+        remote: true,
+        ecosystem: "pypi",
+        all: false,
+        rerunCommand:
+          "ai-trust check pip:my-pkg --analm --no-contribute --registry-url https://registry.example.test",
+      });
+    });
+
+    it("is listed in check --help", () => {
+      const help = createProgram()
+        .commands.find((c) => c.name() === "check")!
+        .helpInformation();
+      expect(help).toMatch(/--all\s+print every finding/);
     });
   });
 

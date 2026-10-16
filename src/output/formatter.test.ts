@@ -1521,6 +1521,73 @@ describe("formatScanResult", () => {
     expect(output).not.toContain("\u001b");
     expect(output).toContain("skills/a[2Jb.md:2");
   });
+
+  describe("findings past the first ten", () => {
+    function twelveFindings(): ScanResult {
+      return makeScanResult({
+        verdict: "blocked",
+        scan: {
+          score: 20,
+          maxScore: 100,
+          checksEvaluated: 40,
+          findings: Array.from({ length: 12 }, (_, i) => ({
+            checkId: `TEST-${String(i + 1).padStart(3, "0")}`,
+            name: `Finding number ${i + 1}`,
+            description: `Description ${i + 1}`,
+            category: "test",
+            severity: "high",
+            passed: false,
+            message: `Message ${i + 1}`,
+            fix: `Fix step ${i + 1}`,
+          })),
+          projectType: "node",
+          timestamp: "2026-03-15T00:00:00Z",
+        },
+      });
+    }
+
+    beforeEach(() => {
+      vi.stubEnv("AI_TRUST_CLI_PREFIX", "");
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("cites the --all option under the truncation line", () => {
+      const output = formatScanResult(twelveFindings(), {
+        remote: false,
+        rerunCommand: "ai-trust check dvaa --scan-path /tmp/fx/dvaa --no-deep",
+      });
+
+      expect(output).toContain(
+        "+ 2 more findings (show all: ai-trust check dvaa --scan-path /tmp/fx/dvaa --no-deep --all)",
+      );
+      expect(output).toContain("Finding number 10");
+      expect(output).not.toContain("Finding number 11");
+    });
+
+    it("cites check <name> --all when no command is given, through the CLI prefix", () => {
+      expect(formatScanResult(twelveFindings())).toContain(
+        "+ 2 more findings (show all: ai-trust check test-pkg --all)",
+      );
+
+      vi.stubEnv("AI_TRUST_CLI_PREFIX", "opena2a registry");
+      expect(formatScanResult(twelveFindings())).toContain(
+        "+ 2 more findings (show all: opena2a registry test-pkg --all)",
+      );
+    });
+
+    it("prints every finding with its Fix when all is set", () => {
+      const output = formatScanResult(twelveFindings(), { all: true });
+
+      for (let i = 1; i <= 12; i++) {
+        expect(output).toContain(`Finding number ${i}`);
+        expect(output).toContain(`Fix step ${i}`);
+      }
+      expect(output).not.toContain("more findings");
+    });
+  });
 });
 
 describe("formatNotFound", () => {
