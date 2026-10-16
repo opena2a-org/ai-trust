@@ -3,11 +3,16 @@
   "command": "npx ai-trust check @modelcontextprotocol/server-filesystem --no-scan",
   "artifact": {
     "package": "ai-trust",
-    "version": "0.7.6 with unreleased changes",
-    "source": "dist/index.js built from the repository with npm run build; the published 0.7.6 does not print the Findings and CVEs lines",
+    "version": "0.7.6",
+    "build": "dist/index.js as npm run build left it",
+    "commit": "ae11232970e564120b43b2a1302a5c332d178896",
+    "uncommittedBuildInputs": [
+      "package.json"
+    ],
+    "taggedRelease": false,
     "invokedAs": "node dist/index.js check @modelcontextprotocol/server-filesystem --no-scan"
   },
-  "capturedAt": "2026-10-13T22:12:27Z",
+  "capturedAt": "2026-10-16T00:57:31Z",
   "registry": "https://api.oa2a.org",
   "environment": {
     "platform": "darwin arm64",
@@ -26,11 +31,12 @@
     "capture": "docs/captures/quick-start.txt",
     "stream": "stdout",
     "bytes": 668,
+    "sha256": "55597c1c4b3943b0f2b7aa3024ea914cac49e7267831b8a875784a0f3afd0f48",
     "stderr": "empty"
   },
   "readmeExcerpt": {
     "file": "README.md",
     "lines": "2-13 of the capture",
-    "omitted": "the blank first and last lines"
+    "omitted": "1 blank line at the start and 1 blank line at the end"
   }
 }

@@ -17,6 +17,7 @@ cd ai-trust
 git status                # clean, or only the branch you intend to ship
 npm ci                    # lockfile valid
 npm run build             # zero output, zero errors
+npm run docs:capture      # re-captures the README's first command from this build; commit the three files it writes
 npm test                  # all green
 npx vitest list | wc -l   # test count; must not be lower than on the last release tag
 npm run docs:links        # exit 0: each URL the docs and the CLI cite resolves
