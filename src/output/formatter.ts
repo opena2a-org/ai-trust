@@ -878,7 +878,7 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
     severity: f.severity as "critical" | "high" | "medium" | "low",
     name: f.name,
     checkId: f.checkId,
-    file: f.file,
+    file: typeof f.file === "string" ? stripControlCharacters(f.file) : undefined,
     line: f.line,
   }));
   const rawKind = result.scan.projectType?.trim();
@@ -1006,6 +1006,12 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
       lines.push(
         `  ${sevColor("\u2502")} ${sevColor.bold(label)}  ${chalk.bold.white(f.name)}`
       );
+      // The path comes from the scanned tree, so control characters in it
+      // are removed before it reaches the terminal.
+      if (typeof f.file === "string" && f.file !== "") {
+        const loc = stripControlCharacters(f.file) + (typeof f.line === "number" ? `:${f.line}` : "");
+        lines.push(`  ${sevColor("\u2502")} ${chalk.dim(loc)}`);
+      }
       if (f.message && f.message !== f.name) {
         lines.push(`  ${sevColor("\u2502")} ${f.message}`);
       }

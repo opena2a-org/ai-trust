@@ -29,6 +29,12 @@ export interface CheckJsonFinding {
   category?: string;
   /** Present only when the underlying finding carried an attack class. */
   attackClass?: string;
+  /** Path of the file the finding is in, as the scanner reported it. */
+  file?: string;
+  /** 1-based line in `file`; present only when the scanner reported one. */
+  line?: number;
+  /** The scanner's fix for the finding, when it supplied one. */
+  fix?: string;
 }
 
 /** Stable, camelCase trust result for `ai-trust check --json`. */
@@ -97,6 +103,9 @@ function mapFinding(f: {
   message?: string;
   category?: string;
   attackClass?: string;
+  file?: string;
+  line?: number;
+  fix?: string;
 }): CheckJsonFinding {
   const out: CheckJsonFinding = {
     checkId: f.checkId,
@@ -107,6 +116,11 @@ function mapFinding(f: {
   if (f.message !== undefined && f.message !== "") out.message = f.message;
   if (f.category !== undefined) out.category = f.category;
   if (f.attackClass !== undefined) out.attackClass = f.attackClass;
+  if (typeof f.file === "string" && f.file !== "") out.file = f.file;
+  // A line that is not a number (absent, or null in the scanner's JSON) is
+  // no line, so the field is omitted rather than written as null.
+  if (typeof f.line === "number") out.line = f.line;
+  if (typeof f.fix === "string" && f.fix !== "") out.fix = f.fix;
   return out;
 }
 
