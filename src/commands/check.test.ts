@@ -40,6 +40,7 @@ vi.mock("../scanner/index.js", () => ({
   reinstallCommand: vi.fn().mockReturnValue("cd /work/project && npm install"),
   scanPackage: vi.fn(),
   scanLocalPath: vi.fn(),
+  scannerTempDirProblem: vi.fn().mockReturnValue(null),
 }));
 
 // Mock prompt

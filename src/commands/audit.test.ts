@@ -41,6 +41,7 @@ vi.mock("../scanner/index.js", () => ({
   isHmaAvailable: vi.fn().mockResolvedValue(false),
   reinstallCommand: vi.fn().mockReturnValue("npm install -g ai-trust"),
   scanPackage: vi.fn(),
+  scannerTempDirProblem: vi.fn().mockReturnValue(null),
 }));
 
 vi.mock("../utils/prompt.js", () => ({

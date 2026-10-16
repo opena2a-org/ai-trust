@@ -4,7 +4,7 @@
 
 export { downloadPackage } from "./downloader.js";
 export type { DownloadResult } from "./downloader.js";
-export { isHmaAvailable, reinstallCommand, runHmaScan } from "./hma.js";
+export { isHmaAvailable, reinstallCommand, runHmaScan, scannerTempDirProblem } from "./hma.js";
 export type { HmaScanResult, HmaFinding, SemanticFinding, AnalystFinding, HmaScanOptions } from "./hma.js";
 
 import { lstat, readFile, readdir, stat } from "node:fs/promises";

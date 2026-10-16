@@ -38,6 +38,7 @@ vi.mock("../scanner/index.js", () => ({
   reinstallCommand: vi.fn().mockReturnValue("npm install -g ai-trust"),
   scanPackage: vi.fn(),
   scanLocalPath: vi.fn(),
+  scannerTempDirProblem: vi.fn().mockReturnValue(null),
 }));
 
 import { registerCheckCommand } from "./check.js";
