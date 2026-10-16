@@ -5,14 +5,12 @@
     "package": "ai-trust",
     "version": "0.7.6",
     "build": "dist/index.js as npm run build left it",
-    "commit": "ae11232970e564120b43b2a1302a5c332d178896",
-    "uncommittedBuildInputs": [
-      "package.json"
-    ],
+    "commit": "f9faf7da4f594cbfbe457ca3ed11df187bd7111f",
+    "uncommittedBuildInputs": [],
     "taggedRelease": false,
     "invokedAs": "node dist/index.js check @modelcontextprotocol/server-filesystem --no-scan"
   },
-  "capturedAt": "2026-10-16T00:57:31Z",
+  "capturedAt": "2026-10-16T04:09:44Z",
   "registry": "https://api.oa2a.org",
   "environment": {
     "platform": "darwin arm64",
