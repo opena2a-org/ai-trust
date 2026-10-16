@@ -1705,7 +1705,7 @@ describe("check command", () => {
       ["empty", ""],
       ["spaces only", "   "],
     ] as const) {
-      for (const flags of [[], ["--no-scan"], ["--json"]]) {
+      for (const flags of [[], ["--no-scan"]]) {
         it(`${label} target with ${flags.join(" ") || "no flag"}: a usage error before any lookup or scan`, async () => {
           await createProgram().parseAsync(["node", "test", "check", target, ...flags]);
 
@@ -1713,6 +1713,31 @@ describe("check command", () => {
             "Error: No package name given. Usage: ai-trust check <package>",
           ]);
           expect(consoleSpy).not.toHaveBeenCalled();
+          expect(process.exitCode).toBe(1);
+          expect(RegistryClient).not.toHaveBeenCalled();
+          expect(isHmaAvailable).not.toHaveBeenCalled();
+          expect(scanPackage).not.toHaveBeenCalled();
+        });
+      }
+    }
+  });
+
+  // With --json the usage error is one JSON object on stdout and nothing on
+  // stderr, as for a --registry-url usage error.
+  describe("a target that names no package, with --json (#183)", () => {
+    for (const [target, error] of [
+      ["", "No package name given. Usage: ai-trust check <package>"],
+      ["   ", "No package name given. Usage: ai-trust check <package>"],
+      ["pip:", 'No package name after "pip:". Usage: ai-trust check pip:<package>'],
+      ["npm:", 'No package name after "npm:". Usage: ai-trust check npm:<package>'],
+    ] as const) {
+      for (const flags of [["--json"], ["--no-scan", "--json"]]) {
+        it(`check ${JSON.stringify(target)} ${flags.join(" ")}: {"error"} on stdout, exit 1`, async () => {
+          await createProgram().parseAsync(["node", "test", "check", target, ...flags]);
+
+          expect(consoleSpy.mock.calls).toHaveLength(1);
+          expect(JSON.parse(String(consoleSpy.mock.calls[0][0]))).toEqual({ error });
+          expect(consoleErrSpy).not.toHaveBeenCalled();
           expect(process.exitCode).toBe(1);
           expect(RegistryClient).not.toHaveBeenCalled();
           expect(isHmaAvailable).not.toHaveBeenCalled();
