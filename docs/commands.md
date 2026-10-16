@@ -65,7 +65,9 @@ Text output prints the first 10 findings, by severity, then a line that counts t
 
 ### `audit`
 
-Parse dependency files and audit AI packages. Supports `.json` (package.json format) and `.txt` (requirements.txt format). Libraries get partitioned into an "Out of scope" section.
+Parse dependency files and audit AI packages. Reads a file named `package.json` (npm) or a requirements file (PyPI): `requirements.txt`, a variant such as `requirements-dev.txt`, or a bare `requirements`. A file of any other name is refused before it is read or anything is looked up, with exit 1: `Error: audit reads package.json or requirements.txt; README.md is neither.` Libraries get partitioned into an "Out of scope" section.
+
+Every dependency that is not in the registry and was not scanned is named in the text output, since each one makes `audit` exit 2: an AI package in the Summary, an unclassified name in the "Unclassified" section, and a library under "Out of scope (libraries)" as `Not found in registry: <names>`.
 
 ```bash
 ai-trust audit package.json

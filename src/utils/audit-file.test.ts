@@ -1,12 +1,13 @@
 /**
- * Tests for the dependency-file probe behind the audit next step.
+ * Tests for the dependency-file probe behind the audit next step, and the
+ * refusal of a file audit does not read.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { findAuditFile } from "./audit-file.js";
+import { auditFileRefusal, findAuditFile } from "./audit-file.js";
 
 describe("findAuditFile", () => {
   let dir: string;
@@ -63,5 +64,45 @@ describe("findAuditFile", () => {
       throw new Error("ENOENT: process.cwd failed");
     });
     expect(findAuditFile()).toBeNull();
+  });
+});
+
+describe("auditFileRefusal", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "ai-trust-audit-refusal-"));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("refuses a file of another name", () => {
+    const readme = join(dir, "README.md");
+    writeFileSync(readme, "# DVAA\n");
+    expect(auditFileRefusal(readme)?.message).toBe(
+      "audit reads package.json or requirements.txt; README.md is neither."
+    );
+  });
+
+  it.each(["package.json", "requirements.txt", "requirements-dev.txt", "requirements"])(
+    "accepts %s",
+    (name) => {
+      const file = join(dir, name);
+      writeFileSync(file, "");
+      expect(auditFileRefusal(file)).toBeNull();
+    }
+  );
+
+  it("leaves a path that does not exist to the read", () => {
+    expect(auditFileRefusal(join(dir, "README.md"))).toBeNull();
+  });
+
+  it("leaves a directory to the read, whatever its name", () => {
+    const sub = join(dir, "dvaa");
+    mkdirSync(sub);
+    expect(auditFileRefusal(sub)).toBeNull();
+    expect(auditFileRefusal(`${sub}/`)).toBeNull();
   });
 });

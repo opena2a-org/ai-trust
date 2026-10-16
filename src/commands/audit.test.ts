@@ -71,6 +71,7 @@ vi.mock("@opena2a/contribute", () => ({
 
 import { RegistryClient } from "@opena2a/registry-client";
 import { parseDependencyFile, detectEcosystem } from "../utils/parser.js";
+import { formatBatchResults } from "../output/formatter.js";
 import { isHmaAvailable, scanPackage } from "../scanner/index.js";
 import { sendScanPing } from "../telemetry/contribute.js";
 import { readContributeChoice, saveContributeChoice } from "../telemetry/opt-in.js";
@@ -246,6 +247,124 @@ describe("audit command", () => {
     expect(consoleErrSpy).toHaveBeenCalledWith("Error: File not found");
     // Only a missing file gets the accepted-files and next-command lines.
     expect(consoleErrSpy).toHaveBeenCalledTimes(1);
+  });
+
+  // These use files in a temporary directory, and the real parser (and, for
+  // the text output, the real formatter) where a test says so.
+  describe("the file audit reads, and what it names", () => {
+    let dir: string;
+    let fetchSpy: MockInstance<typeof fetch>;
+
+    function stderrLines(): string[] {
+      return consoleErrSpy.mock.calls.map((c) => String(c[0]));
+    }
+
+    async function useRealParser(): Promise<void> {
+      const actual = await vi.importActual<typeof import("../utils/parser.js")>(
+        "../utils/parser.js"
+      );
+      vi.mocked(parseDependencyFile).mockImplementationOnce(actual.parseDependencyFile);
+    }
+
+    beforeEach(() => {
+      dir = mkdtempSync(join(tmpdir(), "ai-trust-audit-file-"));
+      fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockRejectedValue(new Error("no network in tests"));
+    });
+
+    afterEach(() => {
+      fetchSpy.mockRestore();
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    it("refuses README.md with exit 1 before reading it, and asks the registry nothing", async () => {
+      const readme = join(dir, "README.md");
+      writeFileSync(readme, "# DVAA\n\ndocker compose up\nhackmyagent secure .\n2 services\n");
+
+      await createProgram().parseAsync(["node", "test", "audit", readme]);
+
+      expect(stderrLines()).toEqual([
+        "Error: audit reads package.json or requirements.txt; README.md is neither.",
+        "  Next: ai-trust audit --help",
+      ]);
+      expect(process.exitCode).toBe(1);
+      expect(parseDependencyFile).not.toHaveBeenCalled();
+      expect(RegistryClient).not.toHaveBeenCalled();
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("prints the refusal as the --json error object", async () => {
+      const readme = join(dir, "README.md");
+      writeFileSync(readme, "# DVAA\n");
+
+      await createProgram().parseAsync(["node", "test", "--json", "audit", readme]);
+
+      expect(consoleSpy).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(String(consoleSpy.mock.calls[0][0]))).toEqual({
+        file: readme,
+        error: "audit reads package.json or requirements.txt; README.md is neither.",
+      });
+      expect(consoleErrSpy).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(1);
+      expect(parseDependencyFile).not.toHaveBeenCalled();
+      expect(RegistryClient).not.toHaveBeenCalled();
+    });
+
+    it("reports a missing README.md as not found, as for any missing file", async () => {
+      const missing = join(dir, "README.md");
+      await useRealParser();
+
+      await createProgram().parseAsync(["node", "test", "audit", missing]);
+
+      expect(stderrLines()[0]).toBe(`Error: File not found: ${missing}`);
+      expect(process.exitCode).toBe(1);
+      expect(RegistryClient).not.toHaveBeenCalled();
+    });
+
+    it("leaves a directory to the directory error instead of refusing it by name", async () => {
+      const sub = join(dir, "dvaa");
+      mkdirSync(sub);
+      await useRealParser();
+
+      await createProgram().parseAsync(["node", "test", "audit", sub]);
+
+      expect(parseDependencyFile).toHaveBeenCalledWith(sub);
+      expect(stderrLines()[0]).toMatch(/^Error: .*directory/);
+      expect(stderrLines().join("\n")).not.toContain("is neither");
+      expect(process.exitCode).toBe(1);
+      expect(RegistryClient).not.toHaveBeenCalled();
+    });
+
+    it("names a dependency the registry does not have, which is why it exits 2", async () => {
+      const manifest = join(dir, "package.json");
+      writeFileSync(
+        manifest,
+        JSON.stringify({ dependencies: { express: "^4.18.2", child_process: "^1.0.2" } })
+      );
+      await useRealParser();
+      const actualFormatter = await vi.importActual<
+        typeof import("../output/formatter.js")
+      >("../output/formatter.js");
+      vi.mocked(formatBatchResults).mockImplementationOnce(actualFormatter.formatBatchResults);
+      const mockBatchQuery = vi.fn().mockResolvedValue({
+        results: [
+          { name: "express", found: true, packageType: "library", trustLevel: 2, verdict: "listed" },
+          { name: "child_process", found: false, trustLevel: 0, verdict: "unknown" },
+        ],
+        meta: { total: 2, found: 1, notFound: 1 },
+      });
+      vi.mocked(RegistryClient).mockImplementation(function () {
+        return { checkTrust: vi.fn(), batchQuery: mockBatchQuery } as any;
+      });
+
+      await createProgram().parseAsync(["node", "test", "audit", manifest]);
+
+      expect(mockBatchQuery).toHaveBeenCalledWith([{ name: "express" }, { name: "child_process" }]);
+      const text = String(consoleSpy.mock.calls[0][0]).replace(/\x1b\[[0-9;]*m/g, "");
+      expect(text.split("\n")).toContain("  │ child_process");
+      expect(process.exitCode).toBe(2);
+    });
   });
 
   describe("file not found: what audit reads and the next command", () => {

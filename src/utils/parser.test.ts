@@ -3,8 +3,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { parseDependencyFile } from "./parser.js";
+import { detectEcosystem, parseDependencyFile } from "./parser.js";
 import * as fs from "node:fs/promises";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import * as path from "node:path";
 
 vi.mock("node:fs/promises");
@@ -165,51 +167,103 @@ describe("parseDependencyFile", () => {
     });
   });
 
-  describe("flexible file detection", () => {
-    it("parses .json files with non-standard names as package.json", async () => {
-      mockReadFile.mockResolvedValue(
-        JSON.stringify({
-          dependencies: { express: "^4.0.0" },
-        })
+  describe("file names audit reads", () => {
+    // The refusal looks at the path on disk, so these files are real; only
+    // the read is mocked.
+    let dir: string;
+
+    beforeEach(() => {
+      dir = mkdtempSync(path.join(tmpdir(), "ai-trust-parser-"));
+    });
+
+    afterEach(() => {
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    function readFails(code: string): NodeJS.ErrnoException {
+      const err = new Error(`${code}: read failed`) as NodeJS.ErrnoException;
+      err.code = code;
+      mockReadFile.mockRejectedValue(err);
+      return err;
+    }
+
+    it("refuses README.md before reading it", async () => {
+      const readme = path.join(dir, "README.md");
+      writeFileSync(readme, "# DVAA\ndocker compose up\n");
+
+      await expect(parseDependencyFile(readme)).rejects.toThrow(
+        "audit reads package.json or requirements.txt; README.md is neither."
       );
-
-      const result = await parseDependencyFile("/fake/my-deps.json");
-
-      expect(result).toEqual([{ name: "express" }]);
+      expect(mockReadFile).not.toHaveBeenCalled();
     });
 
-    it("parses .txt files as requirements.txt format", async () => {
-      mockReadFile.mockResolvedValue("flask==2.3.0\nrequests\n");
+    it.each(["my-deps.json", "deps.txt", "Depfile", "Gemfile", "notes.txt", "package.json.bak"])(
+      "refuses %s before reading it",
+      async (name) => {
+        const file = path.join(dir, name);
+        writeFileSync(file, JSON.stringify({ dependencies: { lodash: "^4.0.0" } }));
 
-      const result = await parseDependencyFile("/fake/deps.txt");
+        await expect(parseDependencyFile(file)).rejects.toThrow(
+          `audit reads package.json or requirements.txt; ${name} is neither.`
+        );
+        expect(mockReadFile).not.toHaveBeenCalled();
+      }
+    );
 
-      expect(result).toEqual([
-        { name: "flask", ecosystem: "pypi" },
-        { name: "requests", ecosystem: "pypi" },
-      ]);
+    it("leaves a missing file of another name to the read, which fails with ENOENT", async () => {
+      const enoent = readFails("ENOENT");
+      const missing = path.join(dir, "README.md");
+
+      await expect(parseDependencyFile(missing)).rejects.toBe(enoent);
+      expect(mockReadFile).toHaveBeenCalledWith(missing, "utf-8");
     });
 
-    it("auto-detects JSON content for unknown extensions", async () => {
-      mockReadFile.mockResolvedValue(
-        JSON.stringify({
-          dependencies: { lodash: "^4.0.0" },
-        })
+    it("leaves a directory to the read, which fails with EISDIR, instead of refusing it by name", async () => {
+      const sub = path.join(dir, "dvaa");
+      mkdirSync(sub);
+      const eisdir = readFails("EISDIR");
+
+      await expect(parseDependencyFile(`${sub}/`)).rejects.toBe(eisdir);
+      expect(mockReadFile).toHaveBeenCalledWith(`${sub}/`, "utf-8");
+    });
+
+    it("passes on EISDIR for a directory named package.json", async () => {
+      const eisdir = readFails("EISDIR");
+
+      await expect(parseDependencyFile("/fake/package.json")).rejects.toBe(eisdir);
+    });
+
+    it("refuses another name that is read because it was not there to refuse", async () => {
+      mockReadFile.mockResolvedValue(JSON.stringify({ dependencies: { lodash: "^4.0.0" } }));
+
+      await expect(parseDependencyFile(path.join(dir, "deps.json"))).rejects.toThrow(
+        "audit reads package.json or requirements.txt; deps.json is neither."
       );
-
-      const result = await parseDependencyFile("/fake/Depfile");
-
-      expect(result).toEqual([{ name: "lodash" }]);
     });
 
-    it("falls back to requirements.txt parsing for non-JSON unknown extensions", async () => {
-      mockReadFile.mockResolvedValue("flask\nrequests\n");
+    it.each(["requirements-dev.txt", "requirements_test.txt", "requirements"])(
+      "reads %s as a requirements file",
+      async (name) => {
+        mockReadFile.mockResolvedValue("flask==2.3.0\nrequests\n");
 
-      const result = await parseDependencyFile("/fake/Gemfile");
+        const result = await parseDependencyFile(`/fake/${name}`);
 
-      expect(result).toEqual([
-        { name: "flask", ecosystem: "pypi" },
-        { name: "requests", ecosystem: "pypi" },
-      ]);
-    });
+        expect(result).toEqual([
+          { name: "flask", ecosystem: "pypi" },
+          { name: "requests", ecosystem: "pypi" },
+        ]);
+      }
+    );
+  });
+});
+
+describe("detectEcosystem", () => {
+  it.each([
+    ["package.json", "npm"],
+    ["requirements.txt", "pypi"],
+    ["requirements-dev.txt", "pypi"],
+    ["requirements", "pypi"],
+  ] as const)("names %s as %s", (name, ecosystem) => {
+    expect(detectEcosystem(`/fake/${name}`)).toBe(ecosystem);
   });
 });

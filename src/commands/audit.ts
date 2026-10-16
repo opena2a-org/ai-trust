@@ -22,6 +22,7 @@ import {
   scannerTempDirProblem,
 } from "../scanner/index.js";
 import type { ScanResult } from "../scanner/index.js";
+import { auditFileRefusal } from "../utils/audit-file.js";
 import { confirm } from "../utils/prompt.js";
 import { shareScans } from "../telemetry/index.js";
 import { createRequire } from "node:module";
@@ -75,6 +76,21 @@ export function registerAuditCommand(program: Command): void {
       const minTrust = parseInt(opts.minTrust, 10);
       if (isNaN(minTrust) || minTrust < 0 || minTrust > 4) {
         console.error("Error: --min-trust must be a number between 0 and 4");
+        process.exitCode = 1;
+        return;
+      }
+
+      // Refused before it is read: each line of another file would be
+      // looked up as a package name.
+      const refusal = auditFileRefusal(file);
+      if (refusal) {
+        if (globalOpts.json) {
+          console.log(formatJson({ file, error: refusal.message }));
+        } else {
+          console.error(`Error: ${stripControlCharacters(refusal.message)}`);
+          // The refusal already names the files audit reads.
+          console.error(`  Next: ${missingFileNextCommand(file)}`);
+        }
         process.exitCode = 1;
         return;
       }
@@ -214,10 +230,10 @@ export function registerAuditCommand(program: Command): void {
 }
 
 /**
- * The command to suggest after `audit <file>` found no file. When the
- * argument was a bare file name and the current directory holds a file
- * audit reads, that file is the next step; otherwise the help, which runs
- * anywhere and lists what the command accepts.
+ * The command to suggest after `audit <file>` found no file, or was given a
+ * file it does not read. When the argument was a bare name and the current
+ * directory holds a file audit reads, that file is the next step; otherwise
+ * the help, which runs anywhere and lists what the command accepts.
  */
 function missingFileNextCommand(file: string): string {
   const found = basename(file) === file ? findAuditFile() : null;
