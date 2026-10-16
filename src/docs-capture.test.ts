@@ -293,6 +293,32 @@ describe("docs:capture --check and the commit the record names", { timeout: 3000
   });
 });
 
+describe("docs:capture reports a file it cannot read on one line, exit 1", () => {
+  for (const [check, rel, damage] of [
+    [true, "package.json", "missing"],
+    [true, README, "missing"],
+    [true, "package.json", "not JSON"],
+    [false, README, "missing"],
+    [false, "package.json", "missing"],
+    [false, "package.json", "not JSON"],
+  ] as const) {
+    it(`${check ? "--check" : "a capture"}, with ${rel} ${damage}`, async () => {
+      const root = scratchRoot(check ? undefined : 'process.stdout.write("output\\n");');
+      if (damage === "missing") rmSync(join(root, rel));
+      else writeFileSync(join(root, rel), "{");
+      const kept = WRITTEN.filter((other) => other !== rel);
+      const before = kept.map((other) => read(root, other));
+      const reason = `cannot read ${rel}: ${damage === "missing" ? "ENOENT" : ""}`;
+
+      if (check) expect(checkCapture(root)).toEqual([expect.stringContaining(reason)]);
+      const { stderr, status } = await run(SCRIPT, [...(check ? ["--check"] : ["--registry-url", registryUrl]), "--root", root]);
+      expect(status).toBe(1);
+      expect(stderr.split("\n"), stderr).toEqual([expect.stringContaining(`docs:capture${check ? " --check" : ""}: ${reason}`), ""]);
+      expect(kept.map((other) => read(root, other))).toEqual(before);
+    });
+  }
+});
+
 describe("npm run docs:capture", { timeout: 60000 }, () => {
   it("writes what dist/index.js prints for the README's first command, its record and the README sample", async () => {
     const root = scratchRoot();
