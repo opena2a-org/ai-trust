@@ -1648,6 +1648,59 @@ describe("documented exit codes match check outcomes", () => {
     expect(process.exitCode ?? 0).toBe(documented);
   });
 
+  it('Exit-code table row "Nothing to scan" gives the code check --scan-path sets when the scanner read 0 files', async () => {
+    vi.mocked(isHmaAvailable).mockResolvedValue(true);
+    vi.mocked(scanLocalPath).mockResolvedValue({
+      packageName: "fixture",
+      scan: {
+        score: 93,
+        maxScore: 100,
+        checksEvaluated: 22,
+        filesExamined: 0,
+        findings: [],
+        projectType: "library",
+        timestamp: "2026-10-16T00:00:00Z",
+      },
+      trustScore: 0.93,
+      trustLevel: 3,
+      verdict: "safe",
+    });
+
+    await createProgram().parseAsync(["node", "test", "check", "fixture", "--scan-path", "/tmp/empty"]);
+
+    const documented = documentedExitCodes().get("Nothing to scan");
+    expect(documented, 'docs/commands.md exit-code table has no "Nothing to scan" row').toBeDefined();
+    expect(documented).toBe(2);
+    expect(process.exitCode ?? 0).toBe(documented);
+    expect(formatScanResult).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ scanPath: "/tmp/empty" }),
+    );
+  });
+
+  it("check --scan-path exits 0 for a scan that read files, whatever the verdict", async () => {
+    vi.mocked(isHmaAvailable).mockResolvedValue(true);
+    vi.mocked(scanLocalPath).mockResolvedValue({
+      packageName: "fixture",
+      scan: {
+        score: 93,
+        maxScore: 100,
+        checksEvaluated: 22,
+        filesExamined: 4,
+        findings: [],
+        projectType: "library",
+        timestamp: "2026-10-16T00:00:00Z",
+      },
+      trustScore: 0.93,
+      trustLevel: 3,
+      verdict: "safe",
+    });
+
+    await createProgram().parseAsync(["node", "test", "check", "fixture", "--scan-path", "/tmp/project"]);
+
+    expect(process.exitCode ?? 0).toBe(0);
+  });
+
   it('Exit-code table row "Local scan could not run" gives the code check --scan-path exits with', async () => {
     vi.mocked(isHmaAvailable).mockResolvedValue(true);
     vi.mocked(scanLocalPath).mockRejectedValue(new Error("ENOENT: no such file or directory"));

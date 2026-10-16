@@ -276,6 +276,38 @@ describe("buildCheckJsonFromScan (scan path)", () => {
     // category is "" -> still defined on the source, so it is preserved as ""
     expect(f.category).toBe("");
   });
+
+  it("records the number of files the scanner read", () => {
+    const json = buildCheckJsonFromScan({
+      ...baseScan,
+      scan: { ...baseScan.scan, filesExamined: 12 },
+    });
+    expect(json.filesExamined).toBe(12);
+    expect(json.score).toBe(45);
+    expect(json).not.toHaveProperty("scored");
+  });
+
+  it("omits filesExamined when the scanner did not report it", () => {
+    expect(buildCheckJsonFromScan(baseScan)).not.toHaveProperty("filesExamined");
+  });
+
+  it("marks a scan that read 0 files as not scored, with no score, verdict, level, type or findings", () => {
+    const json = buildCheckJsonFromScan({
+      ...baseScan,
+      scan: { ...baseScan.scan, filesExamined: 0, score: 93, projectType: "library" },
+      trustScore: 0.93,
+      trustLevel: 3,
+      verdict: "safe",
+    });
+    expect(json).toEqual({
+      name: "scanned-pkg",
+      source: "scan",
+      found: true,
+      scored: false,
+      notScoredReason: "nothing to scan: the scanner read 0 files",
+      filesExamined: 0,
+    });
+  });
 });
 
 describe("buildCheckJson (union)", () => {

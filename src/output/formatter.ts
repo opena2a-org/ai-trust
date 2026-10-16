@@ -38,7 +38,7 @@ import {
   readSecurityProfile,
   type RegistrySecurityProfile,
 } from "./security-profile.js";
-import { capLength, sanitizeRegistryValue } from "./sanitize.js";
+import { capLength, sanitizeRegistryValue, stripControlCharacters } from "./sanitize.js";
 import { mapScanStatusForMeter } from "@opena2a/check-core";
 import { classify, tierLabel } from "@opena2a/ai-classifier";
 import type { Tier } from "@opena2a/ai-classifier";
@@ -819,6 +819,11 @@ export interface FormatScanResultOptions {
    * registry answer's header does. Defaults to npm, which adds nothing.
    */
   ecosystem?: "npm" | "pypi";
+  /**
+   * The directory `check --scan-path` scanned, as the user gave it. Named in
+   * the notice for a scan that read 0 files, with a command that lists it.
+   */
+  scanPath?: string;
 }
 
 export function formatScanResult(result: ScanResult, opts: FormatScanResultOptions = {}): string {
@@ -830,6 +835,22 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
     "",
     `  ${chalk.bold.white(result.packageName)}${ecosystemSuffix(opts.ecosystem ?? "npm")}  ${chalk.dim(remote ? "downloaded package" : "local scan")}`,
   ];
+
+  // The scanner read no file. The checks that still ran report files that
+  // are absent (no lock file, no .gitignore), so the score, the level, the
+  // verdict and those findings would describe a measurement that did not
+  // happen. Say there was nothing to scan and print none of them.
+  if (result.scan.filesExamined === 0) {
+    const target = stripControlCharacters(opts.scanPath ?? result.packageName);
+    lines.push(`  ${chalk.bold(`Nothing to scan in ${target}: 0 files read.`)}`);
+    if (opts.scanPath !== undefined) {
+      lines.push("");
+      lines.push(`  ${chalk.cyan("Verify:")}  ls -A ${shellArg(target)}`);
+      lines.push(`  ${chalk.cyan("Fix:")}     pass --scan-path a directory that holds the files to scan`);
+    }
+    lines.push("");
+    return lines.join("\n");
+  }
 
   // Verdict
   const failed = result.scan.findings.filter((f) => !f.passed);
