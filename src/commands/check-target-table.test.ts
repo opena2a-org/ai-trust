@@ -444,6 +444,32 @@ const ROWS: Row[] = [
     },
   },
   {
+    form: "empty",
+    target: "",
+    cells: {
+      "no flag": {
+        exit: 1,
+        shows: ["Error: No package name given. Usage: ai-trust check <package>"],
+        requests: [],
+      },
+      "--no-scan": {
+        exit: 1,
+        shows: ["Error: No package name given. Usage: ai-trust check <package>"],
+        requests: [],
+      },
+      "--json": {
+        exit: 1,
+        shows: ["Error: No package name given. Usage: ai-trust check <package>"],
+        requests: [],
+      },
+      "--no-scan --json": {
+        exit: 1,
+        shows: ["Error: No package name given. Usage: ai-trust check <package>"],
+        requests: [],
+      },
+    },
+  },
+  {
     form: "pip: with nothing after",
     target: "pip:",
     cells: {

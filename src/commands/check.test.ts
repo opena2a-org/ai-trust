@@ -1530,6 +1530,37 @@ describe("check command", () => {
       expect(help).toMatch(/--scan-if-missing\s+deprecated/);
       expect(help).not.toMatch(/ai-trust check \S+ --scan-if-missing/);
     });
+
+    it("describes --scan-path by what it does for the user, not by the test corpus it serves (#177)", () => {
+      const help = checkHelp().replace(/\s+/g, " ");
+      expect(help).not.toContain("adversarial-corpus");
+      expect(help).not.toContain("npm-pack");
+      expect(help).toContain(
+        "--scan-path <dir> scan a local directory instead of downloading a package; <name> labels the result",
+      );
+    });
+  });
+
+  describe("an empty target names no package (#177)", () => {
+    for (const [label, target] of [
+      ["empty", ""],
+      ["spaces only", "   "],
+    ] as const) {
+      for (const flags of [[], ["--no-scan"], ["--json"]]) {
+        it(`${label} target with ${flags.join(" ") || "no flag"}: a usage error before any lookup or scan`, async () => {
+          await createProgram().parseAsync(["node", "test", "check", target, ...flags]);
+
+          expect(consoleErrSpy.mock.calls.map((c) => c.join(" "))).toEqual([
+            "Error: No package name given. Usage: ai-trust check <package>",
+          ]);
+          expect(consoleSpy).not.toHaveBeenCalled();
+          expect(process.exitCode).toBe(1);
+          expect(RegistryClient).not.toHaveBeenCalled();
+          expect(isHmaAvailable).not.toHaveBeenCalled();
+          expect(scanPackage).not.toHaveBeenCalled();
+        });
+      }
+    }
   });
 });
 

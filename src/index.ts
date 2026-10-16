@@ -15,6 +15,7 @@ import { registerBatchCommand } from "./commands/batch.js";
 import { registerConfigCommand } from "./commands/config.js";
 import { helpFooter, onKeptOffByVariable, withEnableSteps } from "./utils/help-footer.js";
 import { helpDocsLine } from "./utils/help-docs.js";
+import { telemetryJson, unknownTelemetryActionJson } from "./utils/telemetry-json.js";
 import { scanPingsSettled } from "./telemetry/contribute.js";
 import { DEFAULT_REGISTRY_URL, registryUrlProblem } from "./utils/registry-url.js";
 import { formatJson } from "./output/formatter.js";
@@ -153,19 +154,32 @@ program.addHelpText("afterAll", ({ command }) => helpDocsLine(command));
         action as Parameters<typeof cliUi.runTelemetryCommand>[0],
         telemetryInput,
       );
+      let keptOffByVariable = false;
       if (action === "on") {
         // setOptOut marks this run on, but OPENA2A_TELEMETRY=off wins over the
         // saved choice on every run; init resolves the state in effect again.
         await tele.init({ tool: TELEMETRY_TOOL, version: VERSION });
         if (!tele.status().enabled) {
+          keptOffByVariable = true;
           output = onKeptOffByVariable(cliUi.runTelemetryCommand("status", telemetryInput));
         }
       }
-      console.log(withEnableSteps(output));
       // An unrecognized action prints "Unknown action …" but must also exit
       // non-zero so scripts and CI can detect the usage error (release-test P3).
       const knownActions = new Set(["on", "off", "status", "--help", "-h"]);
-      if (action !== undefined && !knownActions.has(action)) {
+      const unknownAction =
+        action !== undefined && !knownActions.has(action) ? action : undefined;
+      const { json } = program.opts() as { json: boolean };
+      if (json && unknownAction !== undefined) {
+        console.log(JSON.stringify(unknownTelemetryActionJson(TELEMETRY_TOOL, unknownAction), null, 2));
+      } else if (json && action !== "--help" && action !== "-h") {
+        console.log(
+          JSON.stringify(telemetryJson(TELEMETRY_TOOL, tele.status(), keptOffByVariable), null, 2),
+        );
+      } else {
+        console.log(withEnableSteps(output));
+      }
+      if (unknownAction !== undefined) {
         process.exitCode = 1;
       }
     });

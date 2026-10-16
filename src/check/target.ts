@@ -48,12 +48,18 @@ export interface PypiTarget {
 }
 
 /** A target that names no package. */
-export interface InvalidTarget {
-  kind: "invalid";
-  /** `pip:` or `npm:` with nothing after it. */
-  reason: "no-package-name";
-  prefix: "pip:" | "npm:";
-}
+export type InvalidTarget =
+  | {
+      kind: "invalid";
+      /** An empty target, or one of spaces only. */
+      reason: "empty";
+    }
+  | {
+      kind: "invalid";
+      /** `pip:` or `npm:` with nothing after it. */
+      reason: "no-package-name";
+      prefix: "pip:" | "npm:";
+    };
 
 export type PackageTarget = NpmTarget | GitTarget | PypiTarget;
 
@@ -80,6 +86,7 @@ export function classifyCheckTarget(raw: string): CheckTarget {
 
 /** Read a package target: `pip:<name>`, `npm:<name>` or a bare name. */
 function classifyPackageTarget(raw: string): PackageTarget | InvalidTarget {
+  if (raw.trim() === "") return { kind: "invalid", reason: "empty" };
   const prefix = bareEcosystemPrefix(raw);
   if (prefix) return { kind: "invalid", reason: "no-package-name", prefix };
 

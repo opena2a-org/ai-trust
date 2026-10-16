@@ -257,3 +257,65 @@ describe("contribution docs cite commands that exist", () => {
     );
   });
 });
+
+describe("config with no subcommand (#177)", () => {
+  interface Captured {
+    out: string;
+    err: string;
+    exit?: { code: string; exitCode: number };
+  }
+
+  async function capture(args: string[]): Promise<Captured> {
+    const captured: Captured = { out: "", err: "" };
+    const program = new Command();
+    program
+      .name("ai-trust")
+      .exitOverride()
+      .configureOutput({
+        writeOut: (s) => (captured.out += s),
+        writeErr: (s) => (captured.err += s),
+      })
+      .option("--json", "output raw JSON", false);
+    registerConfigCommand(program);
+    try {
+      await program.parseAsync(["node", "ai-trust", ...args]);
+    } catch (e) {
+      const { code, exitCode } = e as { code: string; exitCode: number };
+      captured.exit = { code, exitCode };
+    }
+    return captured;
+  }
+
+  it("prints the config help to stdout and exits 0, as the root help does", async () => {
+    const { out, err, exit } = await capture(["config"]);
+    expect(exit).toEqual({ code: "commander.help", exitCode: 0 });
+    expect(out).toContain("Usage: ai-trust config [options] [command]");
+    expect(out).toMatch(/contribute \[action\]/);
+    expect(out).toMatch(/help \[command\]/);
+    expect(err).toBe("");
+  });
+
+  it("keeps `config help` and `config help contribute`", async () => {
+    const bare = await capture(["config", "help"]);
+    expect(bare.exit).toEqual({ code: "commander.help", exitCode: 0 });
+    expect(bare.out).toContain("Usage: ai-trust config [options] [command]");
+
+    const sub = await capture(["config", "help", "contribute"]);
+    expect(sub.exit).toEqual({ code: "commander.help", exitCode: 0 });
+    expect(sub.out).toContain("Usage: ai-trust config contribute [options] [action]");
+  });
+
+  it("an unknown subcommand stays an error with exit 1 and a suggestion", async () => {
+    const { out, err, exit } = await capture(["config", "contribut"]);
+    expect(exit).toEqual({ code: "commander.unknownCommand", exitCode: 1 });
+    expect(err).toContain("error: unknown command 'contribut'");
+    expect(err).toContain("(Did you mean contribute?)");
+    expect(out).toBe("");
+  });
+
+  it("an unknown option stays an error with exit 1", async () => {
+    const { exit, err } = await capture(["config", "--bogus"]);
+    expect(exit).toEqual({ code: "commander.unknownOption", exitCode: 1 });
+    expect(err).toContain("error: unknown option '--bogus'");
+  });
+});
