@@ -59,11 +59,11 @@ The OpenA2A Registry uses community-contributed scan data to calculate trust sco
 
 The check counts travel in a summary that the contribute library queues in `~/.opena2a/contribute-queue.json` only when contribution is saved as on, and the contributor token goes with each batch of queued summaries. A scan shared with `--contribute` alone sends the other fields and queues no summary of its own. A run that shares also sends the summaries still queued from earlier runs, with the contributor token: a summary stays queued when its upload failed while contribution was saved as on, and `ai-trust config contribute off` does not remove it.
 
-**Shared by the bundled scanner (hackmyagent): no telemetry and no scan results.**
+**Shared by the bundled scanner (hackmyagent): no telemetry, no scan results, and no file with any LLM provider.**
 
-ai-trust runs the scanner with your saved choices out of its reach, with its usage telemetry off (`OPENA2A_TELEMETRY=off`) and with `--no-contribute`. During an ai-trust scan, the scanner sends no classification telemetry, no usage events and no scan results, whatever `~/.opena2a/config.json` and `~/.hackmyagent/config.json` hold, and it changes neither file.
+ai-trust runs the scanner with your saved choices out of its reach, with its usage telemetry off (`OPENA2A_TELEMETRY=off`), with `--no-contribute`, and without `ANTHROPIC_API_KEY` in its environment. During an ai-trust scan, the scanner sends no classification telemetry, no usage events and no scan results, whatever `~/.opena2a/config.json` and `~/.hackmyagent/config.json` hold, and it changes neither file. With `ANTHROPIC_API_KEY` set in your shell, the scanner still runs without it, so a deep scan sends no file to any LLM provider.
 
-**Never shared:**
+**Never shared, with the registry or with any LLM provider:**
 
 - File paths from your system
 - Source code or file contents
@@ -76,7 +76,7 @@ ai-trust runs the scanner with your saved choices out of its reach, with its usa
 ai-trust config contribute off
 ```
 
-To skip a single scan, pass `--no-contribute` to `ai-trust check` or `ai-trust audit`: ai-trust then shares nothing from that scan, and the bundled scanner (hackmyagent) sends no telemetry or scan results from any ai-trust scan.
+To skip a single scan, pass `--no-contribute` to `ai-trust check` or `ai-trust audit`: ai-trust then shares nothing from that scan, and the bundled scanner (hackmyagent) sends no telemetry, no scan results and no file to any LLM provider from any ai-trust scan.
 
 Or, with opena2a-cli installed:
 
@@ -90,7 +90,7 @@ Your local scan results continue to work. Only the telemetry submission stops.
 
 Every scan you run can improve trust data for the entire community. A contributed scan carries the package name, version and ecosystem, the score and verdict, the project type, and for each check its ID, pass/fail, severity, category and attack class. No file paths, source code, finding names, messages or descriptions. With contribution saved as on, it also queues a summary with check counts by severity. The queued summaries go out with this run or with a later run that shares, and each batch of them carries a pseudonymous contributor token: a SHA-256 hash of the hostname, username and a random salt that stays on your machine, so the hostname and username themselves are never sent.
 
-The bundled scanner (hackmyagent) sends no telemetry or scan results of its own during an ai-trust scan: ai-trust keeps your saved choice out of its reach, so the choice decides only what ai-trust shares. [What data is shared](#4-what-data-is-shared-and-what-is-not) lists the fields.
+The bundled scanner (hackmyagent) sends no telemetry or scan results of its own during an ai-trust scan: ai-trust keeps your saved choice out of its reach, so the choice decides only what ai-trust shares. ai-trust also runs the scanner without `ANTHROPIC_API_KEY`, so the scanner sends no file to any LLM provider. [What data is shared](#4-what-data-is-shared-and-what-is-not) lists the fields.
 
 No scan results are shared until you opt in. `check` never asks: after a few scans without a choice, it prints a tip on how to opt in. `audit` on a terminal asks whether to share after it scans packages the registry does not have, unless contribution is already on, you answered no to that question or ran `ai-trust config contribute off`, or you pass `--contribute` or `--no-contribute`. A no saved by ai-trust 0.7.6 or an off saved by hackmyagent counts as a no when ai-trust finds it with fewer than three scans counted; after that it looks like no choice, so `audit` still asks. Answering it or running `ai-trust config contribute off` records the choice. A global choice is saved in `~/.opena2a/config.json` and shared across all OpenA2A tools (`opena2a-cli`, `hackmyagent`).
 

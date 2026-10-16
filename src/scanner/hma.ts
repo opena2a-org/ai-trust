@@ -261,6 +261,9 @@ export function reinstallCommand(fromDir: string = MODULE_DIR): string {
  */
 const SCANNER_MODEL_DIRS = [".nanomind", join(".opena2a", "nanomind")];
 
+/** The variables the pinned scanner reads to reach a remote model provider. */
+const SCANNER_PROVIDER_VARS = new Set(["ANTHROPIC_API_KEY"]);
+
 /**
  * Run `fn` with the environment for a scanner subprocess. Left to itself,
  * the scanner reads the saved contribution choice from
@@ -272,7 +275,9 @@ const SCANNER_MODEL_DIRS = [".nanomind", join(".opena2a", "nanomind")];
  * new temporary directory, removed afterwards, and with OPENA2A_TELEMETRY
  * set to off; every decision ai-trust made reaches it as a flag. The model
  * directories are linked into that directory, so a deep scan finds its
- * models, and keeps one it downloads, where it did before.
+ * models, and keeps one it downloads, where it did before. The scanner runs
+ * without SCANNER_PROVIDER_VARS, so a deep scan, the default, sends no file
+ * to an LLM provider.
  */
 async function withScannerEnv<T>(fn: (env: NodeJS.ProcessEnv) => Promise<T>): Promise<T> {
   const home = mkdtempSync(join(tmpdir(), "ai-trust-scanner-"));
@@ -293,8 +298,13 @@ async function withScannerEnv<T>(fn: (env: NodeJS.ProcessEnv) => Promise<T>): Pr
       symlinkSync(target, link, "junction");
       links.push(link);
     }
+    const inherited: NodeJS.ProcessEnv = { ...process.env };
+    // Windows reads a variable's name in any letter case.
+    for (const name of Object.keys(inherited)) {
+      if (SCANNER_PROVIDER_VARS.has(name.toUpperCase())) delete inherited[name];
+    }
     return await fn({
-      ...process.env,
+      ...inherited,
       HOME: home,
       USERPROFILE: home,
       OPENA2A_HOME: join(home, ".opena2a"),

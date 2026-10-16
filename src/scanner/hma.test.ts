@@ -3,6 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -285,7 +286,15 @@ describe("scanner environment", () => {
   const scanJson = JSON.stringify({ score: 100, maxScore: 100, findings: [] });
   let tempHome: string;
   let savedEnv: Record<string, string | undefined>;
-  const VARS = ["HOME", "USERPROFILE", "OPENA2A_HOME", "XDG_CONFIG_HOME", "OPENA2A_TELEMETRY"];
+  const VARS = [
+    "HOME",
+    "USERPROFILE",
+    "OPENA2A_HOME",
+    "XDG_CONFIG_HOME",
+    "OPENA2A_TELEMETRY",
+    "ANTHROPIC_API_KEY",
+    "anthropic_api_key",
+  ];
 
   /** The environment of each scanner invocation, with what it saw of its home. */
   let seen: { args: string[]; env: NodeJS.ProcessEnv; models: string[]; savedChoice: boolean }[];
@@ -378,6 +387,35 @@ describe("scanner environment", () => {
     expect(seen[0].env.HOME).not.toBe(tempHome);
     expect(seen[0].env.OPENA2A_TELEMETRY).toBe("off");
     expect(existsSync(seen[0].env.HOME as string)).toBe(false);
+  });
+
+  it("runs secure and the --version check without ANTHROPIC_API_KEY, while ai-trust keeps it", async () => {
+    const placeholder = `placeholder-${randomUUID()}`;
+    process.env.ANTHROPIC_API_KEY = placeholder;
+
+    await runHmaScan("/tmp/test-pkg");
+    expect(await isHmaAvailable()).toBe(true);
+
+    expect(seen.map((s) => s.args.includes("secure"))).toEqual([true, false]);
+    // Filtered first, so a failure prints no other variable's name or value.
+    for (const { env } of seen) {
+      expect(Object.keys(env).filter((k) => k === "ANTHROPIC_API_KEY")).toEqual([]);
+      expect(Object.values(env).filter((v) => v === placeholder)).toEqual([]);
+      // The rest of ai-trust's environment reaches the scanner.
+      expect(env.PATH === process.env.PATH).toBe(true);
+    }
+    // Only the scanner's copy goes without it.
+    expect(process.env.ANTHROPIC_API_KEY).toBe(placeholder);
+  });
+
+  it("runs the scanner without ANTHROPIC_API_KEY in another letter case, which Windows reads as the same name", async () => {
+    const placeholder = `placeholder-${randomUUID()}`;
+    process.env.anthropic_api_key = placeholder;
+
+    await runHmaScan("/tmp/test-pkg");
+
+    expect(Object.keys(seen[0].env).filter((k) => k.toUpperCase() === "ANTHROPIC_API_KEY")).toEqual([]);
+    expect(Object.values(seen[0].env).filter((v) => v === placeholder)).toEqual([]);
   });
 
   it("gives each run a home of its own", async () => {

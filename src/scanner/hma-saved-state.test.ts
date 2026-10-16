@@ -28,11 +28,22 @@
  * OPENA2A_TELEMETRY_URL) point at the stub as well, so nothing leaves the
  * machine. The stub also plays the trust registry (no data for the audited
  * package, so audit scans it) and the npm registry `npm pack` downloads it
- * from.
+ * from. Every process the preload loads into refuses a socket to any host but
+ * loopback, so no request leaves the machine by a path the redirects miss; a
+ * socket the scanner is refused counts as one of its requests.
+ *
+ * ANTHROPIC_API_KEY is the variable the scanner reads to reach an LLM
+ * provider. Two more runs, `check --scan-path` and `audit --scan-missing` with
+ * the default deep scan, set it to a placeholder built here, and must send no
+ * request from the scanner and none of the values planted in the fixture's
+ * .env and mcp.json. A positive control runs the scanner directly with the
+ * same variable under the same preload, and the capture must see at least
+ * one request to the provider with the mcp.json value in its body, so a run
+ * that sends nothing is measured, not missed.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { execFile, execFileSync, spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import {
@@ -41,11 +52,13 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import { availableParallelism, tmpdir } from "node:os";
-import { delimiter, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
@@ -55,6 +68,13 @@ const CLI_PATH = resolve(__dirname, "../../dist/index.js");
 const OPT_IN_URL = pathToFileURL(resolve(__dirname, "../../dist/telemetry/opt-in.js")).href;
 const DECISION_URL = pathToFileURL(resolve(__dirname, "../../dist/telemetry/decision.js")).href;
 const PACKAGE = "matrix-fixture-pkg";
+/** Built per run, so no file holds a value shaped like a key. */
+const PLACEHOLDER_KEY = `placeholder-${randomUUID()}`;
+/** Values only the fixture holds, so a request carrying a file's text shows it. */
+const PLANTED: Record<string, string> = {
+  ".env": `planted-${randomUUID()}`,
+  "mcp.json": `planted-${randomUUID()}`,
+};
 
 const SAVED: { label: string; content: string | null }[] = [
   { label: "absent", content: null },
@@ -77,6 +97,8 @@ interface Cell {
   legacy: (typeof LEGACY)[number];
   flag: (typeof FLAGS)[number];
   noDeep: boolean;
+  /** ANTHROPIC_API_KEY set in ai-trust's environment. */
+  key: boolean;
 }
 
 const CELLS: Cell[] = [];
@@ -84,7 +106,17 @@ for (const command of ["check", "audit"] as const)
   for (const saved of SAVED)
     for (const legacy of LEGACY)
       for (const flag of FLAGS)
-        for (const noDeep of [true, false]) CELLS.push({ command, saved, legacy, flag, noDeep });
+        for (const noDeep of [true, false]) CELLS.push({ command, saved, legacy, flag, noDeep, key: false });
+
+/** The default deep scan of each command, with ANTHROPIC_API_KEY set. */
+const KEY_CELLS: Cell[] = (["check", "audit"] as const).map((command) => ({
+  command,
+  saved: SAVED[0],
+  legacy: LEGACY[0],
+  flag: null,
+  noDeep: false,
+  key: true,
+}));
 
 function cellName(c: Cell): string {
   return [
@@ -93,13 +125,43 @@ function cellName(c: Cell): string {
     `~/.hackmyagent/config.json ${c.legacy.label}`,
     c.flag ?? "no flag",
     c.noDeep ? "--no-deep" : "deep",
+    ...(c.key ? ["ANTHROPIC_API_KEY set"] : []),
   ].join(" | ");
 }
 
-/** Loaded into every process; acts only in the scanner's. */
+/** Loaded into every process; refuses sockets in all, and acts otherwise only in the scanner's. */
 const PRELOAD = String.raw`
 const argv1 = process.argv[1] || "";
-if (/[\\/]hackmyagent[\\/]/.test(argv1)) {
+const isScanner = /[\\/]hackmyagent[\\/]/.test(argv1);
+{
+  const fs = require("fs");
+  const net = require("net");
+  const appendFileSync = fs.appendFileSync.bind(fs);
+  const LOOPBACK_HOSTS = ["127.0.0.1", "localhost", "::1", "[::1]"];
+  const connect0 = net.Socket.prototype.connect;
+  net.Socket.prototype.connect = function (...args) {
+    // net.connect passes its arguments normalized, as [options, callback].
+    const first = Array.isArray(args[0]) ? args[0][0] : args[0];
+    let host = "localhost";
+    let local = false;
+    if (first && typeof first === "object") {
+      if (first.path) local = true;
+      else host = String(first.host || first.hostname || "localhost");
+    } else if (typeof first === "string" && !/^\d+$/.test(first)) {
+      local = true;
+    } else if (typeof args[1] === "string") {
+      host = args[1];
+    }
+    if (local || LOOPBACK_HOSTS.includes(host) || /^127\./.test(host)) return connect0.apply(this, args);
+    if (process.env.MATRIX_LOG) {
+      appendFileSync(process.env.MATRIX_LOG, JSON.stringify({ refused: host, scanner: isScanner }) + "\n");
+    }
+    const socket = this;
+    process.nextTick(() => socket.destroy(new Error("socket refused: " + host)));
+    return this;
+  };
+}
+if (isScanner) {
   const fs = require("fs");
   const path = require("path");
   const http = require("http");
@@ -189,6 +251,8 @@ let stubUrl: string;
 let captureUrl: string;
 /** Requests that reached the capture server, by cell. */
 const captured = new Map<string, string[]>();
+/** Their bodies, by cell. */
+const capturedBodies = new Map<string, string[]>();
 
 function listen(server: Server): Promise<string> {
   return new Promise((done) =>
@@ -253,8 +317,10 @@ function startCapture(): Server {
       ...(captured.get(cell) ?? []),
       `${req.method} ${url.searchParams.get("to") ?? url.pathname}`,
     ]);
-    req.resume();
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
     req.on("end", () => {
+      capturedBodies.set(cell, [...(capturedBodies.get(cell) ?? []), body]);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end("{}");
     });
@@ -328,9 +394,14 @@ function cellEnv(id: string, home: string, log: string): NodeJS.ProcessEnv {
   return env;
 }
 
-function run(args: string[], cwd: string, env: NodeJS.ProcessEnv): Promise<{ status: number | null; stdout: string; stderr: string }> {
+function run(
+  args: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  script: string = CLI_PATH,
+): Promise<{ status: number | null; stdout: string; stderr: string }> {
   return new Promise((done, reject) => {
-    const child = spawn(process.execPath, [CLI_PATH, ...args], { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(process.execPath, [script, ...args], { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => (stdout += chunk));
@@ -347,6 +418,55 @@ interface Outcome {
   scannerOpened: string[];
   scannerRequests: string[];
   scannerMode: string[];
+  /** The fixture files whose planted value a captured request carries. */
+  plantedSent: string[];
+}
+
+interface LogEntry {
+  argv?: string[];
+  opened?: string;
+  op?: string;
+  refused?: string;
+  scanner?: boolean;
+}
+
+function readLog(log: string): LogEntry[] {
+  return readFileSync(log, "utf8")
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as LogEntry);
+}
+
+/** What the scanner process sent or tried to: captured requests, then refused sockets. */
+function scannerRequests(id: string, entries: LogEntry[]): string[] {
+  return [
+    ...(captured.get(id) ?? []),
+    ...entries.filter((e) => e.refused && e.scanner).map((e) => `refused ${e.refused}`),
+  ];
+}
+
+function plantedSent(id: string): string[] {
+  const bodies = capturedBodies.get(id) ?? [];
+  return Object.keys(PLANTED).filter((file) => bodies.some((b) => b.includes(PLANTED[file])));
+}
+
+/** The pinned scanner's CLI, resolved the way ai-trust resolves it. */
+function scannerCli(): string {
+  let dir = dirname(realpathSync(createRequire(CLI_PATH).resolve("hackmyagent")));
+  for (;;) {
+    const manifest = join(dir, "package.json");
+    if (existsSync(manifest)) {
+      const pkg = JSON.parse(readFileSync(manifest, "utf8")) as {
+        name?: string;
+        bin?: string | Record<string, string>;
+      };
+      if (pkg.name === "hackmyagent") {
+        return join(dir, typeof pkg.bin === "string" ? pkg.bin : (pkg.bin?.hackmyagent ?? ""));
+      }
+    }
+    if (dirname(dir) === dir) throw new Error("no hackmyagent package above its entry point");
+    dir = dirname(dir);
+  }
 }
 
 async function runCell(cell: Cell, id: string): Promise<{ outcome: Outcome; stderr: string }> {
@@ -368,7 +488,9 @@ async function runCell(cell: Cell, id: string): Promise<{ outcome: Outcome; stde
   if (cell.flag) args.push(cell.flag);
   if (cell.noDeep) args.push("--no-deep");
   args.push("--json");
-  const { stdout, stderr } = await run(args, dir, cellEnv(id, home, log));
+  const env = cellEnv(id, home, log);
+  if (cell.key) env.ANTHROPIC_API_KEY = PLACEHOLDER_KEY;
+  const { stdout, stderr } = await run(args, dir, env);
 
   let scanned = false;
   try {
@@ -380,10 +502,7 @@ async function runCell(cell: Cell, id: string): Promise<{ outcome: Outcome; stde
   } catch {
     // Not JSON: the run did not get as far as a result.
   }
-  const entries = readFileSync(log, "utf8")
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as { argv?: string[]; opened?: string; op?: string });
+  const entries = readLog(log);
   const secure = entries.filter((e) => e.argv?.includes("secure"));
   const sameBytes = (a: Buffer | null, b: Buffer | null) =>
     a === null || b === null ? a === b : a.equals(b);
@@ -393,13 +512,44 @@ async function runCell(cell: Cell, id: string): Promise<{ outcome: Outcome; stde
       configUnchanged: sameBytes(readOrNull(configPath), configExpected),
       legacyUnchanged: sameBytes(readOrNull(legacyPath), legacyBefore),
       scannerOpened: [...new Set(entries.filter((e) => e.opened).map((e) => e.opened as string))],
-      scannerRequests: captured.get(id) ?? [],
+      scannerRequests: scannerRequests(id, entries),
       scannerMode: secure.flatMap((e) =>
         (e.argv as string[]).filter((a) => a === "--deep" || a === "--static-only"),
       ),
+      plantedSent: plantedSent(id),
     },
     stderr,
   };
+}
+
+/** What every ai-trust run must come to. */
+function expected(cell: Cell): Outcome {
+  return {
+    scanned: true,
+    configUnchanged: true,
+    legacyUnchanged: true,
+    scannerOpened: [],
+    scannerRequests: [],
+    scannerMode: [cell.noDeep ? "--static-only" : "--deep"],
+    plantedSent: [],
+  };
+}
+
+/** The scanner run directly, with ANTHROPIC_API_KEY set, under the same preload. */
+async function runScannerWithKey(id: string): Promise<{ requests: string[]; planted: string[]; stderr: string }> {
+  const dir = join(scratch, "cells", id);
+  const home = join(dir, "home");
+  const log = join(dir, "scanner.log");
+  mkdirSync(home, { recursive: true });
+  writeFileSync(log, "");
+  const env = { ...cellEnv(id, home, log), ANTHROPIC_API_KEY: PLACEHOLDER_KEY };
+  const { stderr } = await run(
+    ["secure", "--format", "json", "--no-contribute", "--deep", fixtureDir],
+    dir,
+    env,
+    scannerCli(),
+  );
+  return { requests: scannerRequests(id, readLog(log)), planted: plantedSent(id), stderr };
 }
 
 beforeAll(async () => {
@@ -426,8 +576,13 @@ beforeAll(async () => {
   );
   writeFileSync(
     join(fixtureDir, "mcp.json"),
-    JSON.stringify({ mcpServers: { notes: { command: "node", args: ["index.js"] } } }, null, 2) + "\n",
+    JSON.stringify(
+      { mcpServers: { notes: { command: "node", args: ["index.js"] } }, greeting: PLANTED["mcp.json"] },
+      null,
+      2,
+    ) + "\n",
   );
+  writeFileSync(join(fixtureDir, ".env"), `NOTES_DIR=${PLANTED[".env"]}\n`);
   execFileSync("npm", ["pack", "--pack-destination", scratch], {
     cwd: fixtureDir,
     env: { PATH: process.env.PATH, HOME: scratch, npm_config_cache: join(scratch, "npm-cache") },
@@ -483,14 +638,48 @@ describe("the bundled scanner during an ai-trust run", () => {
     it(cellName(cell), () => {
       expect(existsSync(CLI_PATH), "run npm run build first").toBe(true);
       const { outcome, stderr } = results.get(index) ?? { stderr: "" };
-      expect(outcome, stderr.slice(-2000)).toEqual({
-        scanned: true,
-        configUnchanged: true,
-        legacyUnchanged: true,
-        scannerOpened: [],
-        scannerRequests: [],
-        scannerMode: [cell.noDeep ? "--static-only" : "--deep"],
-      });
+      expect(outcome, stderr.slice(-2000)).toEqual(expected(cell));
     });
+  });
+});
+
+describe("the bundled scanner with ANTHROPIC_API_KEY set", () => {
+  const results = new Map<number, { outcome?: Outcome; stderr: string }>();
+  let control: { requests: string[]; planted: string[]; stderr: string } | undefined;
+  let controlError = "";
+
+  beforeAll(async () => {
+    if (!existsSync(CLI_PATH)) return;
+    await Promise.all([
+      ...KEY_CELLS.map(async (cell, index) => {
+        try {
+          results.set(index, await runCell(cell, `key-cell-${index}`));
+        } catch (err) {
+          results.set(index, { stderr: String(err) });
+        }
+      }),
+      runScannerWithKey("key-control").then(
+        (r) => (control = r),
+        (err) => (controlError = String(err)),
+      ),
+    ]);
+  }, 600_000);
+
+  KEY_CELLS.forEach((cell, index) => {
+    it(`${cellName(cell)}: no request from the scanner, no planted value sent`, () => {
+      expect(existsSync(CLI_PATH), "run npm run build first").toBe(true);
+      const { outcome, stderr } = results.get(index) ?? { stderr: "" };
+      expect(outcome, stderr.slice(-2000)).toEqual(expected(cell));
+    });
+  });
+
+  it("the scanner run directly with it sends a request to the provider that the capture sees", () => {
+    expect(existsSync(CLI_PATH), "run npm run build first").toBe(true);
+    expect(control, controlError).toBeDefined();
+    const { requests, planted, stderr } = control as NonNullable<typeof control>;
+    const toProvider = requests.filter((r) => r.startsWith("POST https://api.anthropic.com/"));
+    expect(toProvider.length, stderr.slice(-2000)).toBeGreaterThanOrEqual(1);
+    // The capture reads the bodies sent: a value only the fixture holds is in one.
+    expect(planted).toContain("mcp.json");
   });
 });
