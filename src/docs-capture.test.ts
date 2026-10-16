@@ -291,6 +291,45 @@ describe("docs:capture --check and the commit the record names", { timeout: 3000
     expect(checkCapture(root, notes)).toEqual([]);
     expect(notes).toEqual([`the record's commit was not checked: ${root} is not the top of a git work tree`]);
   });
+
+  it("reads the repository at the root when GIT_DIR or GIT_WORK_TREE is exported to it, as git does to hooks and in a linked work tree", async () => {
+    const { root, head } = gitRoot();
+    recordCommit(root, head);
+    const plain = scratchRoot();
+    const other = gitRoot();
+    const names = ["GIT_DIR", "GIT_WORK_TREE"];
+    const shapes: NodeJS.ProcessEnv[] = [
+      { GIT_DIR: join(other.root, ".git") },
+      { GIT_WORK_TREE: join(scratch, "no-such-work-tree") },
+    ];
+    for (const exported of shapes) {
+      const saved = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+      Object.assign(process.env, exported);
+      try {
+        const notes: string[] = [];
+        expect(checkCapture(root, notes), JSON.stringify(exported)).toEqual([]);
+        expect(notes).toEqual([]);
+        const plainNotes: string[] = [];
+        expect(checkCapture(plain, plainNotes)).toEqual([]);
+        expect(plainNotes).toEqual([`the record's commit was not checked: ${plain} is not the top of a git work tree`]);
+      } finally {
+        for (const name of names) {
+          if (saved[name] === undefined) delete process.env[name];
+          else process.env[name] = saved[name];
+        }
+      }
+      const env = { PATH: process.env.PATH, HOME: scratch, TMPDIR: scratch, ...exported };
+      const check = await run(SCRIPT, ["--check", "--root", root], { env });
+      expect(check.stderr, JSON.stringify(exported)).toBe("");
+      expect(check.status).toBe(0);
+    }
+
+    const env = { PATH: process.env.PATH, HOME: scratch, TMPDIR: scratch, ...shapes[0] };
+    const capture = await run(SCRIPT, ["--root", root, "--registry-url", registryUrl], { env });
+    expect(capture.stderr).toBe("");
+    expect(capture.status).toBe(0);
+    expect(JSON.parse(read(root, SIDECAR)).artifact.commit).toBe(head);
+  });
 });
 
 describe("docs:capture reports a file it cannot read on one line, exit 1", () => {
