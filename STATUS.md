@@ -6,7 +6,7 @@
 
 ## Stage definitions
 
-- **stable**: production-ready, semver honored, breaking changes documented, security patches triaged within 24 hours.
+- **stable**: production-ready, semver honored, breaking changes documented, security reports handled as [SECURITY.md](SECURITY.md) describes.
 - **beta**: feature-complete or near, breaking changes possible with notice, actively developed.
 - **experimental**: early stage, breaking changes expected, use at your own risk.
 - **reference-only**: spec or reference implementation, not intended for production use.
