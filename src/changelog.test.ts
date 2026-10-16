@@ -100,4 +100,43 @@ describe("CHANGELOG.md", () => {
       `no entry records the move to hackmyagent ${current}, so the pin history stops there`,
     ).toEqual([]);
   });
+
+  // The entry for the saved-state end-to-end test says which scanner requests
+  // that test does not send to its capture server. It named the model download
+  // as the only one, while the preload's `redirect` also passes loopback
+  // requests to other ports (the NanoMind daemon) through unchanged. Each early
+  // return in `redirect` is listed here with the words the entry uses for it,
+  // so an exclusion added to the preload fails here until the entry names it.
+  it("names each kind of scanner request the saved-state test does not capture", () => {
+    const exclusions = [
+      {
+        preload: 'if (url.hostname === "huggingface.co") return new URL("/model-download" + url.pathname, stub);',
+        entry: /classifier model download a deep scan makes when no model is installed, which a local stub answers with a 404/,
+      },
+      {
+        preload:
+          "if (LOOPBACK.includes(url.hostname) && url.port !== stub.port && url.port !== capture.port) return null;",
+        entry:
+          /loopback requests to ports other than the stub's and the capture server's, which go through unchanged and which a deep scan makes to the NanoMind daemon/,
+      },
+    ];
+
+    const test = readFileSync(resolve(ROOT, "src/scanner/hma-saved-state.test.ts"), "utf8");
+    const start = test.indexOf("const redirect = (url) => {");
+    const end = test.indexOf("\n    return to;\n", start);
+    expect(start, "no `redirect` in the saved-state test's preload").toBeGreaterThan(-1);
+    expect(end, "no `return to;` closing the preload's `redirect`").toBeGreaterThan(start);
+    const earlyReturns = test
+      .slice(start, end)
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => / return /.test(line));
+    expect(earlyReturns).toEqual(exclusions.map((e) => e.preload));
+
+    const entry = CHANGELOG.split("\n").find((line) =>
+      line.startsWith("- **The bundled scanner runs with your saved choices out of its reach"),
+    );
+    expect(entry, "no entry for the saved-state end-to-end test").toBeDefined();
+    for (const exclusion of exclusions) expect(entry).toMatch(exclusion.entry);
+  });
 });
