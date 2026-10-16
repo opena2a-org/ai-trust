@@ -303,7 +303,9 @@ describe("formatCheckResult registry security profile (#105)", () => {
 
     expect(output).not.toContain("No known issues");
     expect(output).toContain("Passed, but the registry recorded 1 high finding");
-    expect(output).toMatch(/Findings\s+0 critical · 1 high · scan status warnings/);
+    expect(output).toMatch(
+      /Findings\s+0 critical · 1 high \(details not returned\) · scan status warnings/,
+    );
     expect(output).toMatch(/CVEs\s+none recorded/);
   });
 
@@ -354,7 +356,7 @@ describe("formatCheckResult registry security profile (#105)", () => {
 
     expect(output).toContain("Warning");
     expect(output).not.toContain("Passed, but");
-    expect(output).toMatch(/Findings\s+1 critical · 0 high/);
+    expect(output).toMatch(/Findings\s+1 critical \(details not returned\) · 0 high/);
   });
 
   it("omits the Findings and CVEs lines when the registry returned no profile", () => {
@@ -395,7 +397,9 @@ describe("formatCheckResult registry security profile (#105)", () => {
 
     expect(output).not.toContain("No known issues");
     expect(output).toContain("Passed, but the registry recorded 2 high findings");
-    expect(output).toMatch(/Findings\s+critical not reported · 2 high · scan status passed/);
+    expect(output).toMatch(
+      /Findings\s+critical not reported · 2 high \(details not returned\) · scan status passed/,
+    );
     expect(output).toMatch(/CVEs\s+none recorded/);
   });
 
@@ -411,7 +415,9 @@ describe("formatCheckResult registry security profile (#105)", () => {
     expect(output).toContain(
       "Passed, but the registry recorded 3 critical findings, plus 1 known CVE",
     );
-    expect(output).toMatch(/Findings\s+3 critical · high not reported · scan status passed/);
+    expect(output).toMatch(
+      /Findings\s+3 critical \(details not returned\) · high not reported · scan status passed/,
+    );
     expect(output).toMatch(/CVEs\s+CVE\n/);
   });
 
@@ -465,6 +471,204 @@ describe("formatCheckResult registry security profile (#105)", () => {
 
     expect(output).toContain("Scan failed");
     expect(output).not.toContain("Findings");
+  });
+});
+
+describe("registry scan date and recorded findings", () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  // An hour past the day boundary, so the age does not depend on the clock.
+  const daysAgo = (days: number) => new Date(Date.now() - days * DAY_MS - 60 * 60 * 1000).toISOString();
+
+  // Shape of the registry answer for openai with includeProfile=true: verdict
+  // passed, scan status warnings, one high finding and no scan date.
+  function openaiAnswer(overrides: Partial<TrustAnswer> = {}): TrustAnswer {
+    return {
+      ...makeTrustAnswer({
+        name: "openai",
+        trustScore: 0.71,
+        verdict: "passed",
+        scanStatus: "warnings",
+        ...overrides,
+      }),
+      securityProfile: { criticalCount: 0, highCount: 1, knownCves: [] },
+    } as TrustAnswer;
+  }
+
+  it("says the scan date is not recorded when the answer carries none", () => {
+    const header = formatCheckResult(openaiAnswer()).split("\n")[1];
+
+    expect(header).toContain("openai");
+    expect(header).toContain("scan date not recorded");
+    expect(header).not.toContain("scanned");
+  });
+
+  it("says the scan date is not recorded when the answer's date does not parse", () => {
+    const output = formatCheckResult(openaiAnswer({ lastScannedAt: "not-a-date" }));
+
+    expect(output).toContain("scan date not recorded");
+    expect(output).not.toContain("NaN");
+  });
+
+  it("keeps the scan age when the answer carries a date", () => {
+    const output = formatCheckResult(openaiAnswer({ lastScannedAt: daysAgo(228) }));
+
+    expect(output).toContain("scanned 228 days ago (stale)");
+    expect(output).not.toContain("scan date not recorded");
+  });
+
+  it("says a recorded high finding's details are not returned, and names the scan that re-measures it", () => {
+    const output = formatCheckResult(openaiAnswer());
+
+    expect(output).toMatch(
+      /Findings\s+0 critical · 1 high \(details not returned\) · scan status warnings\n/,
+    );
+    expect(output).toContain("Fresh scan  ai-trust check openai");
+  });
+
+  it("puts the note after the last recorded count", () => {
+    const both = {
+      ...openaiAnswer(),
+      securityProfile: { criticalCount: 2, highCount: 1, knownCves: [] },
+    } as TrustAnswer;
+    const criticalOnly = {
+      ...openaiAnswer(),
+      securityProfile: { criticalCount: 2, highCount: 0, knownCves: [] },
+    } as TrustAnswer;
+
+    expect(formatCheckResult(both)).toMatch(
+      /Findings\s+2 critical · 1 high \(details not returned\) · scan status warnings\n/,
+    );
+    expect(formatCheckResult(criticalOnly)).toMatch(
+      /Findings\s+2 critical \(details not returned\) · 0 high · scan status warnings\n/,
+    );
+  });
+
+  it("re-measures a pip: target as the PyPI package", () => {
+    const output = formatCheckResult(openaiAnswer(), "pypi");
+
+    expect(output).toContain("Fresh scan  ai-trust check pip:openai");
+  });
+
+  it("quotes a registry name with shell syntax in the re-measure command", () => {
+    const pypi = formatCheckResult(openaiAnswer({ name: "evil; echo injected" }), "pypi");
+
+    expect(pypi).toContain("Fresh scan  ai-trust check 'pip:evil; echo injected'");
+  });
+
+  it("adds no note when the registry records no critical or high finding", () => {
+    const answer = {
+      ...openaiAnswer(),
+      securityProfile: { criticalCount: 0, highCount: 0, knownCves: [] },
+    } as TrustAnswer;
+
+    expect(formatCheckResult(answer)).not.toContain("details not returned");
+  });
+
+  it("adds no note on a failed scan, whose counts are unreliable", () => {
+    expect(formatCheckResult(openaiAnswer({ scanStatus: "error" }))).not.toContain(
+      "details not returned",
+    );
+  });
+});
+
+describe("registry score beside a fresh scan", () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const daysAgo = (days: number) => new Date(Date.now() - days * DAY_MS - 60 * 60 * 1000).toISOString();
+
+  function scanWithScore(score: number, overrides: Partial<ScanResult["scan"]> = {}): ScanResult {
+    return {
+      packageName: "@modelcontextprotocol/server-filesystem",
+      trustScore: score / 100,
+      trustLevel: 3,
+      verdict: "safe",
+      scan: {
+        score,
+        maxScore: 100,
+        findings: [],
+        projectType: "mcp",
+        timestamp: new Date().toISOString(),
+        checksEvaluated: 40,
+        ...overrides,
+      },
+    };
+  }
+
+  function registryAnswer(trustScore: number, overrides: Partial<TrustAnswer> = {}): TrustAnswer {
+    return makeTrustAnswer({
+      name: "@modelcontextprotocol/server-filesystem",
+      trustScore,
+      verdict: "passed",
+      scanStatus: "warnings",
+      lastScannedAt: daysAgo(228),
+      ...overrides,
+    });
+  }
+
+  it("prints both scores and both dates when they differ by more than 20 points", () => {
+    const output = formatScanResult(scanWithScore(100), {
+      remote: true,
+      registry: registryAnswer(0.79),
+    });
+
+    expect(output).toContain("Registry 79/100 (scanned 228 days ago) vs this scan 100/100 (today)");
+  });
+
+  it("prints the gap when this scan scores lower than the registry", () => {
+    const output = formatScanResult(scanWithScore(60), {
+      remote: true,
+      registry: registryAnswer(0.95),
+    });
+
+    expect(output).toContain("Registry 95/100 (scanned 228 days ago) vs this scan 60/100 (today)");
+  });
+
+  it("prints no gap line when the scores are 20 points apart or closer", () => {
+    const close = formatScanResult(scanWithScore(100), { remote: true, registry: registryAnswer(0.95) });
+    const edge = formatScanResult(scanWithScore(100), { remote: true, registry: registryAnswer(0.8) });
+
+    expect(close).not.toContain("vs this scan");
+    expect(edge).not.toContain("vs this scan");
+  });
+
+  it("says the registry's scan date is not recorded when the answer carries none", () => {
+    const output = formatScanResult(scanWithScore(100), {
+      remote: true,
+      registry: registryAnswer(0.71, { lastScannedAt: undefined }),
+    });
+
+    expect(output).toContain("Registry 71/100 (scan date not recorded) vs this scan 100/100 (today)");
+  });
+
+  it("prints no gap line without a registry answer", () => {
+    expect(formatScanResult(scanWithScore(100), { remote: true })).not.toContain("vs this scan");
+  });
+
+  it("prints no gap line when the registry's scan failed or has no score", () => {
+    for (const scanStatus of ["error", "failed", "pending"]) {
+      const output = formatScanResult(scanWithScore(100), {
+        remote: true,
+        registry: registryAnswer(0.3, { scanStatus }),
+      });
+      expect(output, scanStatus).not.toContain("vs this scan");
+    }
+  });
+
+  it("prints no gap line when the registry's score is not a number from 0 to 1", () => {
+    const output = formatScanResult(scanWithScore(100), {
+      remote: true,
+      registry: registryAnswer(55),
+    });
+
+    expect(output).not.toContain("vs this scan");
+  });
+
+  it("prints no gap line when this scan had nothing to analyze", () => {
+    const output = formatScanResult(scanWithScore(100, { checksEvaluated: 0 }), {
+      remote: true,
+      registry: registryAnswer(0.3),
+    });
+
+    expect(output).not.toContain("vs this scan");
   });
 });
 

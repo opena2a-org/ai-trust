@@ -59,6 +59,10 @@ ai-trust check server-filesystem --no-scan                     # registry lookup
 
 With `--no-scan`, a package the registry does not have exits 2 and points at the plain `check` command to scan it. `--scan-if-missing` is accepted for compatibility and changes nothing, since every package is scanned.
 
+The registry's answer names the date of the registry's scan in its header (`scanned 228 days ago (stale)`), or says `scan date not recorded` when the answer carries no date. The answer carries counts of critical and high findings, not the findings themselves, so a count above zero says so (`Findings  0 critical · 1 high (details not returned) · scan status warnings`), and the `Fresh scan` next step is the command that measures the package now (`ai-trust check openai`, or `ai-trust check pip:<name>` for a PyPI package).
+
+When the default `check` finds the package in the registry and the registry's trust score and the local scan's security score differ by more than 20 points out of 100, the scan output prints both scores with their dates, and does not say why they differ: `Registry 79/100 (scanned 228 days ago) vs this scan 100/100 (today)`.
+
 Local scans run HMA with NanoMind semantic analysis enabled by default. Pass `--no-deep` for static-only.
 
 Text output prints the first 10 findings, by severity, then a line that counts the rest and gives the command that prints them: `+ 15 more findings (show all: ai-trust check dvaa --scan-path ./dvaa --no-deep --all)`. `--all` prints every finding with its fix. `--json` output is not truncated.
