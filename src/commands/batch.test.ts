@@ -134,6 +134,50 @@ describe("batch command", () => {
     expect(process.exitCode).toBe(1);
   });
 
+  it("prints a --min-trust usage error as text on stderr without --json", async () => {
+    await createProgram().parseAsync(["node", "test", "batch", "pkg-a", "--min-trust", "9"]);
+
+    expect(consoleErrSpy).toHaveBeenCalledWith(
+      "Error: --min-trust must be a number between 0 and 4"
+    );
+    expect(consoleSpy).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+  });
+
+  // With --json a usage error is one JSON object on stdout and nothing on
+  // stderr, as for a --registry-url usage error.
+  describe("usage errors with --json (#191)", () => {
+    for (const value of ["9", "-1", "abc"]) {
+      it(`--min-trust ${value} --json: {"error"} on stdout, exit 1`, async () => {
+        await createProgram().parseAsync([
+          "node", "test", "--json", "batch", "pkg-a", "--min-trust", value,
+        ]);
+
+        expect(consoleSpy.mock.calls).toHaveLength(1);
+        expect(JSON.parse(String(consoleSpy.mock.calls[0][0]))).toEqual({
+          error: "--min-trust must be a number between 0 and 4",
+        });
+        expect(consoleErrSpy).not.toHaveBeenCalled();
+        expect(process.exitCode).toBe(1);
+        expect(RegistryClient).not.toHaveBeenCalled();
+      });
+    }
+
+    it('more than 100 packages with --json: {"error"} on stdout, exit 1', async () => {
+      const names = Array.from({ length: 101 }, (_, i) => `pkg-${i}`);
+      await createProgram().parseAsync(["node", "test", "--json", "batch", ...names]);
+
+      expect(consoleSpy.mock.calls).toHaveLength(1);
+      expect(JSON.parse(String(consoleSpy.mock.calls[0][0]))).toEqual({
+        error:
+          "Too many packages (101). The batch API supports a maximum of 100 packages per request.",
+      });
+      expect(consoleErrSpy).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(1);
+      expect(RegistryClient).not.toHaveBeenCalled();
+    });
+  });
+
   it("uses formatJson when --json flag is set", async () => {
     const mockBatchQuery = vi.fn().mockResolvedValue({
       results: [

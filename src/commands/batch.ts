@@ -34,20 +34,27 @@ export function registerBatchCommand(program: Command): void {
           json: boolean;
         };
 
+        // With --json a usage error is the `error` of one object on stdout,
+        // as for a --registry-url usage error.
+        const usageError = (problem: string): void => {
+          if (globalOpts.json) {
+            console.log(formatJson({ error: problem }));
+          } else {
+            console.error(`Error: ${problem}`);
+          }
+          process.exitCode = 1;
+        };
+
         const minTrust = parseInt(opts.minTrust, 10);
         if (isNaN(minTrust) || minTrust < 0 || minTrust > 4) {
-          console.error(
-            "Error: --min-trust must be a number between 0 and 4"
-          );
-          process.exitCode = 1;
+          usageError("--min-trust must be a number between 0 and 4");
           return;
         }
 
         if (names.length > 100) {
-          console.error(
-            `Error: Too many packages (${names.length}). The batch API supports a maximum of 100 packages per request.`
+          usageError(
+            `Too many packages (${names.length}). The batch API supports a maximum of 100 packages per request.`
           );
-          process.exitCode = 1;
           return;
         }
 
