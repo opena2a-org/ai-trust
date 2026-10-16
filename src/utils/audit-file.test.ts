@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { auditFileRefusal, findAuditFile } from "./audit-file.js";
+import { auditFileRefusal, findAuditFile, isRequirementsFile } from "./audit-file.js";
 
 describe("findAuditFile", () => {
   let dir: string;
@@ -154,5 +154,42 @@ describe("auditFileRefusal", () => {
     mkdirSync(sub);
     expect(auditFileRefusal(sub)).toBeNull();
     expect(auditFileRefusal(`${sub}/`)).toBeNull();
+  });
+});
+
+describe("isRequirementsFile", () => {
+  const lineSeparator = String.fromCharCode(0x2028);
+  const paragraphSeparator = String.fromCharCode(0x2029);
+
+  it.each([
+    "requirements.txt",
+    "requirements-dev.txt",
+    "dev-requirements.txt",
+    "test-requirements.txt",
+    "requirements",
+    "requirements.tx",
+    "requirements.txt.bak",
+    "requirementstxt",
+    "requirement.txt",
+    "Requirements.txt",
+    "requirements.TXT",
+    "deps.txt",
+    ".txt",
+    "requirements\n.txt",
+    "requirements\r.txt",
+    `requirements${lineSeparator}.txt`,
+    `requirements${paragraphSeparator}.txt`,
+    "x\nrequirements.txt",
+    "requirements.txt\n",
+  ])("decides %j as the pattern /requirements.*\\.txt$/ does", (name) => {
+    const expected = name === "requirements" || /requirements.*\.txt$/.test(name);
+    expect(isRequirementsFile(`/deps/${name}`)).toBe(expected);
+  });
+
+  it("decides a 300,000-character name of repeated requirements without stalling", () => {
+    const name = "requirements".repeat(25_000) + ".tx";
+    const start = performance.now();
+    expect(isRequirementsFile(name)).toBe(false);
+    expect(performance.now() - start).toBeLessThan(500);
   });
 });

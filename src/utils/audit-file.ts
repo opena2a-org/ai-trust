@@ -27,8 +27,21 @@ export type AuditFile = (typeof AUDIT_FILES)[number];
  */
 export function isRequirementsFile(path: string): boolean {
   const name = basename(path);
-  if (name === "requirements" || /requirements.*\.txt$/.test(name)) return true;
+  if (name === "requirements" || isRequirementsTxtName(name)) return true;
   return name.endsWith(".txt") && parentDirName(path) === "requirements";
+}
+
+/**
+ * Whether `name` holds `requirements` and ends in `.txt` with no line break
+ * between the two, the names /requirements.*\.txt$/ matches. On a name of
+ * repeated `requirements` that does not end in `.txt`, that pattern takes
+ * time that grows with the square of the name's length; these string
+ * searches grow linearly with it.
+ */
+function isRequirementsTxtName(name: string): boolean {
+  // The line breaks `.` does not match: LF, CR, U+2028 (Zl) and U+2029 (Zp).
+  const lastLine = name.split(/[\n\r\p{Zl}\p{Zp}]/u).pop() ?? "";
+  return lastLine.endsWith(".txt") && lastLine.includes("requirements");
 }
 
 /** Whether `audit` reads the file at `path`. */
