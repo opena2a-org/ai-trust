@@ -12,7 +12,8 @@
  *
  * A URL fails when:
  *   - after redirects it answers 4xx or 5xx, or cannot be fetched (one retry
- *     for a network error, 429, 502, 503 or 504);
+ *     for a network error, 429, 502, 503 or 504); a 405, an endpoint that
+ *     refuses GET, passes when a made-up path next to it answers 404 or 410;
  *   - it redirects to a root, a host's "/" or a GitHub repository root, when
  *     it was not one itself: a moved page that sends its readers home;
  *   - it answers 2xx and so does a made-up path next to it, so the host
@@ -183,7 +184,7 @@ async function fetchFinal(url, { timeoutMs }) {
       current = new URL(location, current).href;
       continue;
     }
-    return { status: response.status, finalUrl: current };
+    return { status: response.status, finalUrl: current, allow: response.headers.get("allow") };
   }
   return { error: `more than ${MAX_REDIRECTS} redirects` };
 }
@@ -224,6 +225,32 @@ export function siblingOf(url) {
 }
 
 /**
+ * A 405 is an endpoint that refuses GET, such as an API route that takes only
+ * POST. It passes only when a made-up path next to it answers 404 or 410, so a
+ * host that answers 405 for every path still fails.
+ */
+async function checkMethodRefusal(url, { status, finalUrl, allow }, options) {
+  const sibling = siblingOf(url);
+  const probed = await fetchWithRetry(sibling, options);
+  if (!probed.error && (probed.status === 404 || probed.status === 410)) {
+    const allows = allow ? ` (Allow: ${allow})` : "";
+    return {
+      ok: true,
+      status,
+      finalUrl,
+      reason: `answers 405 to GET${allows}: the endpoint takes another method, and a path that does not exist next to it answers ${probed.status}`,
+    };
+  }
+  const answer = probed.error ? `cannot be fetched (${probed.error})` : `answers ${probed.status}`;
+  return {
+    ok: false,
+    status,
+    finalUrl,
+    reason: `answers 405, and a path that does not exist next to it (${sibling}) ${answer}, not 404 or 410, so the status proves nothing`,
+  };
+}
+
+/**
  * Checks one URL. Returns { ok, status, finalUrl, reason }: `reason` says why
  * a failing URL fails, or how a passing one was checked when that differs
  * from the default.
@@ -233,11 +260,15 @@ export async function checkUrl(url, { catchAll = {}, timeoutMs = 15000, retryDel
   const result = await fetchWithRetry(url, options);
   if (result.error) return { ok: false, status: null, finalUrl: null, reason: `not fetched: ${result.error}` };
   const { status, finalUrl } = result;
-  if (status < 200 || status >= 300) return { ok: false, status, finalUrl, reason: `answers ${status}` };
+  const methodRefused = status === 405;
+  if (!methodRefused && (status < 200 || status >= 300)) {
+    return { ok: false, status, finalUrl, reason: `answers ${status}` };
+  }
   const landed = rootKind(finalUrl);
   if (landed && !rootKind(url)) {
     return { ok: false, status, finalUrl, reason: `redirects to a ${landed}: ${finalUrl}` };
   }
+  if (methodRefused) return checkMethodRefusal(url, result, options);
   if (rootKind(url) === "host root") return { ok: true, status, finalUrl, reason: null };
   const host = new URL(url).hostname;
   if (host in catchAll) return { ok: true, status, finalUrl, reason: `status only: ${catchAll[host]}` };

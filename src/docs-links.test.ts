@@ -1,7 +1,8 @@
 /**
  * `npm run docs:links` reports the URLs the repository publishes that do not
  * lead to a page: an error status or no answer, a redirect to a root, or a
- * host that also answers 2xx for a made-up path next to the URL.
+ * host that also answers 2xx for a made-up path next to the URL. A 405 fails
+ * only when a made-up path next to it answers something other than 404 or 410.
  *
  * Every request here goes to a local HTTP server, so the suite needs no
  * network. The run over the repository's real URLs is `npm run docs:links`.
@@ -46,6 +47,13 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   if (path === "/loop") return send(302, "/loop");
   if (path === "/flaky") return send(flakyCalls++ === 0 ? 503 : 200);
   if (path.startsWith("/spa/")) return send(200);
+  // An API route that takes only POST, next to paths that answer 404; and a
+  // prefix under which every path answers 405.
+  if (path === "/api/telemetry") {
+    res.writeHead(405, { allow: "POST" });
+    return res.end();
+  }
+  if (path.startsWith("/no-get/")) return send(405);
   // Numbered pages as GitHub serves issues: a missing number is 404, while a
   // name that is not a number redirects to a listing that answers 200.
   const issue = /^\/issues\/(.+)$/.exec(path);
@@ -165,6 +173,22 @@ describe("checkUrl", () => {
     expect(missing).toMatchObject({ ok: false, status: 404 });
   });
 
+  it("passes a 405 from an endpoint that takes another method when a made-up path next to it answers 404", async () => {
+    const result = await checkUrl(`${base}/api/telemetry`, FAST);
+    expect(result).toMatchObject({ ok: true, status: 405, finalUrl: `${base}/api/telemetry` });
+    expect(result.reason).toBe(
+      "answers 405 to GET (Allow: POST): the endpoint takes another method, and a path that does not exist next to it answers 404",
+    );
+  });
+
+  it("fails a 405 when a made-up path next to it answers 405 too", async () => {
+    const result = await checkUrl(`${base}/no-get/endpoint`, FAST);
+    expect(result).toMatchObject({ ok: false, status: 405 });
+    expect(result.reason).toMatch(
+      /^answers 405, and a path that does not exist next to it \(.*\/no-get\/docs-links-[0-9a-f]{12}\) answers 405, not 404 or 410, so the status proves nothing$/,
+    );
+  });
+
   it("passes an existing numbered page on a host that redirects names to a listing", async () => {
     expect(await checkUrl(`${base}/issues/7`, FAST)).toMatchObject({ ok: true, status: 200 });
     expect(await checkUrl(`${base}/issues/8`, FAST)).toMatchObject({ ok: false, status: 404 });
@@ -239,6 +263,19 @@ describe("docs-links.mjs on a tree", () => {
     );
     const run = await runScript(["--root", tree], tree);
     expect(run.code, run.stdout + run.stderr).toBe(0);
+    expect(run.stdout).toContain("docs:links: 1 of 1 checked URLs resolve.");
+  });
+
+  it("exits 0 for an endpoint that answers 405 to GET and prints why it passed", async () => {
+    writeFileSync(
+      join(tree, "README.md"),
+      ["# Fixture", `The scanner posts to ${base}/api/telemetry.`, "Example: http://localhost:9/example"].join("\n"),
+    );
+    const run = await runScript(["--root", tree], tree);
+    expect(run.code, run.stdout + run.stderr).toBe(0);
+    expect(run.stdout).toContain(
+      `ok    405  ${base}/api/telemetry\n      answers 405 to GET (Allow: POST): the endpoint takes another method`,
+    );
     expect(run.stdout).toContain("docs:links: 1 of 1 checked URLs resolve.");
   });
 
