@@ -6,12 +6,12 @@
  * existence check of two fixed names: it reads nothing, parses nothing and
  * never looks in a parent directory.
  *
- * The file names `audit` accepts are decided here too, so the parser, the
+ * Which files `audit` accepts is decided here too, so the parser, the
  * ecosystem it reports and the refusal agree.
  */
 
 import { statSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 /** The file names `audit` reads, in the order a next step prefers them. */
 export const AUDIT_FILES = ["package.json", "requirements.txt"] as const;
@@ -19,16 +19,34 @@ export const AUDIT_FILES = ["package.json", "requirements.txt"] as const;
 export type AuditFile = (typeof AUDIT_FILES)[number];
 
 /**
- * Whether a file of this base name is a requirements file: requirements.txt,
- * a variant such as requirements-dev.txt, or a bare `requirements`.
+ * Whether the file at `path` is a requirements file, by its name and the
+ * directory it is in: a `.txt` file whose name contains `requirements`
+ * (requirements.txt, requirements-dev.txt, dev-requirements.txt), a bare
+ * `requirements`, or a `.txt` file in a directory named `requirements`
+ * (requirements/dev.txt).
  */
-export function isRequirementsFileName(name: string): boolean {
-  return name === "requirements" || /^requirements.*\.txt$/.test(name);
+export function isRequirementsFile(path: string): boolean {
+  const name = basename(path);
+  if (name === "requirements" || /requirements.*\.txt$/.test(name)) return true;
+  return name.endsWith(".txt") && parentDirName(path) === "requirements";
 }
 
-/** Whether `audit` reads a file of this base name. */
-export function isAuditFileName(name: string): boolean {
-  return name === "package.json" || isRequirementsFileName(name);
+/** Whether `audit` reads the file at `path`. */
+export function isAuditFile(path: string): boolean {
+  return basename(path) === "package.json" || isRequirementsFile(path);
+}
+
+/**
+ * The name of the directory `path` is in, so `dev.txt` named from inside
+ * `requirements/` counts as `requirements/dev.txt`.
+ */
+function parentDirName(path: string): string {
+  try {
+    return basename(dirname(resolve(path)));
+  } catch {
+    // process.cwd() throws when the working directory was removed.
+    return basename(dirname(path));
+  }
 }
 
 /**
@@ -51,8 +69,8 @@ export class NotAnAuditFileError extends Error {
  * does not exist, or is a directory, gets null: reading it reports that.
  */
 export function auditFileRefusal(path: string): NotAnAuditFileError | null {
+  if (isAuditFile(path)) return null;
   const name = basename(path);
-  if (isAuditFileName(name)) return null;
   try {
     if (statSync(path).isDirectory()) return null;
   } catch {

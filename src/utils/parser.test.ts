@@ -241,7 +241,15 @@ describe("parseDependencyFile", () => {
       );
     });
 
-    it.each(["requirements-dev.txt", "requirements_test.txt", "requirements"])(
+    it.each([
+      "requirements-dev.txt",
+      "requirements_test.txt",
+      "requirements",
+      "dev-requirements.txt",
+      "test-requirements.txt",
+      "requirements/dev.txt",
+      "requirements/prod.txt",
+    ])(
       "reads %s as a requirements file",
       async (name) => {
         mockReadFile.mockResolvedValue("flask==2.3.0\nrequests\n");
@@ -263,6 +271,8 @@ describe("detectEcosystem", () => {
     ["requirements.txt", "pypi"],
     ["requirements-dev.txt", "pypi"],
     ["requirements", "pypi"],
+    ["dev-requirements.txt", "pypi"],
+    ["requirements/dev.txt", "pypi"],
   ] as const)("names %s as %s", (name, ecosystem) => {
     expect(detectEcosystem(`/fake/${name}`)).toBe(ecosystem);
   });

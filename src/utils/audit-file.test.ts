@@ -95,6 +95,56 @@ describe("auditFileRefusal", () => {
     }
   );
 
+  it.each(["dev-requirements.txt", "test-requirements.txt"])(
+    "accepts %s, a .txt file whose name contains requirements",
+    (name) => {
+      const file = join(dir, name);
+      writeFileSync(file, "requests\n");
+      expect(auditFileRefusal(file)).toBeNull();
+    }
+  );
+
+  it.each(["dev.txt", "prod.txt"])(
+    "accepts requirements/%s, a .txt file in a requirements directory",
+    (name) => {
+      mkdirSync(join(dir, "requirements"));
+      const file = join(dir, "requirements", name);
+      writeFileSync(file, "requests\n");
+      expect(auditFileRefusal(file)).toBeNull();
+    }
+  );
+
+  it("accepts dev.txt named from inside a requirements directory", () => {
+    const reqDir = join(dir, "requirements");
+    mkdirSync(reqDir);
+    writeFileSync(join(reqDir, "dev.txt"), "requests\n");
+    const cwd = process.cwd();
+    process.chdir(reqDir);
+    try {
+      expect(auditFileRefusal("dev.txt")).toBeNull();
+    } finally {
+      process.chdir(cwd);
+    }
+  });
+
+  it("refuses a .txt file in a directory of another name", () => {
+    mkdirSync(join(dir, "deps"));
+    const file = join(dir, "deps", "dev.txt");
+    writeFileSync(file, "requests\n");
+    expect(auditFileRefusal(file)?.message).toBe(
+      "audit reads package.json or requirements.txt; dev.txt is neither."
+    );
+  });
+
+  it("refuses a file in a requirements directory that is not a .txt file", () => {
+    mkdirSync(join(dir, "requirements"));
+    const file = join(dir, "requirements", "README.md");
+    writeFileSync(file, "# Requirements\n");
+    expect(auditFileRefusal(file)?.message).toBe(
+      "audit reads package.json or requirements.txt; README.md is neither."
+    );
+  });
+
   it("leaves a path that does not exist to the read", () => {
     expect(auditFileRefusal(join(dir, "README.md"))).toBeNull();
   });
