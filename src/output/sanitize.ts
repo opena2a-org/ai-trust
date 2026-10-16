@@ -43,8 +43,18 @@ export function sanitizeRegistryValue<T>(value: T): T {
   return value;
 }
 
-/** Shorten text longer than `max` characters to `max`, ending in "...". */
+/**
+ * Shorten text longer than `max` UTF-16 code units to at most `max`, ending
+ * in "...". The cut is moved back one code unit when it would keep the high
+ * half of a surrogate pair, so the kept text ends in a whole character.
+ */
 export function capLength(text: string, max: number): string {
   if (text.length <= max) return text;
-  return text.slice(0, max - TRUNCATION_MARK.length) + TRUNCATION_MARK;
+  let end = max - TRUNCATION_MARK.length;
+  if (end > 0 && isHighSurrogate(text.charCodeAt(end - 1))) end -= 1;
+  return text.slice(0, end) + TRUNCATION_MARK;
+}
+
+function isHighSurrogate(codeUnit: number): boolean {
+  return codeUnit >= 0xd800 && codeUnit <= 0xdbff;
 }

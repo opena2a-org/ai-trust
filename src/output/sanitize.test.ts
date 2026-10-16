@@ -97,4 +97,19 @@ describe("capLength", () => {
     expect(capped).toHaveLength(40);
     expect(capped).toBe(`${"x".repeat(37)}...`);
   });
+
+  it("does not cut a surrogate pair in half (#195)", () => {
+    // The emoji's two code units sit at indexes 36 and 37; a cut at 37 would
+    // keep only its high half.
+    const capped = capLength(`${"x".repeat(36)}\u{1F600}${"y".repeat(10)}`, 40);
+    expect(capped).toBe(`${"x".repeat(36)}...`);
+    // With the u flag, \p{Cs} matches only a surrogate that is not in a pair.
+    expect(capped).not.toMatch(/\p{Cs}/u);
+  });
+
+  it("keeps a surrogate pair that ends right at the cut (#195)", () => {
+    const capped = capLength(`${"x".repeat(35)}\u{1F600}${"y".repeat(10)}`, 40);
+    expect(capped).toBe(`${"x".repeat(35)}\u{1F600}...`);
+    expect(capped).toHaveLength(40);
+  });
 });
