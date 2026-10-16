@@ -7,7 +7,7 @@ import { basename } from "node:path";
 import type { PackageQuery } from "@opena2a/registry-client";
 import {
   auditFileRefusal,
-  isRequirementsFileName,
+  isRequirementsFile,
   NotAnAuditFileError,
 } from "./audit-file.js";
 
@@ -25,7 +25,7 @@ export async function parseDependencyFile(
 
   const fileName = basename(filePath);
   const content = await readFile(filePath, "utf-8");
-  if (isRequirementsFileName(fileName)) {
+  if (isRequirementsFile(filePath)) {
     return parseRequirementsTxt(content);
   }
   if (fileName === "package.json") {
@@ -40,7 +40,7 @@ export async function parseDependencyFile(
  * Returns "pypi" for a requirements file, "npm" for package.json.
  */
 export function detectEcosystem(filePath: string): "npm" | "pypi" {
-  return isRequirementsFileName(basename(filePath)) ? "pypi" : "npm";
+  return isRequirementsFile(filePath) ? "pypi" : "npm";
 }
 
 function parsePackageJson(content: string, fileName = "package.json"): PackageQuery[] {
