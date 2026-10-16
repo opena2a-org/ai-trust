@@ -73,9 +73,16 @@ export function registerAuditCommand(program: Command): void {
         json: boolean;
       };
 
+      // With --json a usage error is the `error` of one object on stdout, as
+      // for a --registry-url usage error.
       const minTrust = parseInt(opts.minTrust, 10);
       if (isNaN(minTrust) || minTrust < 0 || minTrust > 4) {
-        console.error("Error: --min-trust must be a number between 0 and 4");
+        const problem = "--min-trust must be a number between 0 and 4";
+        if (globalOpts.json) {
+          console.log(formatJson({ error: problem }));
+        } else {
+          console.error(`Error: ${problem}`);
+        }
         process.exitCode = 1;
         return;
       }
@@ -105,9 +112,12 @@ export function registerAuditCommand(program: Command): void {
         }
 
         if (packages.length > 100) {
-          console.error(
-            `Error: Too many dependencies (${packages.length}). The batch API supports a maximum of 100 packages per request.`
-          );
+          const problem = `Too many dependencies (${packages.length}). The batch API supports a maximum of 100 packages per request.`;
+          if (globalOpts.json) {
+            console.log(formatJson({ file, error: problem }));
+          } else {
+            console.error(`Error: ${problem}`);
+          }
           process.exitCode = 1;
           return;
         }

@@ -163,6 +163,45 @@ describe("audit command", () => {
     expect(process.exitCode).toBe(1);
   });
 
+  // With --json a usage error is one JSON object on stdout and nothing on
+  // stderr, as for a --registry-url usage error.
+  describe("usage errors with --json (#191)", () => {
+    for (const value of ["9", "-1", "abc"]) {
+      it(`--min-trust ${value} --json: {"error"} on stdout, exit 1`, async () => {
+        await createProgram().parseAsync([
+          "node", "test", "--json", "audit", "package.json", "--min-trust", value,
+        ]);
+
+        expect(consoleSpy.mock.calls).toHaveLength(1);
+        expect(JSON.parse(String(consoleSpy.mock.calls[0][0]))).toEqual({
+          error: "--min-trust must be a number between 0 and 4",
+        });
+        expect(consoleErrSpy).not.toHaveBeenCalled();
+        expect(process.exitCode).toBe(1);
+        expect(parseDependencyFile).not.toHaveBeenCalled();
+        expect(RegistryClient).not.toHaveBeenCalled();
+      });
+    }
+
+    it('more than 100 dependencies with --json: {"file", "error"} on stdout, exit 1', async () => {
+      vi.mocked(parseDependencyFile).mockResolvedValue(
+        Array.from({ length: 101 }, (_, i) => ({ name: `pkg-${i}` }))
+      );
+
+      await createProgram().parseAsync(["node", "test", "--json", "audit", "package.json"]);
+
+      expect(consoleSpy.mock.calls).toHaveLength(1);
+      expect(JSON.parse(String(consoleSpy.mock.calls[0][0]))).toEqual({
+        file: "package.json",
+        error:
+          "Too many dependencies (101). The batch API supports a maximum of 100 packages per request.",
+      });
+      expect(consoleErrSpy).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(1);
+      expect(RegistryClient).not.toHaveBeenCalled();
+    });
+  });
+
   it("sets exit code 2 when packages are below threshold", async () => {
     vi.mocked(parseDependencyFile).mockResolvedValue([{ name: "risky-pkg" }]);
     const mockBatchQuery = vi.fn().mockResolvedValue({
