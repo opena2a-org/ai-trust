@@ -40,6 +40,15 @@
  * directory with `--omit=dev --ignore-scripts` and audits THAT. Auditing
  * `npm ci` in this repo is the exact failure mode this exists to fix.
  *
+ * Three things are read off that tree: the advisories `npm audit` reports,
+ * every second copy of our own packages, and every package whose lockfile
+ * entry carries a `deprecated` notice. The notice is what a user reads first.
+ * npm prints `npm warn deprecated <name>@<version>: <notice>` while it
+ * installs, and a user who runs `npx ai-trust` installs it first, so the
+ * notice precedes anything ai-trust prints. A clean install of the published
+ * `ai-trust@0.7.6` printed eight such lines, four each for
+ * `hackmyagent@0.23.11` and the `hackmyagent@0.17.11` nested under it.
+ *
  * ## The two artifacts, and why both are measured
  *
  * The rule above cuts both ways, and the first version of this script failed
@@ -119,12 +128,17 @@
  * if it cannot reach a conclusion the gate FAILS rather than falling back to
  * the last thing someone wrote down.
  */
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ACCEPTED_ADVISORIES } from './lib/accepted-advisories.mjs';
+import {
+  deprecatedResolutions,
+  deprecationWarnings,
+  judgeDeprecations,
+} from './lib/deprecated-resolutions.mjs';
 
 const SELF = fileURLToPath(import.meta.url);
 const REPO_ROOT = path.resolve(path.dirname(SELF), '..');
@@ -194,6 +208,22 @@ const FORBIDDEN_PACKAGES = [
       'different verdicts for the same query, and only one of them is the one the ' +
       'user installed.',
   },
+];
+
+/**
+ * Deprecated packages a consumer tree may carry, by name, at exact versions.
+ *
+ * Empty, and the gate reads it on every run. A publisher deprecates a version
+ * to tell users not to install it, and npm prints the notice to a user who
+ * does, so a tree carrying one fails: the fix is the resolution, as the
+ * `hackmyagent` pin's move off `0.25.0` was. A waiver is for the case this
+ * repo cannot fix alone, a notice on a transitive dependency that no release
+ * of the package above it has cleared, and it carries the discipline of a
+ * nested-copy waiver: `name`, the exact `versions` it covers, a `reason` a
+ * user would accept, and a `reviewBy` date. A version it does not name fails,
+ * a waiver that stops matching fails, and a passed date fails.
+ */
+const DEPRECATION_WAIVERS = [
 ];
 
 function run(cmd, args, opts = {}) {
@@ -467,9 +497,23 @@ function auditConsumerTree(spec, probeDir) {
     path.join(probeDir, 'package.json'),
     JSON.stringify({ name: 'consumer-resolution-probe', version: '1.0.0', private: true }) + '\n'
   );
-  run('npm', ['install', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', spec], {
-    cwd: probeDir,
-  });
+  // `spawnSync` rather than `run()`: the install's stderr is a measurement
+  // too. npm prints `npm warn deprecated` there for each deprecated package
+  // it resolves, and `execFileSync` hands stderr back only when the command
+  // fails.
+  const install = spawnSync(
+    'npm',
+    ['install', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', spec],
+    { cwd: probeDir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
+  );
+  if (install.error) throw install.error;
+  if (install.status !== 0) {
+    throw new Error(
+      `npm install of ${spec} exited ${install.status}, so there is no consumer tree to ` +
+        `measure. Not a pass.\n${(install.stderr || '(nothing on stderr)').trim().slice(0, 2000)}`
+    );
+  }
+  const installStderr = install.stderr ?? '';
 
   let raw;
   try {
@@ -507,7 +551,7 @@ function auditConsumerTree(spec, probeDir) {
   }
   const lock = JSON.parse(readFileSync(lockPath, 'utf8'));
   const liveness = assertTreeResolved(lock, probeDir);
-  return { report, lock, counts, liveness };
+  return { report, lock, counts, liveness, installStderr };
 }
 
 /** Every GHSA id at `high` or `critical`, with the package it lands on. */
@@ -578,7 +622,7 @@ function main() {
 
     const probeDir = path.join(scratch, 'probe');
     mkdirSync(probeDir, { recursive: true });
-    const { report, lock, counts, liveness } = auditConsumerTree(spec, probeDir);
+    const { report, lock, counts, liveness, installStderr } = auditConsumerTree(spec, probeDir);
     rootName = liveness.rootName;
 
     // Say what was actually measured. In PUBLISHED mode the dist-tag moves, and
@@ -709,6 +753,29 @@ function main() {
       console.log(`           present: ${describe}`);
       console.log(`           ${waiver.reason.replace(/\s+/g, ' ')}\n`);
     }
+
+    // 5. No package in the tree carries a deprecation notice. npm prints the
+    //    notice while installing, so it is the first thing a user reads, and
+    //    a notice on one of our own packages tells them the version they just
+    //    installed is one its publisher has withdrawn. Read off the probe's
+    //    lockfile, where npm records the registry's `deprecated` field, and
+    //    cross-checked against the install's stderr. Waivable on the same
+    //    terms as a nested copy.
+    const deprecatedFound = deprecatedResolutions(lock);
+    const deprecatedWarned = deprecationWarnings(installStderr);
+    console.log(
+      `Deprecated packages in the consumer tree: ${deprecatedFound.length} ` +
+        `(${deprecatedWarned.lines} \`npm warn deprecated\` lines on the probe install)\n`
+    );
+    const deprecation = judgeDeprecations({
+      found: deprecatedFound,
+      warned: deprecatedWarned,
+      waivers: DEPRECATION_WAIVERS,
+      today,
+      scriptRef: path.relative(REPO_ROOT, SELF),
+    });
+    for (const line of deprecation.log) console.log(line);
+    failures.push(...deprecation.failures);
   } catch (e) {
     // A throw before or during measurement means there IS no measurement.
     // Routed through `failures` rather than left to crash, so it exits in the
