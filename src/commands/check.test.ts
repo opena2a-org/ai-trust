@@ -412,6 +412,33 @@ describe("check command", () => {
         expect(step).not.toContain("--scan-if-missing");
       }
     });
+
+    it("quotes a --json registry miss name with shell syntax in nextSteps (#218)", async () => {
+      vi.mocked(RegistryClient).mockImplementation(
+        function () {
+          return {
+            checkTrust: vi
+              .fn()
+              .mockRejectedValue(new PackageNotFoundError("shell-lib; echo injected")),
+            batchQuery: vi.fn(),
+            publishScan: vi.fn(),
+          } as any;
+        }
+      );
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node",
+        "test",
+        "check",
+        "shell-lib; echo injected",
+        "--no-scan",
+        "--json",
+      ]);
+
+      const out = JSON.parse(consoleSpy.mock.calls[0][0] as string);
+      expect(out.nextSteps[0]).toBe("ai-trust check 'shell-lib; echo injected'");
+    });
   });
 
   describe("a <name>@<version> target is looked up in the registry by its name", () => {
