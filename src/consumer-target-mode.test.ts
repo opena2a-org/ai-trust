@@ -19,6 +19,10 @@
  * named that way was never installed and the run audited the published
  * package. It is now read the same as `--target <value>`.
  *
+ * Any other argument was skipped, so `--help`, a mistyped flag or a tarball
+ * path given without `--target` started the PUBLISHED run. Such an argument
+ * now fails before npm runs, and `--help` prints the accepted forms.
+ *
  * `scripts/audit-consumer-resolution.mjs` ends in a bare `main();`, so it
  * runs here as a process. The `npm` on its PATH is a stub that prints its
  * arguments and exits 1: no run reaches the registry, and a run that installs
@@ -160,6 +164,43 @@ describe.skipIf(process.platform === "win32")("consumer-resolution gate --target
       );
       expect(`${run.stdout}${run.stderr}`).not.toMatch(/PUBLISHED|CANDIDATE/);
       expect(run.stderr).not.toContain(NPM_CALLED);
+    }
+  });
+
+  it("fails an unrecognised argument before running npm, naming it, under neither run's label", () => {
+    const cases: Array<[string[], string[]]> = [
+      [["--targe=./ai-trust-0.7.6.tgz"], ['unrecognised argument "--targe=./ai-trust-0.7.6.tgz"']],
+      [["./ai-trust-0.7.6.tgz"], ['unrecognised argument "./ai-trust-0.7.6.tgz"']],
+      [
+        ["--target", join(scratch, "packed", "ai-trust-0.0.0.tgz"), "--verbose"],
+        ['unrecognised argument "--verbose"'],
+      ],
+      [
+        ["--target=a.tgz", "--target", "b.tgz"],
+        ['"--target": `--target` was already given; name one artifact per run'],
+      ],
+      [["-x", "--"], ['unrecognised argument "-x"', 'unrecognised argument "--"']],
+    ];
+    for (const [args, named] of cases) {
+      const run = gateArgs(args);
+      expect(run.status).toBe(1);
+      expect(run.stdout).toBe("");
+      expect(run.stderr).toContain("Consumer-resolution audit FAILED — the command line was not understood:\n");
+      for (const line of named) expect(run.stderr).toContain(`  - ${line}\n`);
+      expect(run.stderr).toContain("--target=<value>");
+      expect(`${run.stdout}${run.stderr}`).not.toMatch(/PUBLISHED|CANDIDATE/);
+      expect(run.stderr).not.toContain(NPM_CALLED);
+    }
+  });
+
+  it("prints the accepted forms for --help and -h, without running npm", () => {
+    for (const args of [["--help"], ["-h"], ["--target=a.tgz", "--help"]]) {
+      const run = gateArgs(args);
+      expect(run.status).toBe(0);
+      expect(run.stdout).toContain("Usage:\n");
+      expect(run.stdout).toContain("--target <value>");
+      expect(run.stdout).toContain("--target=<value>");
+      expect(run.stderr).toBe("");
     }
   });
 
