@@ -637,6 +637,22 @@ function main() {
               `${unpadded === explicitTarget ? '' : 'whitespace and then '}\`-\`, ` +
               'so it names no artifact to audit'
           );
+        } else if (unpadded && explicitTarget.trim() !== explicitTarget) {
+          // Whitespace before or after a value is refused as well, rather
+          // than trimmed. Classified with it, a tarball path followed by
+          // whitespace would be read as a registry spec, and that value or a
+          // registry spec after whitespace would reach `npm install` under the
+          // PUBLISHED label. Trimmed, a path can name a different file from the
+          // one given, as a file name may begin with whitespace; a tarball
+          // whose name does is named as `./<name>`. A value made only of
+          // whitespace is left to the empty-value check below.
+          const begins = unpadded !== explicitTarget;
+          const ends = explicitTarget.trimEnd() !== explicitTarget;
+          problems.push(
+            `the \`--target\` value ${JSON.stringify(explicitTarget)} ` +
+              `${begins && ends ? 'begins and ends' : begins ? 'begins' : 'ends'} with whitespace; ` +
+              'name the artifact without it'
+          );
         }
       }
       // The two-argument form takes the next argument as its value, whatever it
