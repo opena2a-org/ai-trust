@@ -597,12 +597,32 @@ function main() {
   const targetArg = argv.indexOf('--target');
   const explicitTarget = targetArg !== -1 ? argv[targetArg + 1] : null;
 
+  // `--target` with nothing usable after it names no artifact, which is not the
+  // same request as leaving the flag out: that one asks for the published
+  // package. So it fails here, before the dist-tag is resolved or anything is
+  // installed, and under neither run's label: there is no target to classify.
+  if (targetArg !== -1 && (explicitTarget === undefined || explicitTarget.trim() === '')) {
+    const given =
+      explicitTarget === undefined
+        ? 'nothing follows it'
+        : `the argument after it is ${JSON.stringify(explicitTarget)}`;
+    console.error(
+      `\nConsumer-resolution audit FAILED — \`--target\` was given no value: ${given}.\n\n` +
+        '  - `--target` takes the artifact to audit: the path of a tarball, such as the one ' +
+        '`npm pack` writes, or a registry spec. Without one there is no target, so nothing ' +
+        'was resolved, installed or measured. Not a pass.\n' +
+        '    Pass the tarball path after `--target`, or run without `--target` to audit the ' +
+        `published ${PACKAGE_NAME}@latest.\n`
+    );
+    process.exit(1);
+  }
+
   const scratch = mkdtempSync(path.join(tmpdir(), 'ai-trust-consumer-audit-'));
   const failures = [];
   let target = classifyTarget(explicitTarget ?? `${PACKAGE_NAME}@latest`);
   let rootName = '(unresolved)';
   try {
-    if (!explicitTarget) {
+    if (explicitTarget === null) {
       // Resolve the dist-tag to a concrete version so the log names the exact
       // artifact measured rather than a label that moves under it.
       const published = run('npm', ['view', PACKAGE_NAME, 'dist-tags.latest']).trim();
