@@ -594,8 +594,17 @@ function nestedCopies(lock, probeDir, name) {
 
 function main() {
   const argv = process.argv.slice(2);
-  const targetArg = argv.indexOf('--target');
-  const explicitTarget = targetArg !== -1 ? argv[targetArg + 1] : null;
+  // `--target <value>` and `--target=<value>` name the same artifact. Reading
+  // only the first form would leave the second as no `--target`, which audits
+  // the published package instead of the one named on the command line.
+  const targetArg = argv.findIndex((arg) => arg === '--target' || arg.startsWith('--target='));
+  const inlineTarget = targetArg !== -1 && argv[targetArg].startsWith('--target=');
+  const explicitTarget =
+    targetArg === -1
+      ? null
+      : inlineTarget
+        ? argv[targetArg].slice('--target='.length)
+        : argv[targetArg + 1];
 
   // `--target` with nothing usable after it names no artifact, which is not the
   // same request as leaving the flag out: that one asks for the published
@@ -605,7 +614,9 @@ function main() {
     const given =
       explicitTarget === undefined
         ? 'nothing follows it'
-        : `the argument after it is ${JSON.stringify(explicitTarget)}`;
+        : inlineTarget
+          ? `the value after \`--target=\` is ${JSON.stringify(explicitTarget)}`
+          : `the argument after it is ${JSON.stringify(explicitTarget)}`;
     console.error(
       `\nConsumer-resolution audit FAILED — \`--target\` was given no value: ${given}.\n\n` +
         '  - `--target` takes the artifact to audit: the path of a tarball, such as the one ' +

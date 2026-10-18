@@ -15,6 +15,10 @@
  * runs, under neither label, while a run without `--target` still asks npm
  * for the published version.
  *
+ * `--target=<value>` was not recognised as `--target` at all, so a tarball
+ * named that way was never installed and the run audited the published
+ * package. It is now read the same as `--target <value>`.
+ *
  * `scripts/audit-consumer-resolution.mjs` ends in a bare `main();`, so it
  * runs here as a process. The `npm` on its PATH is a stub that prints its
  * arguments and exits 1: no run reaches the registry, and a run that installs
@@ -122,6 +126,38 @@ describe.skipIf(process.platform === "win32")("consumer-resolution gate --target
         `Consumer-resolution audit FAILED — \`--target\` was given no value: ${given}.\n`,
       );
       expect(run.stderr).toContain("`--target` takes the artifact to audit");
+      expect(`${run.stdout}${run.stderr}`).not.toMatch(/PUBLISHED|CANDIDATE/);
+      expect(run.stderr).not.toContain(NPM_CALLED);
+    }
+  });
+
+  it("reads --target=<value> as --target <value>", () => {
+    const packed = join(scratch, "packed", "ai-trust-0.0.0.tgz");
+    const installed = gateArgs([`--target=${packed}`]);
+    expect(installed.status).toBe(1);
+    expect(installed.stdout).toContain(`[CANDIDATE] Target: ${packed}\n`);
+    expect(installed.stderr).toContain(`${INSTALL} ${packed}\n`);
+    expect(`${installed.stdout}${installed.stderr}`).not.toContain("PUBLISHED");
+    expect(installed.stderr).not.toContain("dist-tags.latest");
+
+    const missing = join(scratch, "missing", "ai-trust-0.0.0.tgz");
+    expectMissingCandidate(gateArgs([`--target=${missing}`]), missing);
+
+    const spec = "ai-trust@0.7.6";
+    const published = gateArgs([`--target=${spec}`]);
+    expect(published.stdout).toContain(`[PUBLISHED] Target: ${spec}\n`);
+    expect(published.stderr).toContain(`${INSTALL} ${spec}\n`);
+    expect(published.stderr).not.toContain("dist-tags.latest");
+  });
+
+  it("fails a --target= with no value before running npm, under neither run's label", () => {
+    for (const [arg, value] of [["--target=", '""'], ["--target= ", '" "']]) {
+      const run = gateArgs([arg]);
+      expect(run.status).toBe(1);
+      expect(run.stdout).toBe("");
+      expect(run.stderr).toContain(
+        `Consumer-resolution audit FAILED — \`--target\` was given no value: the value after \`--target=\` is ${value}.\n`,
+      );
       expect(`${run.stdout}${run.stderr}`).not.toMatch(/PUBLISHED|CANDIDATE/);
       expect(run.stderr).not.toContain(NPM_CALLED);
     }
