@@ -34,6 +34,13 @@
  * handed to `npm install` after its own flags. Leading whitespace is now read
  * past, so a value of whitespace and then `-` fails the same way, naming it.
  *
+ * A value with whitespace before or after it was classified with that
+ * whitespace, so ` ai-trust@0.7.6` and `ai-trust-0.0.0.tgz ` (a tarball path
+ * read as a registry spec) started the PUBLISHED run and were handed to
+ * `npm install` as given. Such a value now fails before npm runs, naming the
+ * value and where the whitespace is, under neither label. A tarball whose name
+ * begins with whitespace is named as `./<name>`.
+ *
  * `scripts/audit-consumer-resolution.mjs` ends in a bare `main();`, so it
  * runs here as a process. The `npm` on its PATH is a stub that prints its
  * arguments and exits 1: no run reaches the registry, and a run that installs
@@ -61,6 +68,7 @@ beforeAll(() => {
   chmodSync(npm, 0o755);
   writeFileSync(join(scratch, "packed", "ai-trust-0.0.0.tgz"), "");
   writeFileSync(join(scratch, "packed", "-ai-trust-0.0.0.tgz"), "");
+  writeFileSync(join(scratch, "packed", " ai-trust-0.0.0.tgz"), "");
 });
 
 afterAll(() => {
@@ -257,6 +265,42 @@ describe.skipIf(process.platform === "win32")("consumer-resolution gate --target
     expect(run.stdout).toContain(`[CANDIDATE] Target: ${packed}\n`);
     expect(run.stderr).toContain(`${INSTALL} ${packed}\n`);
     expect(run.stderr).not.toContain("begins with");
+  });
+
+  it("fails a --target value padded with whitespace before running npm, naming it, under neither run's label", () => {
+    const refused = (value: string, where: string) =>
+      `the \`--target\` value ${JSON.stringify(value)} ${where} with whitespace; name the artifact without it`;
+    // The working directory holds `ai-trust-0.0.0.tgz` and
+    // ` ai-trust-0.0.0.tgz`, so ` ai-trust-0.0.0.tgz` is refused although it
+    // and its trimmed form each name a file there.
+    const cases: Array<[string[], string, string]> = [
+      [["--target", " ai-trust@0.7.6"], " ai-trust@0.7.6", "begins"],
+      [["--target= ai-trust@0.7.6"], " ai-trust@0.7.6", "begins"],
+      [["--target", "ai-trust@0.7.6\n"], "ai-trust@0.7.6\n", "ends"],
+      [["--target", "ai-trust-0.0.0.tgz "], "ai-trust-0.0.0.tgz ", "ends"],
+      [["--target", " ai-trust-0.0.0.tgz"], " ai-trust-0.0.0.tgz", "begins"],
+      [["--target", "\tai-trust-0.0.0.tgz "], "\tai-trust-0.0.0.tgz ", "begins and ends"],
+    ];
+    for (const [args, value, where] of cases) {
+      const run = gateArgs(args, join(scratch, "packed"));
+      expect(run.status).toBe(1);
+      expect(run.stdout).toBe("");
+      expect(run.stderr).toContain("Consumer-resolution audit FAILED — the command line was not understood:\n");
+      expect(run.stderr).toContain(`  - ${refused(value, where)}\n`);
+      expect(run.stderr).toContain("  - Nothing was resolved, installed or measured. Not a pass.\n");
+      expect(run.stderr).toContain("Usage:\n");
+      expect(`${run.stdout}${run.stderr}`).not.toMatch(/PUBLISHED|CANDIDATE/);
+      expect(run.stderr).not.toContain(NPM_CALLED);
+    }
+  });
+
+  it("installs a tarball whose name begins with whitespace when it is named as ./<name>, as the CANDIDATE run", () => {
+    const packed = join(scratch, "packed", " ai-trust-0.0.0.tgz");
+    const run = gate("./ ai-trust-0.0.0.tgz", join(scratch, "packed"));
+    expect(run.status).toBe(1);
+    expect(run.stdout).toContain(`[CANDIDATE] Target: ${packed}\n`);
+    expect(run.stderr).toContain(`${INSTALL} ${packed}\n`);
+    expect(run.stderr).not.toContain("with whitespace");
   });
 
   it("prints the accepted forms for --help and -h, without running npm", () => {
