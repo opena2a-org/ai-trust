@@ -167,6 +167,13 @@ export function registerCheckCommand(program: Command): void {
           });
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
+          // With --json the error is one object on stdout: the object
+          // handleScanFlow prints for a scan that fails, without an
+          // ecosystem, since --scan-path scans a directory, not a package.
+          if (globalOpts.json) {
+            console.log(formatJson(buildNotFoundOutput({ name: rawName, error: msg })));
+            process.exit(2);
+          }
           console.error(chalk.red(`error: ${msg}`));
           // The directory hint is for a directory scanLocalPath refused. The
           // scanner can also fail on a directory that exists and is readable.

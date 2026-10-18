@@ -2348,6 +2348,99 @@ describe("documented exit codes match check outcomes", () => {
   });
 });
 
+// #227: with --json, a check --scan-path whose scan failed printed the error
+// and the fix as text on stderr, nothing on stdout, and exited 2.
+describe("check --scan-path --json prints a failed scan as JSON on stdout", () => {
+  let consoleSpy: ReturnType<typeof vi.spyOn>;
+  let consoleErrSpy: ReturnType<typeof vi.spyOn>;
+  let savedExitCode: number | undefined;
+
+  const SCANNER_FAILED =
+    "HMA scan failed: Command failed: hackmyagent secure --format json --no-contribute --static-only /tmp/fixture\nscanner crashed\n";
+
+  /** Run `check` with process.exit stubbed; returns the code it exited with. */
+  async function runCheck(args: string[]): Promise<number | undefined> {
+    let exitCode: number | undefined;
+    const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      exitCode = code;
+      throw new Error("process.exit");
+    }) as never);
+    try {
+      await createProgram().parseAsync(["node", "test", ...args]).catch(() => {});
+    } finally {
+      exit.mockRestore();
+    }
+    return exitCode;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    savedExitCode = process.exitCode;
+    process.exitCode = undefined;
+    vi.mocked(isHmaAvailable).mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    consoleSpy.mockRestore();
+    consoleErrSpy.mockRestore();
+    process.exitCode = savedExitCode;
+  });
+
+  it.each([
+    ["the scanner exits without a report", SCANNER_FAILED],
+    ["the directory does not exist", "scanLocalPath: /tmp/fixture could not be read (ENOENT)."],
+    ["the path is not a directory", "scanLocalPath: /tmp/fixture is not a directory."],
+  ])("prints one object with the error on stdout, nothing on stderr, and exits 2 when %s", async (_label, message) => {
+    vi.mocked(scanLocalPath).mockRejectedValue(new Error(message));
+
+    const exitCode = await runCheck([
+      "--json", "check", "fixture", "--scan-path", "/tmp/fixture", "--no-deep",
+    ]);
+
+    expect(consoleSpy).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(consoleSpy.mock.calls[0][0]))).toEqual({
+      name: "fixture",
+      found: false,
+      error: message,
+    });
+    expect(consoleErrSpy).not.toHaveBeenCalled();
+    expect(exitCode).toBe(2);
+  });
+
+  it("prints the object the default flow prints for the same failed scan, without an ecosystem", async () => {
+    vi.mocked(RegistryClient).mockImplementation(function () {
+      return {
+        checkTrust: vi.fn().mockRejectedValue(new PackageNotFoundError("fixture")),
+        publishScan: vi.fn(),
+      } as any;
+    });
+    vi.mocked(scanPackage).mockRejectedValue(new Error(SCANNER_FAILED));
+    vi.mocked(scanLocalPath).mockRejectedValue(new Error(SCANNER_FAILED));
+
+    await createProgram().parseAsync(["node", "test", "--json", "check", "fixture", "--no-deep"]);
+    await runCheck(["--json", "check", "fixture", "--scan-path", "/tmp/fixture", "--no-deep"]);
+
+    expect(consoleSpy).toHaveBeenCalledTimes(2);
+    const [defaultFlow, scanPath] = consoleSpy.mock.calls.map((args) => JSON.parse(String(args[0])));
+    expect(defaultFlow).toEqual({ name: "fixture", found: false, error: SCANNER_FAILED, ecosystem: "npm" });
+    const { ecosystem: _ecosystem, ...withoutEcosystem } = defaultFlow;
+    expect(scanPath).toEqual(withoutEcosystem);
+  });
+
+  it("without --json prints the error as text on stderr, nothing on stdout, and exits 2", async () => {
+    vi.mocked(scanLocalPath).mockRejectedValue(new Error(SCANNER_FAILED));
+
+    const exitCode = await runCheck(["check", "fixture", "--scan-path", "/tmp/fixture", "--no-deep"]);
+
+    expect(consoleSpy).not.toHaveBeenCalled();
+    const stderr = consoleErrSpy.mock.calls.map((args) => args.join(" ").replace(/\x1b\[[0-9;]*m/g, ""));
+    expect(stderr[0]).toBe(`error: ${SCANNER_FAILED}`);
+    expect(exitCode).toBe(2);
+  });
+});
+
 // #178: `check --analm` printed the same output as `check` when the scanner's
 // analyst layer did not run. Every path below prints one line saying whether
 // it ran or why not.
