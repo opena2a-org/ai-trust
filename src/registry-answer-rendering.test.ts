@@ -10,6 +10,9 @@
  * - a security profile is read one field at a time;
  * - "No known issues" is not the headline over a `warnings` scan status;
  * - a found package whose scan is in progress shows no score in `batch`;
+ * - a found package with a scan date and a scan status that is not a finished
+ *   one shows no score in `check --no-scan`, and its Trust line names the
+ *   status and the age of the last recorded scan instead of "not scanned";
  * - a trust score off the 0-1 scale shows no score in `batch` and `audit`;
  * - `check pip:` and `check npm:` are usage errors;
  * - `check pip:<name>` output says pypi, and `check <name> --json` says npm.
@@ -34,6 +37,9 @@ const RAW_CVE = `CVE-${OSC_TITLE}-1\r\nEXTRA LINE`;
 // error message the CLI prints.
 const BAD_BODY_PACKAGE = "bad-body";
 const BAD_BODY = `${OSC_TITLE}<html>`;
+const DAY_MS = 24 * 60 * 60 * 1000;
+// An hour past the day boundary, so the age the CLI prints does not depend on the clock.
+const SCANNED_231_DAYS_AGO = new Date(Date.now() - 231 * DAY_MS - 60 * 60 * 1000).toISOString();
 
 function answer(name: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -75,6 +81,15 @@ const QUERY: Record<string, Record<string, unknown>> = {
   "warnings-no-profile": answer("warnings-no-profile", { scanStatus: "warnings" }),
   "rich-mcp": answer("rich-mcp", { scanStatus: "completed" }),
   "pypi-lib": answer("pypi-lib", { packageType: "library", verdict: "listed" }),
+  // A scan date under a scan status that is not a finished one.
+  "pending-dated": answer("pending-dated", {
+    trustLevel: 2,
+    trustScore: 0.773,
+    verdict: "listed",
+    scanStatus: "pending",
+    lastScannedAt: SCANNED_231_DAYS_AGO,
+    securityProfile: { criticalCount: 0, highCount: 1, knownCves: [] },
+  }),
   // Trust scores off the 0-1 scale, as in BATCH.
   "score-55": answer("score-55", { trustScore: 55, scanStatus: "completed" }),
   "score-negative": answer("score-negative", { trustScore: -0.5, scanStatus: "completed" }),
@@ -475,6 +490,33 @@ describe("registry answers through the built CLI", () => {
       expect(stdout).toMatch(/^ {2}running-mcp\s+mcp_server\s+LISTED\s+Listed\s+━{8} -- {2}running\s*$/m);
       expect(stdout).toMatch(/^ {2}│ running-mcp {2}not scanned {2}Listed \(2\/4\)$/m);
       expect(stdout).not.toContain("0/100");
+    });
+
+    it("check --no-scan names the scan status and the last recorded scan instead of 'not scanned'", async () => {
+      const { stdout, status } = await runCli(["check", "pending-dated", "--no-scan"]);
+
+      expect(status).toBe(0);
+      expect(stdout).toMatch(/^ {2}pending-dated {2}mcp server · scanned 231 days ago \(stale\)$/m);
+      expect(stdout).toMatch(
+        /^ {2}Trust {5}score not shown: the registry's scan status is pending · last recorded scan 231 days ago \(stale\)$/m,
+      );
+      expect(stdout).toMatch(
+        /^ {2}Findings {2}0 critical · 1 high \(details not returned\) · scan status pending$/m,
+      );
+      expect(stdout).not.toContain("not scanned");
+      expect(stdout).not.toContain("request a scan");
+      expect(stdout).not.toContain("77/100");
+      expect(stdout).toContain("Scan locally  ai-trust check pending-dated");
+    });
+
+    it("check --no-scan --json carries the registry's scan status, date and score", async () => {
+      const { stdout, status } = await runCli(["check", "pending-dated", "--no-scan", "--json"]);
+
+      expect(status).toBe(0);
+      const parsed = JSON.parse(stdout);
+      expect(parsed.scanStatus).toBe("pending");
+      expect(parsed.lastScannedAt).toBe(SCANNED_231_DAYS_AGO);
+      expect(parsed.trustScore).toBe(0.773);
     });
   });
 
