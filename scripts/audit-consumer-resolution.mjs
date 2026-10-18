@@ -611,6 +611,7 @@ function main() {
   // and skipping it would leave the run that audits the published package.
   let targetArg = -1;
   let inlineTarget = false;
+  let explicitTarget = null;
   let help = false;
   const problems = [];
   for (let i = 0; i < argv.length; i++) {
@@ -621,8 +622,21 @@ function main() {
       } else {
         targetArg = i;
         inlineTarget = arg !== '--target';
+        explicitTarget = inlineTarget ? arg.slice('--target='.length) : argv[i + 1];
+        // A value that begins with `-` names no artifact, in either form, and is
+        // refused here. Read as a registry spec, it would reach `npm install`
+        // after the install's own flags, and npm reads `--help` or `-h` there
+        // as a flag of its own: it prints its usage and installs nothing. A
+        // tarball whose name begins with `-` is named as `./<name>`.
+        if (explicitTarget?.startsWith('-')) {
+          problems.push(
+            `the \`--target\` value ${JSON.stringify(explicitTarget)} begins with \`-\`, ` +
+              'so it names no artifact to audit'
+          );
+        }
       }
-      // The two-argument form takes the next argument as its value, whatever it is.
+      // The two-argument form takes the next argument as its value, whatever it
+      // is, so `--target --help` is refused above rather than read as `--help`.
       if (arg === '--target') i++;
     } else if (arg === '--help' || arg === '-h') {
       help = true;
@@ -647,13 +661,6 @@ function main() {
     );
     process.exit(1);
   }
-
-  const explicitTarget =
-    targetArg === -1
-      ? null
-      : inlineTarget
-        ? argv[targetArg].slice('--target='.length)
-        : argv[targetArg + 1];
 
   // `--target` with nothing usable after it names no artifact, which is not the
   // same request as leaving the flag out: that one asks for the published
