@@ -28,7 +28,7 @@ What it prints ([full output](docs/captures/quick-start.txt)):
   → Fresh scan  ai-trust check @modelcontextprotocol/server-filesystem
 ```
 
-It needs Node.js 18 or later and no account.
+It needs Node.js 20.19+ or 22.12+ and no account.
 
 - [Check a package before you install it](#check-a-package-before-you-install-it)
 - [Gate a project's AI dependencies in CI](#gate-a-projects-ai-dependencies-in-ci)

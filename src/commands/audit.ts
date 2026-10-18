@@ -19,6 +19,7 @@ import {
   isHmaAvailable,
   reinstallCommand,
   scanPackage,
+  scannerNodeVersionProblem,
   scannerTempDirProblem,
 } from "../scanner/index.js";
 import type { ScanResult } from "../scanner/index.js";
@@ -293,10 +294,10 @@ function manifestNameFor(
 
 /** Say why the scanner cannot run, for an isHmaAvailable() that answered false. */
 function reportHmaUnavailable(): void {
-  const tempDirProblem = scannerTempDirProblem();
-  if (tempDirProblem) {
+  const startProblem = scannerNodeVersionProblem() ?? scannerTempDirProblem();
+  if (startProblem) {
     console.error(
-      `HMA (HackMyAgent) is required for scanning, and it could not be started. ${tempDirProblem}`
+      `HMA (HackMyAgent) is required for scanning, and it could not be started. ${startProblem}`
     );
     return;
   }

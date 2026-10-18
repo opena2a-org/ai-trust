@@ -36,7 +36,13 @@ vi.mock("node:fs", async (importOriginal) => {
 });
 
 import { execFile } from "node:child_process";
-import { isHmaAvailable, nothingToScan, runHmaScan, scannerTempDirProblem } from "./hma.js";
+import {
+  isHmaAvailable,
+  nothingToScan,
+  runHmaScan,
+  scannerNodeVersionProblem,
+  scannerTempDirProblem,
+} from "./hma.js";
 
 describe("isHmaAvailable", () => {
   beforeEach(() => {
@@ -60,6 +66,80 @@ describe("isHmaAvailable", () => {
 
     const result = await isHmaAvailable();
     expect(result).toBe(false);
+  });
+});
+
+describe("scannerNodeVersionProblem", () => {
+  // The rejection execFile gives for the scanner's --version run on Node.js
+  // 20.18.3, where hackmyagent 0.33.2 require()s @opena2a/registry-client.
+  const requireEsmFailure = Object.assign(
+    new Error("Command failed: node /app/node_modules/hackmyagent/dist/cli.js --version"),
+    {
+      code: 1,
+      stdout: "",
+      stderr:
+        "Error [ERR_REQUIRE_ESM]: require() of ES Module /app/node_modules/@opena2a/registry-client/dist/index.js from /app/node_modules/hackmyagent/dist/registry/publish.js not supported.\n",
+    },
+  );
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("names this Node.js version and the versions to run instead when the --version check fails with ERR_REQUIRE_ESM", async () => {
+    vi.mocked(execFile as any).mockRejectedValue(requireEsmFailure);
+
+    expect(await isHmaAvailable()).toBe(false);
+    expect(scannerNodeVersionProblem("20.18.3")).toBe(
+      "The hackmyagent version ai-trust pins loads an ES module with require(), which Node.js 20.18.3 does not do (ERR_REQUIRE_ESM). Run ai-trust on Node.js 20.19.0 or a later 20.x release, or on 22.12.0 or later.",
+    );
+  });
+
+  it("names a Node.js 18, 21 or 22 release before 22.12.0, and a 20.x release before 20.19.0", async () => {
+    vi.mocked(execFile as any).mockRejectedValue(requireEsmFailure);
+    expect(await isHmaAvailable()).toBe(false);
+
+    for (const version of ["18.20.8", "20.0.0", "20.18.3", "21.7.3", "22.0.0", "22.11.0"]) {
+      expect(scannerNodeVersionProblem(version)).toContain(
+        `which Node.js ${version} does not do (ERR_REQUIRE_ESM)`,
+      );
+    }
+  });
+
+  it("is null on Node.js 20.19.0 and later 20.x releases, and on 22.12.0 and later", async () => {
+    vi.mocked(execFile as any).mockRejectedValue(requireEsmFailure);
+    expect(await isHmaAvailable()).toBe(false);
+
+    for (const version of ["20.19.0", "20.20.0", "22.12.0", "22.23.3", "23.0.0", "24.21.0", "26.12.0"]) {
+      expect(scannerNodeVersionProblem(version)).toBeNull();
+    }
+  });
+
+  it("is null when the --version check fails without ERR_REQUIRE_ESM", async () => {
+    vi.mocked(execFile as any).mockRejectedValue(
+      Object.assign(new Error("Command failed"), {
+        code: 1,
+        stderr: "Error: Cannot find module './cli-impl.js'\n",
+      }),
+    );
+
+    expect(await isHmaAvailable()).toBe(false);
+    expect(scannerNodeVersionProblem("20.18.3")).toBeNull();
+  });
+
+  it("is null once a later --version check passes", async () => {
+    vi.mocked(execFile as any).mockRejectedValueOnce(requireEsmFailure);
+    expect(await isHmaAvailable()).toBe(false);
+    vi.mocked(execFile as any).mockResolvedValueOnce({ stdout: "0.33.2\n", stderr: "" });
+    expect(await isHmaAvailable()).toBe(true);
+
+    expect(scannerNodeVersionProblem("20.18.3")).toBeNull();
+  });
+
+  // The message and the version cases above name the releases this range allows.
+  it("matches the engines range in package.json", () => {
+    const manifest = JSON.parse(readFileSync(join(__dirname, "..", "..", "package.json"), "utf8"));
+    expect(manifest.engines.node).toBe(">=20.19.0 <21 || >=22.12.0");
   });
 });
 

@@ -40,6 +40,7 @@ vi.mock("../scanner/index.js", () => ({
   reinstallCommand: vi.fn().mockReturnValue("cd /work/project && npm install"),
   scanPackage: vi.fn(),
   scanLocalPath: vi.fn(),
+  scannerNodeVersionProblem: vi.fn().mockReturnValue(null),
   scannerTempDirProblem: vi.fn().mockReturnValue(null),
 }));
 
@@ -78,7 +79,12 @@ import {
   formatJson,
   formatNotFound,
 } from "../output/formatter.js";
-import { isHmaAvailable, scanPackage, scanLocalPath } from "../scanner/index.js";
+import {
+  isHmaAvailable,
+  scanPackage,
+  scanLocalPath,
+  scannerNodeVersionProblem,
+} from "../scanner/index.js";
 import type { AnalystLayerStatus, ScanResult } from "../scanner/index.js";
 import { confirm } from "../utils/prompt.js";
 import { sendScanPing } from "../telemetry/contribute.js";
@@ -828,6 +834,50 @@ describe("check command", () => {
       expect(consoleErrSpy).not.toHaveBeenCalledWith(
         expect.stringContaining("npm install -g ai-trust")
       );
+    });
+
+    // What scannerNodeVersionProblem() returns on Node.js 20.18.3.
+    const nodeVersionProblem =
+      "The hackmyagent version ai-trust pins loads an ES module with require(), which Node.js 20.18.3 does not do (ERR_REQUIRE_ESM). Run ai-trust on Node.js 20.19.0 or a later 20.x release, or on 22.12.0 or later.";
+
+    it("names the Node.js version, not a reinstall, when the scanner cannot load on this Node.js", async () => {
+      vi.mocked(isHmaAvailable).mockResolvedValue(false);
+      vi.mocked(scannerNodeVersionProblem).mockReturnValueOnce(nodeVersionProblem);
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "check", "my-pkg"]);
+
+      expect(process.exitCode).toBe(1);
+      expect(consoleErrSpy).toHaveBeenCalledWith(
+        `HMA (HackMyAgent) is required for scanning, and it could not be started. ${nodeVersionProblem}`
+      );
+      expect(consoleErrSpy).not.toHaveBeenCalledWith(expect.stringContaining("Reinstall"));
+      expect(consoleErrSpy).not.toHaveBeenCalledWith("  cd /work/project && npm install");
+      expect(scanPackage).not.toHaveBeenCalled();
+    });
+
+    it("check --scan-path names the Node.js version, not a reinstall, and exits 2 when the scanner cannot load on this Node.js", async () => {
+      vi.mocked(isHmaAvailable).mockResolvedValue(false);
+      vi.mocked(scannerNodeVersionProblem).mockReturnValueOnce(nodeVersionProblem);
+      let exitCode: number | undefined;
+      const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+        exitCode = code;
+        throw new Error("process.exit");
+      }) as never);
+      try {
+        await createProgram()
+          .parseAsync(["node", "test", "check", "fixture", "--scan-path", "/tmp/fixture", "--no-deep"])
+          .catch(() => {});
+      } finally {
+        exit.mockRestore();
+      }
+
+      expect(exitCode).toBe(2);
+      expect(consoleErrSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`error: HMA could not be started. ${nodeVersionProblem}`)
+      );
+      expect(consoleErrSpy).not.toHaveBeenCalledWith(expect.stringContaining("Reinstall"));
+      expect(scanLocalPath).not.toHaveBeenCalled();
     });
 
     it("sets exit code 2 for warning verdict from scan", async () => {
