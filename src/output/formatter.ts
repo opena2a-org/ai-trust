@@ -181,6 +181,58 @@ function unclassifiedSectionLines(unknown: TrustAnswer[]): string[] {
 }
 
 /**
+ * A batch answer for a package the registry has under a type other than the
+ * one `batch --type` asked for. It is the registry's answer, `found`
+ * included; `excludedByType` marks it, and the text output lists it in the
+ * Type mismatch section instead of the trust table.
+ */
+export type BatchAnswer = TrustAnswer & { excludedByType?: boolean };
+
+function isExcludedByType(answer: TrustAnswer): boolean {
+  return (answer as BatchAnswer).excludedByType === true;
+}
+
+/** The names of excluded packages by the type the registry has them under. */
+function namesByRegisteredType(excluded: TrustAnswer[]): Map<string, string[]> {
+  const byType = new Map<string, string[]>();
+  for (const pkg of excluded) {
+    const registered = pkg.packageType ?? "";
+    byType.set(registered, [...(byType.get(registered) ?? []), pkg.name]);
+  }
+  return byType;
+}
+
+/** The header part that counts the packages `--type` excluded. */
+function excludedByTypeText(count: number, type?: string): string {
+  return `${count} excluded by --type${type ? ` ${type}` : ""}`;
+}
+
+/**
+ * The Type mismatch section of a batch: each package `--type` excluded,
+ * under the type the registry has it as. Every name is listed: batch exits 2
+ * for each one.
+ */
+function typeMismatchSectionLines(excluded: TrustAnswer[], type?: string): string[] {
+  if (excluded.length === 0) return [];
+  const lines = [divider("Type mismatch")];
+  for (const [registered, names] of namesByRegisteredType(excluded)) {
+    const subject = names.length === 1 ? "This package is" : "These packages are";
+    const requested = type ? `, not ${type}` : "";
+    lines.push(chalk.dim(`  ${subject} registered as ${registered}${requested}:`));
+    lines.push(...names.map((name) => `  ${chalk.yellow("│")} ${name}`));
+  }
+  return lines;
+}
+
+/** The batch command that looks excluded packages up by their registered type, one per type. */
+function typeMismatchCommands(excluded: TrustAnswer[]): string[] {
+  return [...namesByRegisteredType(excluded)].map(
+    ([registered, names]) =>
+      `ai-trust batch ${names.map(shellArg).join(" ")} --type ${shellArg(registered)}`
+  );
+}
+
+/**
  * The scanner's fix text names each OpenA2A CLI by its command
  * (`hackmyagent secure --fix`, `opena2a protect .`). A global install of
  * ai-trust puts none of them on PATH, so show the `npx <package> ...` form the
@@ -591,12 +643,27 @@ export function formatCheckResult(
   return out.join("\n");
 }
 
+export interface NotFoundInput extends NotFoundBlockInput {
+  /**
+   * The `--type` the registry was asked with. The registry's miss is for that
+   * type, so the header names it beside the ecosystem: `(npm, type a2a_agent)`.
+   */
+  type?: string;
+}
+
 /**
  * Render a "package not found" block via cli-ui renderNotFoundBlock.
  * Closes F2 (divergent not-found shapes) and F3 (raw git exit codes).
  */
-export function formatNotFound(input: NotFoundBlockInput): string {
-  const { header, lines: bodyLines } = renderNotFoundBlock(input);
+export function formatNotFound(input: NotFoundInput): string {
+  const { type, ...block } = input;
+  const qualifiers = [block.ecosystem, type ? `type ${type}` : undefined]
+    .filter((part) => part !== undefined && part !== "")
+    .join(", ");
+  const { header, lines: bodyLines } = renderNotFoundBlock({
+    ...block,
+    ecosystem: qualifiers === "" ? undefined : qualifiers,
+  });
   const out: string[] = [""];
   out.push(`  ${chalk.yellow.bold(header.text)}`);
   if (bodyLines.length > 0) {
@@ -627,7 +694,10 @@ export function formatNotFound(input: NotFoundBlockInput): string {
   return out.join("\n");
 }
 
-/** What `audit` tells formatBatchResults about the file it read. `batch` passes none. */
+/**
+ * What `audit` tells formatBatchResults about the file it read, and `batch`
+ * about its `--type`.
+ */
 export interface BatchResultsOptions {
   /**
    * The dependency file `audit` read. The next step for a dependency the
@@ -637,6 +707,8 @@ export interface BatchResultsOptions {
   file?: string;
   /** The ecosystem the names were looked up in: a PyPI name is checked as `pip:<name>`. */
   ecosystem?: "npm" | "pypi";
+  /** The `batch --type` value, named where a package it excluded is listed. */
+  type?: string;
 }
 
 /**
@@ -652,6 +724,7 @@ function gateFailureLines(
   if (gate.passed) return [];
   const notFound = gate.notFound.map((r) => String(r.name));
   const below = gate.belowThreshold.map((r) => String(r.name));
+  const excluded = gate.excludedByType.map((r) => String(r.name));
   const reasons: string[] = [];
   if (notFound.length > 0) {
     const one = notFound.length === 1;
@@ -668,12 +741,25 @@ function gateFailureLines(
         : `${below.length} ${below.length === 1 ? "dependency is" : "dependencies are"}`;
     reasons.push(`${count} below minimum trust level ${minTrust}: ${below.join(", ")}`);
   }
+  if (excluded.length > 0) {
+    const count =
+      reasons.length > 0
+        ? `${excluded.length}`
+        : `${excluded.length} ${excluded.length === 1 ? "dependency is" : "dependencies are"}`;
+    reasons.push(
+      `${count} excluded by --type${opts.type ? ` ${opts.type}` : ""}: ${excluded.join(", ")}`
+    );
+  }
   let next: string;
   if (notFound.length > 0 && opts.file !== undefined) {
     next = `ai-trust audit ${shellArg(opts.file)} --scan-missing`;
-  } else {
+  } else if (notFound.length > 0 || below.length > 0) {
     const name = notFound[0] ?? below[0];
     next = `ai-trust check ${shellArg(opts.ecosystem === "pypi" ? `pip:${name}` : name)}`;
+  } else {
+    // Only packages --type excluded fail: look them up as the type the
+    // registry has them under.
+    next = typeMismatchCommands(gate.excludedByType)[0];
   }
   return [
     divider("Summary"),
@@ -689,9 +775,14 @@ export function formatBatchResults(
 ): string {
   const lines: string[] = [];
   // Registry strings are remote data: control characters are removed first.
+  const results = sanitizeRegistryValue(response.results);
+  // A package --type excluded is listed under its registered type, outside
+  // the tiers.
+  const excluded = results.filter(isExcludedByType);
   const { native, unrelated, unknown } = partitionByTier(
-    sanitizeRegistryValue(response.results),
+    results.filter((r) => !isExcludedByType(r)),
   );
+  const mismatchCommands = typeMismatchCommands(excluded);
   // audit and batch set their exit code from the same gate on the same
   // answers, so the Summary says the gate failed exactly when they exit 2.
   const gate = trustGate(response.results, minTrust);
@@ -703,12 +794,16 @@ export function formatBatchResults(
   if (native.length === 0 && unrelated.length > 0) {
     // Edge case: nothing here is an AI package. Show a focused message and
     // route the user to HMA for general security scanning.
+    const searched = response.meta.total - excluded.length;
     lines.push(
       chalk.bold(
-        `  No AI packages found in ${response.meta.total} ${
-          response.meta.total === 1 ? "dependency" : "dependencies"
+        `  No AI packages found in ${searched} ${
+          searched === 1 ? "dependency" : "dependencies"
         }`
-      )
+      ) +
+        (excluded.length > 0
+          ? chalk.dim(` · ${excludedByTypeText(excluded.length, opts.type)}`)
+          : "")
     );
     lines.push(
       chalk.dim(
@@ -727,10 +822,14 @@ export function formatBatchResults(
     if (unknown.length > 0) {
       lines.push(...unclassifiedSectionLines(unknown));
     }
+    lines.push(...typeMismatchSectionLines(excluded, opts.type));
     lines.push(divider("Next Steps"));
     lines.push(`  ${chalk.cyan("General security scan:")}  npx hackmyagent secure .`);
     if (unknown.length > 0) {
       lines.push(`  ${chalk.cyan("Check an AI package:")}     ai-trust check <name>`);
+    }
+    for (const command of mismatchCommands) {
+      lines.push(`  ${chalk.cyan("Look up by type:")}         ${command}`);
     }
     lines.push("");
     return lines.join("\n");
@@ -751,29 +850,40 @@ export function formatBatchResults(
       chalk.dim(`${unknown.length} unclassified`)
     );
   }
+  if (excluded.length > 0) {
+    headerParts.push(chalk.dim(excludedByTypeText(excluded.length, opts.type)));
+  }
   lines.push(chalk.bold("  " + headerParts.join(chalk.dim(" · "))));
 
-  // If we have no AI packages to show but some unknown ones, render just the
-  // unknown list with a "check to classify" CTA.
+  // If we have no AI packages to show but some unknown or excluded ones,
+  // render just those lists with a CTA for each.
   if (native.length === 0) {
-    if (unknown.length > 0) {
+    if (unknown.length > 0 || excluded.length > 0) {
       lines.push(...gateFailure);
-      lines.push(divider("Unclassified packages"));
-      lines.push(
-        chalk.dim(
-          "  These packages aren't registered as AI and aren't on the known-library allowlist."
-        )
-      );
-      for (const pkg of unknown) {
-        lines.push(`  ${chalk.yellow("\u2502")} ${pkg.name}`);
+      if (unknown.length > 0) {
+        lines.push(divider("Unclassified packages"));
+        lines.push(
+          chalk.dim(
+            "  These packages aren't registered as AI and aren't on the known-library allowlist."
+          )
+        );
+        for (const pkg of unknown) {
+          lines.push(`  ${chalk.yellow("\u2502")} ${pkg.name}`);
+        }
       }
+      lines.push(...typeMismatchSectionLines(excluded, opts.type));
       lines.push(divider("Next Steps"));
-      lines.push(`  ${chalk.cyan("Classify individually:")} ai-trust check <name>`);
+      if (unknown.length > 0) {
+        lines.push(`  ${chalk.cyan("Classify individually:")} ai-trust check <name>`);
+      }
+      for (const command of mismatchCommands) {
+        lines.push(`  ${chalk.cyan("Look up by type:")} ${command}`);
+      }
       lines.push(`  ${chalk.cyan("General security scan:")} npx hackmyagent secure .`);
       lines.push("");
       return lines.join("\n");
     }
-    // No native + no unrelated + no unknown = empty result set
+    // No native + no unrelated + no unknown + no excluded = empty result set
     lines.push(chalk.dim("  No packages to display."));
     lines.push("");
     return lines.join("\n");
@@ -964,6 +1074,8 @@ export function formatBatchResults(
     lines.push(...unclassifiedSectionLines(unknown));
   }
 
+  lines.push(...typeMismatchSectionLines(excluded, opts.type));
+
   // Trust level legend (only meaningful if there are native packages)
   const hasNonVerified = native.some(
     (r) => r.found && r.trustLevel < 4
@@ -997,6 +1109,9 @@ export function formatBatchResults(
     lines.push(
       `  ${chalk.cyan("Classify unknown:")}  ai-trust check <name>`
     );
+  }
+  for (const command of mismatchCommands) {
+    lines.push(`  ${chalk.cyan("Look up by type:")}   ${command}`);
   }
   // Always offer HMA for library security — even when the current audit has
   // no libraries, users often come back to audit another file that will.

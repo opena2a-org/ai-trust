@@ -4,6 +4,7 @@
 
 import { describe, it, expect } from "vitest";
 import type { TrustAnswer } from "@opena2a/registry-client";
+import type { BatchAnswer } from "./formatter.js";
 import { trustGate } from "./trust-gate.js";
 
 function answer(overrides: Partial<TrustAnswer> = {}): TrustAnswer {
@@ -26,7 +27,7 @@ describe("trustGate", () => {
       2
     );
 
-    expect(gate).toEqual({ passed: true, notFound: [], belowThreshold: [] });
+    expect(gate).toEqual({ passed: true, notFound: [], belowThreshold: [], excludedByType: [] });
   });
 
   it("fails on a dependency the registry does not have, whatever its tier", () => {
@@ -63,6 +64,16 @@ describe("trustGate", () => {
     const gate = trustGate([answer({ name: "missing-mcp", found: false, trustLevel: 0 })], 2);
 
     expect(gate.notFound.map((r) => r.name)).toEqual(["missing-mcp"]);
+    expect(gate.belowThreshold).toEqual([]);
+  });
+
+  it("fails on a package batch --type excluded, and counts it neither as not found nor below the level", () => {
+    const excluded: BatchAnswer = { ...answer({ name: "registered-mcp", trustLevel: 1 }), excludedByType: true };
+    const gate = trustGate([answer({ name: "some-agent", packageType: "a2a_agent" }), excluded], 2);
+
+    expect(gate.passed).toBe(false);
+    expect(gate.excludedByType.map((r) => r.name)).toEqual(["registered-mcp"]);
+    expect(gate.notFound).toEqual([]);
     expect(gate.belowThreshold).toEqual([]);
   });
 
