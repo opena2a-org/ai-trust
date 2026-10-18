@@ -493,3 +493,42 @@ describe("ecosystem (#131)", () => {
     expect(buildCheckJson({ kind: "registry", answer })).not.toHaveProperty("ecosystem");
   });
 });
+
+describe("version (#224)", () => {
+  const tagged: ScanResult = {
+    packageName: "is-odd@latest",
+    packageVersion: "3.0.1",
+    requestedVersion: "latest",
+    scan: {
+      score: 100,
+      maxScore: 100,
+      findings: [],
+      timestamp: "2026-10-18T00:00:00Z",
+      filesExamined: 2,
+    },
+    trustScore: 1,
+    trustLevel: 3,
+    verdict: "safe",
+  };
+
+  it("a scan carries the version the downloaded package's manifest names, after the ecosystem", () => {
+    const json = buildCheckJson({ kind: "scan", scan: tagged, ecosystem: "npm" });
+    expect(json.name).toBe("is-odd@latest");
+    expect(json.version).toBe("3.0.1");
+    expect(Object.keys(json).slice(0, 4)).toEqual(["name", "ecosystem", "version", "source"]);
+  });
+
+  it("a scan that read 0 files still names the version that was downloaded", () => {
+    const empty: ScanResult = { ...tagged, scan: { ...tagged.scan, filesExamined: 0 } };
+    const json = buildCheckJson({ kind: "scan", scan: empty, ecosystem: "npm" });
+    expect(json.scored).toBe(false);
+    expect(json.version).toBe("3.0.1");
+  });
+
+  it("is omitted when the manifest names no version, and for a registry answer", () => {
+    const noVersion: ScanResult = { ...tagged, packageVersion: undefined };
+    expect(buildCheckJson({ kind: "scan", scan: noVersion, ecosystem: "npm" })).not.toHaveProperty("version");
+    const answer = { name: "is-odd", found: true, trustLevel: 3, trustScore: 0.9, verdict: "passed" } as TrustAnswer;
+    expect(buildCheckJson({ kind: "registry", answer, ecosystem: "npm" })).not.toHaveProperty("version");
+  });
+});

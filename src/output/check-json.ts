@@ -49,6 +49,13 @@ export interface CheckJsonResult {
    * `--scan-path`, which scans a directory rather than a package.
    */
   ecosystem?: "npm" | "pypi";
+  /**
+   * Version of the package that was downloaded and scanned, read from its
+   * own manifest (scan path only). A `<name>@<tag>` or `<name>@<range>`
+   * target keeps the tag or range in `name`; this is the version it
+   * resolved to. Omitted when the manifest carries no usable version.
+   */
+  version?: string;
   /** Where the result came from: registry lookup vs. local HMA scan. */
   source: "registry" | "scan";
   /** True when the registry had data / the scan produced a result. */
@@ -158,10 +165,12 @@ export function buildCheckJsonFromScan(
   // nothing: the not-scored shape, as the out-of-scope answer uses, with the
   // count that makes it so. A scan whose files could not be read keeps its
   // score and the findings that name them.
+  const version = scan.packageVersion !== undefined ? { version: scan.packageVersion } : {};
   if (nothingToScan(scan.scan)) {
     return {
       name: scan.packageName,
       ...(ecosystem !== undefined ? { ecosystem } : {}),
+      ...version,
       source: "scan",
       found: true,
       scored: false,
@@ -172,6 +181,7 @@ export function buildCheckJsonFromScan(
   const out: CheckJsonResult = {
     name: scan.packageName,
     ...(ecosystem !== undefined ? { ecosystem } : {}),
+    ...version,
     source: "scan",
     // A scan always produced a result for this package.
     found: true,

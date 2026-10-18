@@ -110,6 +110,26 @@ describe("scanPackage", () => {
     expect(result.packageVersion).toBe("1.0.0");
   });
 
+  it("keeps the tag the target gave beside the version the downloaded manifest names (#224)", async () => {
+    setupDownload("test-pkg");
+    vi.mocked(runHmaScan).mockResolvedValue({
+      score: 95,
+      maxScore: 100,
+      findings: [],
+      projectType: "mcp",
+      timestamp: "2026-03-14T00:00:00Z",
+    });
+
+    const tagged = await scanPackage("test-pkg", { version: "latest" });
+    expect(downloadPackage).toHaveBeenCalledWith("test-pkg", "npm", "latest");
+    expect(tagged.packageName).toBe("test-pkg@latest");
+    expect(tagged.requestedVersion).toBe("latest");
+    expect(tagged.packageVersion).toBe("1.0.0");
+
+    const latest = await scanPackage("test-pkg");
+    expect(latest).not.toHaveProperty("requestedVersion");
+  });
+
   it("derives warning verdict for high-severity findings", async () => {
     setupDownload("risky-pkg");
     vi.mocked(runHmaScan).mockResolvedValue({

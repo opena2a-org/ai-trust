@@ -23,16 +23,21 @@ vi.mock("@opena2a/registry-client", async (importOriginal) => {
   };
 });
 
-// Mock formatter (ecosystemSuffix is the real helper: it only builds a label)
-vi.mock("../output/formatter.js", async (importOriginal) => ({
-  ecosystemSuffix: (await importOriginal<typeof import("../output/formatter.js")>())
-    .ecosystemSuffix,
-  formatCheckResult: vi.fn(() => "formatted-check-result"),
-  formatScanResult: vi.fn(() => "formatted-scan-result"),
-  formatJson: vi.fn((data: unknown) => JSON.stringify(data)),
-  formatNotFound: vi.fn(() => "formatted-not-found"),
-  translateDownloadError: vi.fn(() => undefined),
-}));
+// Mock formatter (ecosystemSuffix is the real helper: it only builds a label;
+// showsRegistryScore is the real test of whether the scan output prints the
+// registry's score beside the scan's)
+vi.mock("../output/formatter.js", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../output/formatter.js")>();
+  return {
+    ecosystemSuffix: real.ecosystemSuffix,
+    showsRegistryScore: real.showsRegistryScore,
+    formatCheckResult: vi.fn(() => "formatted-check-result"),
+    formatScanResult: vi.fn(() => "formatted-scan-result"),
+    formatJson: vi.fn((data: unknown) => JSON.stringify(data)),
+    formatNotFound: vi.fn(() => "formatted-not-found"),
+    translateDownloadError: vi.fn(() => undefined),
+  };
+});
 
 // Mock scanner
 vi.mock("../scanner/index.js", () => ({
@@ -536,6 +541,203 @@ describe("check command", () => {
       );
       expect(stderrText()).not.toContain("Note:");
       expect(process.exitCode).toBe(2);
+    });
+
+    describe("the registry's score beside a scan of a version (#224)", () => {
+      const NOTE = "Note: the registry's answer is for the package my-pkg, not for version 1.0.0.";
+
+      /** The registry scores my-pkg `trustScore` from a completed scan. */
+      function registryScores(trustScore: number) {
+        const answer = {
+          name: "my-pkg",
+          found: true,
+          trustLevel: 1,
+          trustScore,
+          verdict: "warning",
+          packageType: "mcp_server",
+          scanStatus: "completed",
+        };
+        vi.mocked(RegistryClient).mockImplementation(function () {
+          return { checkTrust: vi.fn().mockResolvedValue(answer), publishScan: vi.fn() } as any;
+        });
+        return answer;
+      }
+
+      /** The scan of `packageName` reads one file and scores 100/100. */
+      function scanScores100(packageName: string) {
+        vi.mocked(isHmaAvailable).mockResolvedValue(true);
+        vi.mocked(scanPackage).mockResolvedValue({
+          packageName,
+          packageVersion: "1.0.0",
+          scan: {
+            score: 100,
+            maxScore: 100,
+            findings: [],
+            projectType: "mcp",
+            timestamp: "2026-10-18T00:00:00Z",
+            filesExamined: 1,
+          },
+          trustScore: 1,
+          trustLevel: 3,
+          verdict: "safe",
+        });
+      }
+
+      it("prints the note before a scan output that sets the registry's score beside the scan's", async () => {
+        const answer = registryScores(0.2);
+        scanScores100("my-pkg@1.0.0");
+
+        await createProgram().parseAsync(["node", "test", "check", "my-pkg@1.0.0", "--no-deep"]);
+
+        expect(formatScanResult).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ registry: answer }),
+        );
+        const note = consoleErrSpy.mock.calls.findIndex((args) => String(args[0]).includes(NOTE));
+        const output = consoleSpy.mock.calls.findIndex((args) => args[0] === "formatted-scan-result");
+        expect(note).toBeGreaterThanOrEqual(0);
+        expect(output).toBeGreaterThanOrEqual(0);
+        expect(consoleErrSpy.mock.invocationCallOrder[note]).toBeLessThan(
+          consoleSpy.mock.invocationCallOrder[output],
+        );
+        expect(process.exitCode).toBeUndefined();
+      });
+
+      it("prints no note when the scores are within 20 points, so the scan output shows no registry score", async () => {
+        registryScores(0.9);
+        scanScores100("my-pkg@1.0.0");
+
+        await createProgram().parseAsync(["node", "test", "check", "my-pkg@1.0.0", "--no-deep"]);
+
+        expect(formatScanResult).toHaveBeenCalled();
+        expect(stderrText()).not.toContain("Note:");
+      });
+
+      it("prints no note with --json, whose scan document carries no registry answer", async () => {
+        registryScores(0.2);
+        scanScores100("my-pkg@1.0.0");
+
+        await createProgram().parseAsync(["node", "test", "--json", "check", "my-pkg@1.0.0", "--no-deep"]);
+
+        expect(formatScanResult).not.toHaveBeenCalled();
+        expect(stderrText()).not.toContain("Note:");
+      });
+
+      it("prints no note for a target without a version", async () => {
+        registryScores(0.2);
+        scanScores100("my-pkg");
+
+        await createProgram().parseAsync(["node", "test", "check", "my-pkg", "--no-deep"]);
+
+        expect(formatScanResult).toHaveBeenCalled();
+        expect(stderrText()).not.toContain("Note:");
+      });
+    });
+
+    describe("the library list is consulted with the package name (#224)", () => {
+      function stdoutText(): string {
+        return consoleSpy.mock.calls
+          .map((args) => args.join(" "))
+          .join("\n")
+          .replace(/\x1b\[[0-9;]*m/g, "");
+      }
+
+      function registryHasNoData(name: string) {
+        vi.mocked(RegistryClient).mockImplementation(function () {
+          return {
+            checkTrust: vi.fn().mockRejectedValue(new PackageNotFoundError(name)),
+            publishScan: vi.fn(),
+          } as any;
+        });
+      }
+
+      it("--no-scan gives <name>@<version> the by-name out-of-scope notice that <name> gets, and exits 0", async () => {
+        registryHasNoData("express");
+
+        await createProgram().parseAsync(["node", "test", "check", "express@4.18.0", "--no-scan"]);
+
+        expect(stdoutText()).toContain("express  library (by name — no registry data)");
+        expect(stdoutText()).toContain("npx hackmyagent check express");
+        expect(formatNotFound).not.toHaveBeenCalled();
+        expect(process.exitCode).toBeUndefined();
+      });
+
+      it("--no-scan --json names the package the list matched", async () => {
+        registryHasNoData("express");
+
+        await createProgram().parseAsync(["node", "test", "--json", "check", "express@4.18.0", "--no-scan"]);
+
+        expect(JSON.parse(String(consoleSpy.mock.calls.at(-1)?.[0]))).toEqual({
+          name: "express",
+          ecosystem: "npm",
+          found: false,
+          outOfScope: true,
+          scored: false,
+          outOfScopeReason: "recognized as general-purpose library by name (no registry data)",
+          nextSteps: ["npx hackmyagent check express"],
+        });
+        expect(process.exitCode).toBeUndefined();
+      });
+
+      it("--no-scan shows a registry answer without a package type as a library when the package name is on the list", async () => {
+        const mockCheckTrust = vi.fn().mockResolvedValue({
+          name: "express",
+          found: true,
+          verdict: "passed",
+          trustLevel: 3,
+        });
+        vi.mocked(RegistryClient).mockImplementation(function () {
+          return { checkTrust: mockCheckTrust, publishScan: vi.fn() } as any;
+        });
+
+        await createProgram().parseAsync(["node", "test", "check", "express@4.18.0", "--no-scan"]);
+
+        expect(stderrText()).toContain(
+          "Note: the registry's answer is for the package express, not for version 4.18.0."
+        );
+        expect(stdoutText()).toContain("express  library (registry-classified)");
+        expect(formatCheckResult).not.toHaveBeenCalled();
+        expect(process.exitCode).toBeUndefined();
+      });
+    });
+
+    it("pip:<name>@<version> downloads that release of the PyPI package (#224)", async () => {
+      vi.mocked(RegistryClient).mockImplementation(function () {
+        return {
+          checkTrust: vi.fn().mockRejectedValue(new PackageNotFoundError("my-py")),
+          publishScan: vi.fn(),
+        } as any;
+      });
+      vi.mocked(isHmaAvailable).mockResolvedValue(true);
+      vi.mocked(scanPackage).mockResolvedValue({
+        packageName: "my-py@2.0.0",
+        packageVersion: "2.0.0",
+        requestedVersion: "2.0.0",
+        scan: {
+          score: 100,
+          maxScore: 100,
+          findings: [],
+          projectType: "library",
+          timestamp: "2026-10-18T00:00:00Z",
+        },
+        trustScore: 1,
+        trustLevel: 3,
+        verdict: "safe",
+      });
+
+      await createProgram().parseAsync(["node", "test", "check", "pip:my-py@2.0.0", "--no-contribute"]);
+
+      expect(scanPackage).toHaveBeenCalledWith("my-py", {
+        deep: true,
+        ecosystem: "pypi",
+        version: "2.0.0",
+      });
+      expect(consoleErrSpy).toHaveBeenCalledWith(expect.stringContaining("Scanning my-py@2.0.0..."));
+      expect(formatScanResult).toHaveBeenCalledWith(
+        expect.objectContaining({ packageName: "my-py@2.0.0" }),
+        expect.objectContaining({ ecosystem: "pypi" }),
+      );
+      expect(process.exitCode).toBeUndefined();
     });
 
     describe("skill: and mcp: ask for the narrative of <name> at <version>", () => {
