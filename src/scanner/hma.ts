@@ -584,6 +584,14 @@ function isUnknownOptionError(err: unknown, flag: string): boolean {
   return (stderr + message).includes(`unknown option '${flag}'`);
 }
 
+/**
+ * Largest scanner report, in bytes, that ai-trust reads from stdout. Node's
+ * `execFile` default is 1 MiB; the report grows with the findings it lists,
+ * and a report over the limit fails the scan with "stdout maxBuffer length
+ * exceeded".
+ */
+const HMA_MAX_REPORT_BYTES = 128 * 1024 * 1024;
+
 async function runHmaWithArgs(
   cmd: string,
   args: string[],
@@ -594,7 +602,7 @@ async function runHmaWithArgs(
     const { stdout } = await execFileAsync(
       cmd,
       args,
-      { timeout: deep ? 180_000 : 120_000, env }
+      { timeout: deep ? 180_000 : 120_000, maxBuffer: HMA_MAX_REPORT_BYTES, env }
     );
 
     return parseHmaOutput(stdout);
