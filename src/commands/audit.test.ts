@@ -866,6 +866,33 @@ describe("audit command", () => {
       expect(stderrLines()).toEqual(["Error: Registry server error (500)"]);
       expect(process.exitCode).toBe(1);
     });
+
+    it("adds no line for the status of a registry that answered, which check --no-scan and batch name", async () => {
+      vi.mocked(parseDependencyFile).mockResolvedValue([{ name: "some-mcp" }]);
+      const { RegistryApiError } = await vi.importActual<
+        typeof import("@opena2a/registry-client")
+      >("@opena2a/registry-client");
+      const err = new RegistryApiError("Registry API returned 500", "server_error", 500, "{}");
+      vi.mocked(RegistryClient).mockImplementation(function () {
+        return { checkTrust: vi.fn(), batchQuery: vi.fn().mockRejectedValue(err) } as any;
+      });
+      await createProgram().parseAsync(["node", "test", "audit", "package.json"]);
+
+      expect(stderrLines()).toEqual(["Error: Registry API returned 500"]);
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("removes control characters from the registry URL it names", async () => {
+      registryFails("Registry network error: fetch failed", "network");
+      await createProgram().parseAsync([
+        "node", "test", "audit", "package.json",
+        "--registry-url", "http://127.0.0.1:9/\u001b[2J\u0007api",
+      ]);
+
+      expect(stderrLines()[1]).toBe(
+        "  No dependencies were checked: the registry at http://127.0.0.1:9/[2Japi did not answer."
+      );
+    });
   });
 
   it("describes --scan-missing without the scanner's abbreviation (#177)", () => {

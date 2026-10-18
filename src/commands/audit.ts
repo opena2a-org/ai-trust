@@ -6,7 +6,11 @@
 import chalk from "chalk";
 import type { Command } from "commander";
 import type { TrustAnswer } from "@opena2a/registry-client";
-import { createRegistryClient, isTransientRegistryError } from "../utils/registry-client.js";
+import {
+  createRegistryClient,
+  isTransientRegistryError,
+  registryFailure,
+} from "../utils/registry-client.js";
 import { parseDependencyFile, detectEcosystem } from "../utils/parser.js";
 import { findAuditFile } from "../utils/audit-file.js";
 import { shellArg } from "../utils/shell-arg.js";
@@ -238,7 +242,7 @@ export function registerAuditCommand(program: Command): void {
             );
           } else if (isTransientRegistryError(err)) {
             console.error(
-              `  No dependencies were checked: the registry at ${stripControlCharacters(globalOpts.registryUrl)} did not answer.`
+              `  No dependencies were checked: ${registryFailure(err, globalOpts.registryUrl)}.`
             );
             // `check` scans the package when the registry does not answer.
             const target = detectEcosystem(file) === "pypi" ? "pip:<package>" : "<package>";

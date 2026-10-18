@@ -79,6 +79,7 @@ vi.mock("@opena2a/contribute", () => ({
 import {
   RegistryClient,
   PackageNotFoundError,
+  RegistryApiError,
 } from "@opena2a/registry-client";
 import {
   formatCheckResult,
@@ -453,6 +454,150 @@ describe("check command", () => {
 
       const out = JSON.parse(consoleSpy.mock.calls[0][0] as string);
       expect(out.nextSteps[0]).toBe("ai-trust check 'shell-lib; echo injected'");
+    });
+
+    describe("a failed registry lookup names the registry and the scan that runs without it", () => {
+      function registryFails(err: Error): ReturnType<typeof vi.fn> {
+        const checkTrust = vi.fn().mockRejectedValue(err);
+        vi.mocked(RegistryClient).mockImplementation(function () {
+          return { checkTrust, batchQuery: vi.fn(), publishScan: vi.fn() } as any;
+        });
+        return checkTrust;
+      }
+
+      function networkError(): RegistryApiError {
+        return new RegistryApiError("Registry network error: fetch failed", "network");
+      }
+
+      function stderrLines(): string[] {
+        return consoleErrSpy.mock.calls.map((c) => String(c[0]));
+      }
+
+      afterEach(() => {
+        delete process.env.AI_TRUST_CLI_PREFIX;
+      });
+
+      it("says the registry did not answer, after the retry, and names check without --no-scan", async () => {
+        const checkTrust = registryFails(networkError());
+        await createProgram().parseAsync([
+          "node", "test", "check", "@modelcontextprotocol/server-filesystem", "--no-scan",
+          "--registry-url", "http://127.0.0.1:9",
+        ]);
+
+        expect(stderrLines()).toEqual([
+          "Error: Registry network error: fetch failed",
+          "  The registry at http://127.0.0.1:9 did not answer.",
+          "  Next: ai-trust check @modelcontextprotocol/server-filesystem",
+        ]);
+        expect(checkTrust).toHaveBeenCalledTimes(2);
+        expect(process.exitCode).toBe(1);
+      });
+
+      it("gives the same lines for a request that timed out", async () => {
+        registryFails(new RegistryApiError("Registry request timed out after 15000ms", "timeout"));
+        await createProgram().parseAsync(["node", "test", "check", "my-pkg", "--no-scan"]);
+
+        expect(stderrLines()).toEqual([
+          "Error: Registry request timed out after 15000ms",
+          "  The registry at https://api.test.com did not answer.",
+          "  Next: ai-trust check my-pkg",
+        ]);
+        expect(process.exitCode).toBe(1);
+      });
+
+      it("names the status a registry that answered with an error gave", async () => {
+        const checkTrust = registryFails(
+          new RegistryApiError("Registry API returned 500", "server_error", 500, "{}")
+        );
+        await createProgram().parseAsync([
+          "node", "test", "check", "my-pkg", "--no-scan", "--registry-url", "http://127.0.0.1:8123",
+        ]);
+
+        expect(stderrLines()).toEqual([
+          "Error: Registry API returned 500",
+          "  The registry at http://127.0.0.1:8123 answered 500.",
+          "  Next: ai-trust check my-pkg",
+        ]);
+        expect(checkTrust).toHaveBeenCalledTimes(1);
+        expect(process.exitCode).toBe(1);
+      });
+
+      it("says the answer was not JSON when the registry answered with a body that does not parse", async () => {
+        registryFails(
+          new RegistryApiError(
+            "Registry returned invalid JSON: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON",
+            "invalid_response",
+            200
+          )
+        );
+        await createProgram().parseAsync(["node", "test", "check", "my-pkg", "--no-scan"]);
+
+        expect(stderrLines().slice(1)).toEqual([
+          "  The registry at https://api.test.com answered 200 with a body that is not JSON.",
+          "  Next: ai-trust check my-pkg",
+        ]);
+        expect(process.exitCode).toBe(1);
+      });
+
+      it("keeps the pip: prefix of a PyPI target in the next step", async () => {
+        registryFails(networkError());
+        await createProgram().parseAsync(["node", "test", "check", "pip:requests", "--no-scan"]);
+
+        expect(stderrLines()[2]).toBe("  Next: ai-trust check pip:requests");
+      });
+
+      it("quotes a name with shell syntax in the next step", async () => {
+        registryFails(networkError());
+        await createProgram().parseAsync([
+          "node", "test", "check", "shell-lib; echo injected", "--no-scan",
+        ]);
+
+        expect(stderrLines()[2]).toBe("  Next: ai-trust check 'shell-lib; echo injected'");
+      });
+
+      it("cites the bundling CLI's command when AI_TRUST_CLI_PREFIX is set", async () => {
+        process.env.AI_TRUST_CLI_PREFIX = "opena2a registry";
+        registryFails(networkError());
+        await createProgram().parseAsync(["node", "test", "check", "my-pkg", "--no-scan"]);
+
+        expect(stderrLines()[2]).toBe("  Next: opena2a registry my-pkg");
+      });
+
+      it("removes control characters from the registry URL it prints", async () => {
+        registryFails(networkError());
+        await createProgram().parseAsync([
+          "node", "test", "check", "my-pkg", "--no-scan",
+          "--registry-url", "http://127.0.0.1:9/\u001b[2J\u0007api",
+        ]);
+
+        expect(stderrLines()[1]).toBe("  The registry at http://127.0.0.1:9/[2Japi did not answer.");
+      });
+
+      it("adds no registry line for an error the registry client did not raise", async () => {
+        registryFails(new Error("network failure"));
+        await createProgram().parseAsync(["node", "test", "check", "my-pkg", "--no-scan"]);
+
+        expect(stderrLines()).toEqual(["Error: network failure"]);
+        expect(process.exitCode).toBe(1);
+      });
+
+      it("leaves the --json output as it was: one object on stdout, nothing on stderr", async () => {
+        registryFails(networkError());
+        await createProgram().parseAsync([
+          "node", "test", "--json", "check", "@modelcontextprotocol/server-filesystem", "--no-scan",
+          "--registry-url", "http://127.0.0.1:9",
+        ]);
+
+        expect(consoleSpy).toHaveBeenCalledTimes(1);
+        expect(JSON.parse(consoleSpy.mock.calls[0][0] as string)).toEqual({
+          name: "@modelcontextprotocol/server-filesystem",
+          found: false,
+          error: "Registry network error: fetch failed",
+          ecosystem: "npm",
+        });
+        expect(consoleErrSpy).not.toHaveBeenCalled();
+        expect(process.exitCode).toBe(1);
+      });
     });
   });
 
