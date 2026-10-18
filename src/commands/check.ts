@@ -11,7 +11,7 @@ import type { Command } from "commander";
 import { classify } from "@opena2a/ai-classifier";
 import { PackageNotFoundError } from "@opena2a/registry-client";
 import type { RegistryClient, TrustAnswer } from "@opena2a/registry-client";
-import { createRegistryClient } from "../utils/registry-client.js";
+import { createRegistryClient, registryFailureSentence } from "../utils/registry-client.js";
 import {
   ecosystemSuffix,
   formatCheckResult,
@@ -40,7 +40,7 @@ import { nothingToScan } from "../scanner/hma.js";
 import { confirm } from "../utils/prompt.js";
 import { shareScans } from "../telemetry/index.js";
 import { checkSkillOrMcp } from "../check/skill-mcp-check.js";
-import { classifyCheckTarget } from "../check/target.js";
+import { classifyCheckTarget, targetArgument } from "../check/target.js";
 import type { InvalidTarget, PackageTarget, RichTarget } from "../check/target.js";
 import { checkCitation } from "../utils/cli-prefix.js";
 import { shellArg } from "../utils/shell-arg.js";
@@ -361,6 +361,13 @@ export function registerCheckCommand(program: Command): void {
             } else {
               // A registry error can quote the registry's response body.
               console.error(`Error: ${stripControlCharacters(message)}`);
+              const failure = registryFailureSentence(err, globalOpts.registryUrl);
+              if (failure) {
+                console.error(`  ${failure}`);
+                // Without --no-scan, check scans the package when the
+                // registry lookup fails.
+                console.error(`  Next: ${checkCitation()} ${shellArg(targetArgument(pkg))}`);
+              }
             }
             finish("error");
           }

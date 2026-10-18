@@ -305,4 +305,107 @@ describe("batch command", () => {
     });
     expect(consoleErrSpy).not.toHaveBeenCalled();
   });
+
+  describe("a failed registry request names the registry and a next step", () => {
+    type RegistryApiErrorArgs = ConstructorParameters<
+      typeof import("@opena2a/registry-client").RegistryApiError
+    >;
+
+    /** The client's own error class; the module mock above does not carry it. */
+    async function registryApiError(...args: RegistryApiErrorArgs): Promise<Error> {
+      const { RegistryApiError } = await vi.importActual<
+        typeof import("@opena2a/registry-client")
+      >("@opena2a/registry-client");
+      return new RegistryApiError(...args);
+    }
+
+    function registryFails(err: Error): ReturnType<typeof vi.fn> {
+      const batchQuery = vi.fn().mockRejectedValue(err);
+      vi.mocked(RegistryClient).mockImplementation(function () {
+        return { checkTrust: vi.fn(), batchQuery } as any;
+      });
+      return batchQuery;
+    }
+
+    function stderrLines(): string[] {
+      return consoleErrSpy.mock.calls.map((c) => String(c[0]));
+    }
+
+    it("says the registry did not answer, after the retry, and names check for the first package", async () => {
+      const batchQuery = registryFails(
+        await registryApiError("Registry network error: fetch failed", "network")
+      );
+      await createProgram().parseAsync([
+        "node", "test", "batch", "pkg-a", "pkg-b", "--registry-url", "http://127.0.0.1:9",
+      ]);
+
+      expect(stderrLines()).toEqual([
+        "Error: Registry network error: fetch failed",
+        "  The registry at http://127.0.0.1:9 did not answer.",
+        "  Next: run the batch again when the registry answers, or check one package locally with ai-trust check pkg-a",
+      ]);
+      expect(batchQuery).toHaveBeenCalledTimes(2);
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("names the status a registry that answered with an error gave", async () => {
+      const batchQuery = registryFails(
+        await registryApiError("Registry API returned 500", "server_error", 500, "{}")
+      );
+      await createProgram().parseAsync(["node", "test", "batch", "pkg-a", "pkg-b"]);
+
+      expect(stderrLines()).toEqual([
+        "Error: Registry API returned 500",
+        "  The registry at https://api.test.com answered 500.",
+        "  Next: run the batch again when the registry answers, or check one package locally with ai-trust check pkg-a",
+      ]);
+      expect(batchQuery).toHaveBeenCalledTimes(1);
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("names the first package as it was looked up, an MCP shorthand expanded", async () => {
+      registryFails(await registryApiError("Registry network error: fetch failed", "network"));
+      await createProgram().parseAsync([
+        "node", "test", "batch", "server-filesystem", "--registry-url", "http://127.0.0.1:9",
+      ]);
+
+      expect(stderrLines()).toEqual([
+        "Resolved: server-filesystem -> @modelcontextprotocol/server-filesystem",
+        "Error: Registry network error: fetch failed",
+        "  The registry at http://127.0.0.1:9 did not answer.",
+        "  Next: run the batch again when the registry answers, or check one package locally with ai-trust check @modelcontextprotocol/server-filesystem",
+      ]);
+    });
+
+    it("quotes a first package name with shell syntax in the next step", async () => {
+      registryFails(await registryApiError("Registry network error: fetch failed", "network"));
+      await createProgram().parseAsync(["node", "test", "batch", "shell-lib; echo injected"]);
+
+      expect(stderrLines()[2]).toBe(
+        "  Next: run the batch again when the registry answers, or check one package locally with ai-trust check 'shell-lib; echo injected'"
+      );
+    });
+
+    it("leaves the --json output as it was: one object on stdout, nothing on stderr", async () => {
+      registryFails(await registryApiError("Registry network error: fetch failed", "network"));
+      await createProgram().parseAsync([
+        "node", "test", "--json", "batch", "pkg-a", "--registry-url", "http://127.0.0.1:9",
+      ]);
+
+      expect(consoleSpy).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(consoleSpy.mock.calls[0][0] as string)).toEqual({
+        error: "Registry network error: fetch failed",
+      });
+      expect(consoleErrSpy).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("adds no registry line for an error the registry client did not raise", async () => {
+      registryFails(new Error("unexpected failure"));
+      await createProgram().parseAsync(["node", "test", "batch", "pkg-a"]);
+
+      expect(stderrLines()).toEqual(["Error: unexpected failure"]);
+      expect(process.exitCode).toBe(1);
+    });
+  });
 });

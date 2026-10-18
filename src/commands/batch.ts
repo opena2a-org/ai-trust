@@ -4,11 +4,12 @@
 
 import type { Command } from "commander";
 import type { PackageQuery } from "@opena2a/registry-client";
-import { createRegistryClient } from "../utils/registry-client.js";
+import { createRegistryClient, registryFailureSentence } from "../utils/registry-client.js";
 import { formatBatchResults, formatJson } from "../output/formatter.js";
 import { stripControlCharacters } from "../output/sanitize.js";
 import { trustGate } from "../output/trust-gate.js";
 import { resolveAndLog } from "../utils/resolve.js";
+import { shellArg } from "../utils/shell-arg.js";
 import { createRequire } from "node:module";
 
 const batchRequire = createRequire(import.meta.url);
@@ -108,6 +109,14 @@ export function registerBatchCommand(program: Command): void {
           } else {
             // A registry error can quote the registry's response body.
             console.error(`Error: ${stripControlCharacters(message)}`);
+            const failure = registryFailureSentence(err, globalOpts.registryUrl);
+            if (failure) {
+              console.error(`  ${failure}`);
+              // `check` scans a package when its registry lookup fails.
+              console.error(
+                `  Next: run the batch again when the registry answers, or check one package locally with ai-trust check ${shellArg(packages[0].name)}`
+              );
+            }
           }
           process.exitCode = 1;
         }

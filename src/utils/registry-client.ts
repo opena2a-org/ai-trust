@@ -29,6 +29,7 @@
  */
 
 import { RegistryClient } from "@opena2a/registry-client";
+import { stripControlCharacters } from "../output/sanitize.js";
 
 /** Explicit per-request timeout, raised from the dependency's 10000 ms default. */
 export const REGISTRY_TIMEOUT_MS = 15000;
@@ -69,6 +70,42 @@ export function isTransientRegistryError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const code = (err as Error & { code?: unknown }).code;
   return code === "timeout" || code === "network";
+}
+
+/**
+ * Which registry a failed request went to and what happened, as a clause:
+ * `the registry at <url> did not answer` when the transport failed (after
+ * the retry), `the registry at <url> answered <status>` when the registry
+ * answered with an HTTP error. `check --no-scan`, `batch` and `audit` print
+ * it after their `Error:` line, so the three name the registry the same way.
+ * Undefined for an error the registry client did not raise. The URL is
+ * `--registry-url` or its default, with control characters removed.
+ */
+export function registryFailure(
+  err: unknown,
+  registryUrl: string,
+): string | undefined {
+  const registry = `the registry at ${stripControlCharacters(registryUrl)}`;
+  if (isTransientRegistryError(err)) return `${registry} did not answer`;
+  if (!(err instanceof Error)) return undefined;
+  const { code, statusCode } = err as Error & { code?: unknown; statusCode?: unknown };
+  if (typeof statusCode !== "number") return undefined;
+  // The client gives "invalid_response" to an answer whose body is not JSON,
+  // with that answer's status.
+  if (code === "invalid_response") {
+    return `${registry} answered ${statusCode} with a body that is not JSON`;
+  }
+  return `${registry} answered ${statusCode}`;
+}
+
+/** `registryFailure` as a sentence of its own: `The registry at <url> ...`. */
+export function registryFailureSentence(
+  err: unknown,
+  registryUrl: string,
+): string | undefined {
+  const failure = registryFailure(err, registryUrl);
+  if (failure === undefined) return undefined;
+  return `${failure.charAt(0).toUpperCase()}${failure.slice(1)}.`;
 }
 
 /**
