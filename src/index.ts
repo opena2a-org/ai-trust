@@ -17,6 +17,7 @@ import { helpFooter, onKeptOffByVariable, withEnableSteps } from "./utils/help-f
 import { helpDocsLine } from "./utils/help-docs.js";
 import { telemetryJson, unknownTelemetryActionJson } from "./utils/telemetry-json.js";
 import { scanPingsSettled } from "./telemetry/contribute.js";
+import { readContributeChoice } from "./telemetry/opt-in.js";
 import { DEFAULT_REGISTRY_URL, registryUrlProblem } from "./utils/registry-url.js";
 import { formatJson } from "./output/formatter.js";
 import { stripControlCharacters } from "./output/sanitize.js";
@@ -100,8 +101,9 @@ program.addHelpText("afterAll", ({ command }) => helpDocsLine(command));
   await tele.init({ tool: TELEMETRY_TOOL, version: VERSION });
 
   // Registered after init: the footer states the usage telemetry state that
-  // init resolved for this invocation.
-  program.addHelpText("after", helpFooter(tele.status().enabled));
+  // init resolved for this invocation, and the saved contribution choice,
+  // which is read only when the help is printed.
+  program.addHelpText("after", () => helpFooter(tele.status().enabled, readContributeChoice()));
 
   // Stream-split --version (cli-ui 0.5.2): bare `ai-trust x.y.z` to stdout
   // (single parseable line), telemetry disclosure to stderr. Use a manual

@@ -13,18 +13,14 @@ import {
   readContributeChoice,
   saveContributeChoice,
 } from "../telemetry/index.js";
+// The root --help states the saved choice in the same words.
+import { describeContributeChoice } from "../utils/help-footer.js";
 
 const CONTRIBUTE_ACTIONS = ["on", "off", "status"] as const;
 type ContributeAction = (typeof CONTRIBUTE_ACTIONS)[number];
 
 function isContributeAction(value: string): value is ContributeAction {
   return (CONTRIBUTE_ACTIONS as readonly string[]).includes(value);
-}
-
-function describeChoice(choice: boolean | undefined): string {
-  if (choice === true) return "enabled";
-  if (choice === false) return "disabled";
-  return "not set (scan results are not shared)";
 }
 
 export function registerConfigCommand(program: Command): void {
@@ -74,7 +70,7 @@ export function registerConfigCommand(program: Command): void {
         console.log("Community contribution disabled for ai-trust, hackmyagent and opena2a-cli.");
         console.log("Enable: ai-trust config contribute on");
       } else {
-        console.log(`Community contribution: ${describeChoice(choice)}`);
+        console.log(`Community contribution: ${describeContributeChoice(choice)}`);
         console.log(
           choice === true
             ? "Disable: ai-trust config contribute off"
