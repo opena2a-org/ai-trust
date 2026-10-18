@@ -304,15 +304,16 @@ const ROWS: Row[] = [
       },
     },
   },
-  // The registry is asked about a versioned target by the package name alone.
+  // The registry is asked about a versioned target by the package name alone;
+  // npm is asked for the package at that version.
   {
     form: "name@version",
     target: "table-tool@1.2.3",
     cells: {
       "no flag": {
-        exit: 1,
-        shows: ["Scanning table-tool@1.2.3...", "Error: Failed to download \"table-tool@1.2.3\": \"table-tool@1.2.3\" is not a valid npm package name."],
-        requests: ["trust table-tool"],
+        exit: 2,
+        shows: ["Scanning table-tool@1.2.3...", "Package not found: table-tool@1.2.3 (npm)", "→ Scan locally  ai-trust check table-tool@1.2.3"],
+        requests: ["trust table-tool", "npm /table-tool"],
       },
       "--no-scan": {
         exit: 0,
@@ -320,10 +321,10 @@ const ROWS: Row[] = [
         requests: ["trust table-tool"],
       },
       "--json": {
-        exit: 1,
-        json: {"name": "table-tool@1.2.3", "ecosystem": "npm", "found": false, "error": "Failed to download \"table-tool@1.2.3\": \"table-tool@1.2.3\" is not a valid npm package name."},
+        exit: 2,
+        json: {"name": "table-tool@1.2.3", "ecosystem": "npm", "found": false, "error": "Failed to download \"table-tool@1.2.3\": Package \"table-tool\" not found on npm. Verify the package name and try again."},
         shows: ["Scanning table-tool@1.2.3..."],
-        requests: ["trust table-tool"],
+        requests: ["trust table-tool", "npm /table-tool"],
       },
       "--no-scan --json": {
         exit: 0,
@@ -338,9 +339,9 @@ const ROWS: Row[] = [
     target: "@table/agent@2.0.0",
     cells: {
       "no flag": {
-        exit: 1,
-        shows: ["Scanning @table/agent@2.0.0...", "Error: Failed to download \"@table/agent@2.0.0\": \"@table/agent@2.0.0\" is not a valid npm package name."],
-        requests: ["trust @table/agent"],
+        exit: 2,
+        shows: ["Scanning @table/agent@2.0.0...", "Package not found: @table/agent@2.0.0 (npm)", "→ Scan locally  ai-trust check @table/agent@2.0.0"],
+        requests: ["trust @table/agent", "npm /@table%2fagent"],
       },
       "--no-scan": {
         exit: 2,
@@ -348,15 +349,100 @@ const ROWS: Row[] = [
         requests: ["trust @table/agent"],
       },
       "--json": {
-        exit: 1,
-        json: {"name": "@table/agent@2.0.0", "ecosystem": "npm", "found": false, "error": "Failed to download \"@table/agent@2.0.0\": \"@table/agent@2.0.0\" is not a valid npm package name."},
+        exit: 2,
+        json: {"name": "@table/agent@2.0.0", "ecosystem": "npm", "found": false, "error": "Failed to download \"@table/agent@2.0.0\": Package \"@table/agent\" not found on npm. Verify the package name and try again."},
         shows: ["Scanning @table/agent@2.0.0..."],
-        requests: ["trust @table/agent"],
+        requests: ["trust @table/agent", "npm /@table%2fagent"],
       },
       "--no-scan --json": {
         exit: 2,
         json: {"name": "@table/agent@2.0.0", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check @table/agent@2.0.0", "npx hackmyagent secure <project-dir>"], "error": "Package \"@table/agent@2.0.0\" not found in the OpenA2A Registry."},
         requests: ["trust @table/agent"],
+      },
+    },
+  },
+  // The command --no-scan suggests for a version npm serves downloads and
+  // scans that version.
+  {
+    form: "name@version the local npm registry serves",
+    target: "table-scan-pkg@1.0.0",
+    cells: {
+      "no flag": {
+        exit: 0,
+        shows: ["Scanning table-scan-pkg@1.0.0...", "table-scan-pkg@1.0.0  downloaded package"],
+        requests: ["trust table-scan-pkg", "npm /table-scan-pkg", "npm /table-scan-pkg/-/table-scan-pkg-1.0.0.tgz"],
+      },
+      "--no-scan": {
+        exit: 2,
+        shows: ["Package not found: table-scan-pkg@1.0.0 (npm)", "→ Scan locally  ai-trust check table-scan-pkg@1.0.0"],
+        requests: ["trust table-scan-pkg"],
+      },
+      "--json": {
+        exit: 0,
+        json: {"name": "table-scan-pkg@1.0.0", "ecosystem": "npm", "source": "scan", "found": true, "verdict": "safe"},
+        shows: ["Scanning table-scan-pkg@1.0.0..."],
+        requests: ["trust table-scan-pkg", "npm /table-scan-pkg", "npm /table-scan-pkg/-/table-scan-pkg-1.0.0.tgz"],
+      },
+      "--no-scan --json": {
+        exit: 2,
+        json: {"name": "table-scan-pkg@1.0.0", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check table-scan-pkg@1.0.0", "npx hackmyagent secure <project-dir>"], "error": "Package \"table-scan-pkg@1.0.0\" not found in the OpenA2A Registry."},
+        requests: ["trust table-scan-pkg"],
+      },
+    },
+  },
+  {
+    form: "name@version the local npm registry does not have",
+    target: "table-scan-pkg@9.9.9",
+    cells: {
+      "no flag": {
+        exit: 2,
+        shows: ["Scanning table-scan-pkg@9.9.9...", "Package not found: table-scan-pkg@9.9.9 (npm)"],
+        requests: ["trust table-scan-pkg", "npm /table-scan-pkg"],
+      },
+      "--no-scan": {
+        exit: 2,
+        shows: ["Package not found: table-scan-pkg@9.9.9 (npm)", "→ Scan locally  ai-trust check table-scan-pkg@9.9.9"],
+        requests: ["trust table-scan-pkg"],
+      },
+      "--json": {
+        exit: 2,
+        json: {"name": "table-scan-pkg@9.9.9", "ecosystem": "npm", "found": false, "error": "Failed to download \"table-scan-pkg@9.9.9\": Version \"9.9.9\" of \"table-scan-pkg\" not found on npm. Verify the version and try again."},
+        shows: ["Scanning table-scan-pkg@9.9.9..."],
+        requests: ["trust table-scan-pkg", "npm /table-scan-pkg"],
+      },
+      "--no-scan --json": {
+        exit: 2,
+        json: {"name": "table-scan-pkg@9.9.9", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check table-scan-pkg@9.9.9", "npx hackmyagent secure <project-dir>"], "error": "Package \"table-scan-pkg@9.9.9\" not found in the OpenA2A Registry."},
+        requests: ["trust table-scan-pkg"],
+      },
+    },
+  },
+  // Text after the `@` that is not a version or tag is refused before npm
+  // runs; npm would read `npm:<name>` as another package.
+  {
+    form: "name@ followed by an npm: alias",
+    target: "table-scan-pkg@npm:table-tool",
+    cells: {
+      "no flag": {
+        exit: 1,
+        shows: ["Scanning table-scan-pkg@npm:table-tool...", "Error: Failed to download \"table-scan-pkg@npm:table-tool\": \"npm:table-tool\" is not a version or tag ai-trust can download. Give an exact version, as in table-scan-pkg@1.2.3, or a tag, as in table-scan-pkg@latest."],
+        requests: ["trust table-scan-pkg"],
+      },
+      "--no-scan": {
+        exit: 2,
+        shows: ["Package not found: table-scan-pkg@npm:table-tool (npm)", "→ Scan locally  ai-trust check table-scan-pkg@npm:table-tool"],
+        requests: ["trust table-scan-pkg"],
+      },
+      "--json": {
+        exit: 1,
+        json: {"name": "table-scan-pkg@npm:table-tool", "ecosystem": "npm", "found": false, "error": "Failed to download \"table-scan-pkg@npm:table-tool\": \"npm:table-tool\" is not a version or tag ai-trust can download. Give an exact version, as in table-scan-pkg@1.2.3, or a tag, as in table-scan-pkg@latest."},
+        shows: ["Scanning table-scan-pkg@npm:table-tool..."],
+        requests: ["trust table-scan-pkg"],
+      },
+      "--no-scan --json": {
+        exit: 2,
+        json: {"name": "table-scan-pkg@npm:table-tool", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check table-scan-pkg@npm:table-tool", "npx hackmyagent secure <project-dir>"], "error": "Package \"table-scan-pkg@npm:table-tool\" not found in the OpenA2A Registry."},
+        requests: ["trust table-scan-pkg"],
       },
     },
   },

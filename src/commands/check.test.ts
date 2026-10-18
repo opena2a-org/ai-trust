@@ -819,6 +819,56 @@ describe("check command", () => {
       });
     });
 
+    it("scans a <name>@<version> target at that version and contributes it under the package name", async () => {
+      const mockPublishScan = vi.fn().mockResolvedValue({ accepted: true });
+      vi.mocked(RegistryClient).mockImplementation(
+        function () {
+          return {
+            checkTrust: vi.fn().mockRejectedValue(new PackageNotFoundError("my-pkg")),
+            publishScan: mockPublishScan,
+          } as any;
+        }
+      );
+      vi.mocked(isHmaAvailable).mockResolvedValue(true);
+      vi.mocked(scanPackage).mockResolvedValue({
+        packageName: "my-pkg@1.2.3",
+        packageVersion: "1.2.3",
+        scan: {
+          score: 90,
+          maxScore: 100,
+          findings: [],
+          projectType: "library",
+          timestamp: "2026-04-12T00:00:00Z",
+        },
+        trustScore: 0.9,
+        trustLevel: 3,
+        verdict: "safe",
+      });
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "check", "my-pkg@1.2.3", "--contribute"]);
+
+      expect(scanPackage).toHaveBeenCalledWith("my-pkg", {
+        deep: true,
+        ecosystem: "npm",
+        version: "1.2.3",
+      });
+      expect(consoleErrSpy).toHaveBeenCalledWith(expect.stringContaining("Scanning my-pkg@1.2.3..."));
+      expect(process.exitCode).toBeUndefined();
+      expect(sendScanPing).toHaveBeenCalledWith(
+        "my-pkg", "safe", 90, "https://api.test.com", "npm"
+      );
+      expect(contribute.scanResult).toHaveBeenCalledWith(
+        expect.objectContaining({ packageName: "my-pkg", ecosystem: "npm", packageVersion: "1.2.3" })
+      );
+      expect(mockPublishScan).toHaveBeenCalledOnce();
+      expect(mockPublishScan.mock.calls[0][0]).toMatchObject({
+        name: "my-pkg",
+        version: "1.2.3",
+        ecosystem: "npm",
+      });
+    });
+
     it("shows HMA install message when HMA is not available", async () => {
       vi.mocked(isHmaAvailable).mockResolvedValue(false);
 
@@ -986,17 +1036,21 @@ describe("check command", () => {
         expect(out.errorHint).toContain('did you mean "@anthropic/code-review"');
       });
 
-      it("check <name>@<version> is an invalid npm package name: plain error, exit 1", async () => {
-        vi.mocked(scanPackage).mockRejectedValue(refusal("no-such-pkg@1.0.0"));
+      it("check <name>@<version> passes the name and the version apart; a version the downloader refuses is a plain error, exit 1", async () => {
+        const message =
+          'Failed to download "no-such-pkg@npm:other-pkg": "npm:other-pkg" is not a version or tag ai-trust can download. Give an exact version, as in no-such-pkg@1.2.3, or a tag, as in no-such-pkg@latest.';
+        vi.mocked(scanPackage).mockRejectedValue(new Error(message));
 
         const program = createProgram();
-        await program.parseAsync(["node", "test", "check", "no-such-pkg@1.0.0"]);
+        await program.parseAsync(["node", "test", "check", "no-such-pkg@npm:other-pkg"]);
 
+        expect(scanPackage).toHaveBeenCalledWith(
+          "no-such-pkg",
+          expect.objectContaining({ ecosystem: "npm", version: "npm:other-pkg" })
+        );
         expect(process.exitCode).toBe(1);
         expect(formatNotFound).not.toHaveBeenCalled();
-        expect(consoleErrSpy).toHaveBeenCalledWith(
-          'Error: Failed to download "no-such-pkg@1.0.0": "no-such-pkg@1.0.0" is not a valid npm package name.'
-        );
+        expect(consoleErrSpy).toHaveBeenCalledWith(`Error: ${message}`);
       });
     });
 

@@ -28,6 +28,10 @@ import { runHmaScan } from "./hma.js";
 import type { HmaScanResult, SemanticFinding, AnalystFinding, HmaScanOptions } from "./hma.js";
 
 export interface ScanResult {
+  /**
+   * What was scanned. For a downloaded package, its name, followed by
+   * `@<version>` when a version or tag was downloaded instead of the latest.
+   */
   packageName: string;
   /**
    * Version of the downloaded package, read from its own manifest. Absent for
@@ -81,10 +85,15 @@ const PACKAGE_ABSENT_ARTIFACT_CHECKS = new Set(["DEP-001", "SANDBOX-001"]);
  */
 export async function scanPackage(
   name: string,
-  options: HmaScanOptions & { ecosystem?: "npm" | "pypi" } = {}
+  options: HmaScanOptions & {
+    ecosystem?: "npm" | "pypi";
+    /** An npm version or dist-tag to download instead of the latest version. */
+    version?: string;
+  } = {}
 ): Promise<ScanResult> {
   const ecosystem = options.ecosystem ?? "npm";
-  const download = await downloadPackage(name, ecosystem);
+  const { version } = options;
+  const download = await downloadPackage(name, ecosystem, version);
 
   try {
     // Defense-in-depth: verify the unpacked tarball's package.json `name`
@@ -142,7 +151,7 @@ export async function scanPackage(
     const verdict = deriveVerdict(scan);
 
     const result: ScanResult = {
-      packageName: name,
+      packageName: version === undefined ? name : `${name}@${version}`,
       scan,
       trustScore,
       trustLevel,

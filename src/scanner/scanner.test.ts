@@ -67,7 +67,7 @@ describe("scanPackage", () => {
 
     const result = await scanPackage("test-pkg");
 
-    expect(downloadPackage).toHaveBeenCalledWith("test-pkg", "npm");
+    expect(downloadPackage).toHaveBeenCalledWith("test-pkg", "npm", undefined);
     expect(runHmaScan).toHaveBeenCalled();
     expect(mockCleanup).toHaveBeenCalled();
 
@@ -88,6 +88,25 @@ describe("scanPackage", () => {
     });
 
     const result = await scanPackage("test-pkg");
+    expect(result.packageVersion).toBe("1.0.0");
+  });
+
+  it("downloads the version asked for, checks the tarball against the name alone and names the scan <name>@<version>", async () => {
+    setupDownload("test-pkg");
+    vi.mocked(runHmaScan).mockResolvedValue({
+      score: 95,
+      maxScore: 100,
+      findings: [],
+      projectType: "mcp",
+      timestamp: "2026-03-14T00:00:00Z",
+    });
+
+    const result = await scanPackage("test-pkg", { version: "1.0.0" });
+
+    expect(downloadPackage).toHaveBeenCalledWith("test-pkg", "npm", "1.0.0");
+    expect(runHmaScan).toHaveBeenCalled();
+    expect(mockCleanup).toHaveBeenCalled();
+    expect(result.packageName).toBe("test-pkg@1.0.0");
     expect(result.packageVersion).toBe("1.0.0");
   });
 
