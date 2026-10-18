@@ -178,13 +178,63 @@ describe("downloadPackage (PyPI)", () => {
     expect(existsSync(pipCalls)).toBe(false);
   });
 
-  it("refuses a version before any request: a PyPI download fetches the latest release only", async () => {
+  it("fetches the release a version names from that release's JSON API page (#224)", async () => {
+    const releaseUrl = "https://pypi.org/pypi/markerpkg/0.1/json";
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url === releaseUrl) return release([sdistEntry(sdistSha256)]);
+      if (url === SDIST_URL) return new Response(sdist);
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await downloadPackage("markerpkg", "pypi", "0.1");
+    try {
+      expect(readFileSync(join(result.dir, "PKG-INFO"), "utf8")).toContain("Version: 0.1");
+      expect(existsSync(pipCalls)).toBe(false);
+      expect(existsSync(setupMarker)).toBe(false);
+      expect(fetchMock.mock.calls.map((c) => String(c[0]))).toEqual([releaseUrl, SDIST_URL]);
+    } finally {
+      await result.cleanup();
+    }
+    expect(readdirSync(scanTmp)).toEqual([]);
+  });
+
+  it("reports a release PyPI does not have as that version not found on PyPI (#224)", async () => {
+    const fetchMock = vi.fn(async (input: string | URL) =>
+      String(input) === JSON_URL
+        ? release([sdistEntry(sdistSha256)])
+        : new Response("", { status: 404 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(downloadPackage("markerpkg", "pypi", "9.9.9")).rejects.toThrow(
+      'Failed to download "markerpkg@9.9.9": Version "9.9.9" of "markerpkg" not found on PyPI. Verify the version and try again.',
+    );
+    expect(fetchMock.mock.calls.map((c) => String(c[0]))).toEqual([
+      "https://pypi.org/pypi/markerpkg/9.9.9/json",
+      JSON_URL,
+    ]);
+    expect(readdirSync(scanTmp)).toEqual([]);
+  });
+
+  it("reports a project PyPI does not have as not found on PyPI when a version is given (#224)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 404 })));
+
+    await expect(downloadPackage("no-such-pkg-zzz", "pypi", "1.0")).rejects.toThrow(
+      'Failed to download "no-such-pkg-zzz@1.0": Package "no-such-pkg-zzz" not found on PyPI. Verify the package name and try again.',
+    );
+  });
+
+  it("refuses text after the name that is not a release version before any request (#224)", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(downloadPackage("markerpkg", "pypi", "0.1")).rejects.toThrow(
-      'Failed to download "markerpkg": a version cannot be given for a PyPI package.',
-    );
+    for (const version of ["../json", "0.1/../../json", "^1.0", ">=1.0", "1.0 || 2.0", "?x=1", "%2e%2e", ""]) {
+      await expect(downloadPackage("markerpkg", "pypi", version)).rejects.toThrow(
+        `Failed to download "markerpkg@${version}": "${version}" is not a version ai-trust can download from PyPI. Give a release version, as in pip:markerpkg@1.2.3.`,
+      );
+    }
     expect(fetchMock).not.toHaveBeenCalled();
     expect(readdirSync(scanTmp)).toEqual([]);
   });
@@ -330,6 +380,28 @@ describe("downloadPackage (npm)", () => {
       'Failed to download "pkg-name@9.9.9": Version "9.9.9" of "pkg-name" not found on npm. Verify the version and try again.',
     );
     expect(readFileSync(npmArgs, "utf8").trimEnd().split("\n").slice(-2)).toEqual(["--", "pkg-name@9.9.9"]);
+    expect(readdirSync(scanTmp)).toEqual([]);
+  });
+
+  it("reports a version the package does not have as that version not found on npm when npm prints the older `npm ERR!` prefix (#224)", async () => {
+    writeFileSync(
+      join(root, "bin", "npm"),
+      [
+        "#!/bin/sh",
+        `for a in "$@"; do printf '%s\\n' "$a"; done > "${npmArgs}"`,
+        "echo 'npm ERR! code ETARGET' >&2",
+        "echo 'npm ERR! notarget No matching version found for pkg-name@9.9.9.' >&2",
+        // A log name with 404 in it does not turn a missing version into a missing package.
+        "echo 'npm ERR! A complete log of this run can be found in: /tmp/_logs/2026-10-18T15_11_17_404Z-debug-0.log' >&2",
+        "exit 1",
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+
+    await expect(downloadPackage("pkg-name", "npm", "9.9.9")).rejects.toThrow(
+      'Failed to download "pkg-name@9.9.9": Version "9.9.9" of "pkg-name" not found on npm. Verify the version and try again.',
+    );
     expect(readdirSync(scanTmp)).toEqual([]);
   });
 });

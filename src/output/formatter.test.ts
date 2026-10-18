@@ -12,6 +12,7 @@ import {
   formatScanResult,
   formatJson,
   formatNotFound,
+  showsRegistryScore,
 } from "./formatter.js";
 import type { TrustAnswer, BatchResponse } from "@opena2a/registry-client";
 import type { ScanResult } from "../scanner/index.js";
@@ -669,6 +670,85 @@ describe("registry score beside a fresh scan", () => {
     });
 
     expect(output).not.toContain("vs this scan");
+  });
+
+  it("showsRegistryScore says whether the scan output prints the gap line (#224)", () => {
+    const cases: Array<[string, ScanResult, TrustAnswer, boolean]> = [
+      ["more than 20 points apart", scanWithScore(100), registryAnswer(0.79), true],
+      ["scan lower than the registry", scanWithScore(60), registryAnswer(0.95), true],
+      ["no registry scan date", scanWithScore(100), registryAnswer(0.71, { lastScannedAt: undefined }), true],
+      ["20 points apart", scanWithScore(100), registryAnswer(0.8), false],
+      ["registry scan failed", scanWithScore(100), registryAnswer(0.3, { scanStatus: "failed" }), false],
+      ["registry score off the 0-1 scale", scanWithScore(100), registryAnswer(55), false],
+      ["nothing to analyze", scanWithScore(100, { checksEvaluated: 0 }), registryAnswer(0.3), false],
+      ["0 files read", scanWithScore(100, { filesExamined: 0 }), registryAnswer(0.3), false],
+      ["registry has no such package", scanWithScore(100), registryAnswer(0.3, { found: false }), false],
+    ];
+    for (const [label, scan, answer, shown] of cases) {
+      const output = formatScanResult(scan, { remote: true, registry: answer });
+      expect(output.includes("vs this scan"), label).toBe(shown);
+      expect(showsRegistryScore(answer, scan), label).toBe(shown);
+    }
+  });
+});
+
+describe("the version a tag or range resolved to (#224)", () => {
+  function downloaded(
+    packageName: string,
+    versions: { requestedVersion?: string; packageVersion?: string },
+  ): ScanResult {
+    return {
+      packageName,
+      ...versions,
+      trustScore: 1,
+      trustLevel: 3,
+      verdict: "safe",
+      scan: {
+        score: 100,
+        maxScore: 100,
+        findings: [],
+        projectType: "library",
+        timestamp: new Date().toISOString(),
+        checksEvaluated: 40,
+      },
+    };
+  }
+
+  it("names the version a tag or a range resolved to after the target in the header", () => {
+    const tag = formatScanResult(
+      downloaded("is-odd@latest", { requestedVersion: "latest", packageVersion: "3.0.1" }),
+      { remote: true },
+    );
+    const range = formatScanResult(
+      downloaded("is-odd@1.x", { requestedVersion: "1.x", packageVersion: "1.0.1" }),
+      { remote: true },
+    );
+
+    expect(tag).toContain("  is-odd@latest (3.0.1)  downloaded package");
+    expect(range).toContain("  is-odd@1.x (1.0.1)  downloaded package");
+  });
+
+  it("puts the version before the ecosystem of a pip: target", () => {
+    const output = formatScanResult(
+      downloaded("requests@2.0", { requestedVersion: "2.0", packageVersion: "2.0.0" }),
+      { remote: true, ecosystem: "pypi" },
+    );
+
+    expect(output).toContain("  requests@2.0 (2.0.0) (pypi)  downloaded package");
+  });
+
+  it("adds nothing when the target named the version downloaded, named none, or the manifest has none", () => {
+    const exact = formatScanResult(
+      downloaded("is-odd@3.0.1", { requestedVersion: "3.0.1", packageVersion: "3.0.1" }),
+      { remote: true },
+    );
+    const bare = formatScanResult(downloaded("is-odd", { packageVersion: "3.0.1" }), { remote: true });
+    const unread = formatScanResult(downloaded("is-odd@latest", { requestedVersion: "latest" }), { remote: true });
+
+    expect(exact).toContain("  is-odd@3.0.1  downloaded package");
+    expect(bare).toContain("  is-odd  downloaded package");
+    expect(unread).toContain("  is-odd@latest  downloaded package");
+    for (const output of [exact, bare, unread]) expect(output).not.toContain("(3.0.1)");
   });
 });
 

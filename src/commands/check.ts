@@ -18,6 +18,7 @@ import {
   formatScanResult,
   formatJson,
   formatNotFound,
+  showsRegistryScore,
 } from "../output/formatter.js";
 import type { FormatScanResultOptions } from "../output/formatter.js";
 import { buildNotFoundOutput, translateDownloadError } from "@opena2a/check-core";
@@ -292,8 +293,9 @@ export function registerCheckCommand(program: Command): void {
           if (!result.found) throw new PackageNotFoundError(name);
           notePackageAnswer(pkg);
           // Classify using the registry's packageType (authoritative) before
-          // falling back to the name-only allowlist.
-          const tier = classify({ name, packageType: result.packageType }).tier;
+          // falling back to the name-only allowlist, which is consulted with
+          // the package name, as the registry was asked.
+          const tier = classify({ name: pkg.name, packageType: result.packageType }).tier;
           if (tier === "unrelated") {
             // Registry-confirmed library. Show the trust data alongside an
             // out-of-scope note so the user still sees everything we know.
@@ -316,7 +318,9 @@ export function registerCheckCommand(program: Command): void {
             // matches like "express" or "chalk" that npm's namespace
             // uniqueness makes reliable. For those, show out-of-scope.
             // Otherwise fall through to the standard "not found" handler.
-            const nameTier = classify({ name }).tier;
+            // It is consulted with the package name, so `express@4.18.0`
+            // matches as `express` does.
+            const nameTier = classify({ name: pkg.name }).tier;
             if (nameTier === "unrelated") {
               printOutOfScopeByName(pkg, globalOpts.json);
               return; // exit 0
@@ -526,13 +530,14 @@ async function handleScanFlow(
 
   let scanResult: ScanResult;
   try {
-    // A `<name>@<version>` target downloads that version: the downloader
-    // checks the name and the version apart.
+    // A `<name>@<version>` target downloads that version, and a
+    // `pip:<name>@<version>` target that release: the downloader checks the
+    // name and the version apart.
     scanResult = await scanPackage(target.name, {
       deep: opts.deep ?? true,
       analm: opts.analm,
       ecosystem,
-      version: target.kind === "npm" ? target.version : undefined,
+      version: target.kind === "git" ? undefined : target.version,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -580,6 +585,10 @@ async function handleScanFlow(
   if (globalOpts.json) {
     console.log(formatJson(buildCheckJson({ kind: "scan", scan: scanResult, ecosystem })));
   } else {
+    // The registry's score printed beside this scan's is the package's, not
+    // the scanned version's: the note says so first, as it does before the
+    // registry's answer with --no-scan.
+    if (registryAnswer && showsRegistryScore(registryAnswer, scanResult)) notePackageAnswer(target);
     console.log(
       formatScanResult(scanResult, { remote: true, ecosystem, ...textOpts, registry: registryAnswer }),
     );
@@ -689,12 +698,12 @@ function verdictOutcome(verdict?: string): CheckOutcome {
 }
 
 /**
- * The registry is asked about a `<name>@<version>` target by its name alone,
- * so the answer shown for it is the package's, not that version's. Say so on
- * stderr before the answer.
+ * The registry is asked about a `<name>@<version>` or `pip:<name>@<version>`
+ * target by its name alone, so the answer shown for it is the package's, not
+ * that version's. Say so on stderr before the answer.
  */
 function notePackageAnswer(target: PackageTarget): void {
-  if (target.kind !== "npm" || target.version === undefined) return;
+  if (target.kind === "git" || target.version === undefined) return;
   const name = stripControlCharacters(target.name);
   const version = stripControlCharacters(target.version);
   console.error(
@@ -778,10 +787,12 @@ function hmaCheckTarget(name: string, ecosystem: "npm" | "pypi"): string {
 /**
  * Print an out-of-scope notice for a package the registry doesn't know about
  * but whose name matches our library allowlist. Explicitly notes the lack of
- * registry confirmation so the user knows we haven't verified anything.
+ * registry confirmation so the user knows we haven't verified anything. The
+ * allowlist matched the package name, so the notice names the package, not
+ * a version a `<name>@<version>` target gave.
  */
 function printOutOfScopeByName(target: PackageTarget, asJson: boolean): void {
-  const { spec: name, ecosystem } = target;
+  const { name, ecosystem } = target;
   if (asJson) {
     console.log(formatJson({
       name,

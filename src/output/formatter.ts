@@ -382,6 +382,15 @@ function registryGapLine(registryAnswer: TrustAnswer, result: ScanResult): strin
 }
 
 /**
+ * True when formatScanResult, given the registry's answer as its `registry`
+ * option, prints the registry's score beside this scan's: a scan that read 0
+ * files prints no score, and registryGapLine says when the other scans do.
+ */
+export function showsRegistryScore(registryAnswer: TrustAnswer, result: ScanResult): boolean {
+  return !nothingToScan(result.scan) && registryGapLine(registryAnswer, result) !== null;
+}
+
+/**
  * True when the scan executed no static check and found nothing, static or
  * semantic: the package had no analyzable surfaces, so its score is not a
  * measurement.
@@ -419,6 +428,18 @@ function renderNextStepsLines(ctas: NextStepsCta[]): string[] {
  */
 export function ecosystemSuffix(ecosystem: "npm" | "pypi"): string {
   return ecosystem === "pypi" ? " (pypi)" : "";
+}
+
+/**
+ * Text after the name of a scanned `<name>@<tag>` or `<name>@<range>` that
+ * names the version it resolved to, read from the downloaded package's
+ * manifest (`is-odd@latest (3.0.1)`). Nothing when the target gave no
+ * version, gave the version that was downloaded, or the manifest has none.
+ */
+function resolvedVersionSuffix(result: ScanResult): string {
+  const { requestedVersion, packageVersion } = result;
+  if (requestedVersion === undefined || packageVersion === undefined) return "";
+  return packageVersion === requestedVersion ? "" : ` (${packageVersion})`;
 }
 
 export function formatCheckResult(
@@ -933,7 +954,7 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
 
   const lines: string[] = [
     "",
-    `  ${chalk.bold.white(result.packageName)}${ecosystemSuffix(opts.ecosystem ?? "npm")}  ${chalk.dim(remote ? "downloaded package" : "local scan")}`,
+    `  ${chalk.bold.white(result.packageName)}${resolvedVersionSuffix(result)}${ecosystemSuffix(opts.ecosystem ?? "npm")}  ${chalk.dim(remote ? "downloaded package" : "local scan")}`,
   ];
 
   // The scanner read no file and found none it could not read. The checks

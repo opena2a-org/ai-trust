@@ -417,6 +417,91 @@ const ROWS: Row[] = [
       },
     },
   },
+  // npm downloads the highest version a tag or a range names; the scan output
+  // names that version beside the target as typed (#224).
+  {
+    form: "name@tag the local npm registry serves",
+    target: "table-scan-pkg@latest",
+    cells: {
+      "no flag": {
+        exit: 0,
+        shows: ["Scanning table-scan-pkg@latest...", "table-scan-pkg@latest (1.0.0)  downloaded package"],
+        requests: ["trust table-scan-pkg", "npm /table-scan-pkg", "npm /table-scan-pkg/-/table-scan-pkg-1.0.0.tgz"],
+      },
+      "--no-scan": {
+        exit: 2,
+        shows: ["Package not found: table-scan-pkg@latest (npm)", "→ Scan locally  ai-trust check table-scan-pkg@latest"],
+        requests: ["trust table-scan-pkg"],
+      },
+      "--json": {
+        exit: 0,
+        json: {"name": "table-scan-pkg@latest", "ecosystem": "npm", "version": "1.0.0", "source": "scan", "found": true, "verdict": "safe"},
+        shows: ["Scanning table-scan-pkg@latest..."],
+        requests: ["trust table-scan-pkg", "npm /table-scan-pkg", "npm /table-scan-pkg/-/table-scan-pkg-1.0.0.tgz"],
+      },
+      "--no-scan --json": {
+        exit: 2,
+        json: {"name": "table-scan-pkg@latest", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check table-scan-pkg@latest", "npx hackmyagent secure <project-dir>"], "error": "Package \"table-scan-pkg@latest\" not found in the OpenA2A Registry."},
+        requests: ["trust table-scan-pkg"],
+      },
+    },
+  },
+  {
+    form: "name@range the local npm registry serves",
+    target: "table-scan-pkg@1.x",
+    cells: {
+      "no flag": {
+        exit: 0,
+        shows: ["Scanning table-scan-pkg@1.x...", "table-scan-pkg@1.x (1.0.0)  downloaded package"],
+        requests: ["trust table-scan-pkg", "npm /table-scan-pkg", "npm /table-scan-pkg/-/table-scan-pkg-1.0.0.tgz"],
+      },
+      "--no-scan": {
+        exit: 2,
+        shows: ["Package not found: table-scan-pkg@1.x (npm)", "→ Scan locally  ai-trust check table-scan-pkg@1.x"],
+        requests: ["trust table-scan-pkg"],
+      },
+      "--json": {
+        exit: 0,
+        json: {"name": "table-scan-pkg@1.x", "ecosystem": "npm", "version": "1.0.0", "source": "scan", "found": true, "verdict": "safe"},
+        shows: ["Scanning table-scan-pkg@1.x..."],
+        requests: ["trust table-scan-pkg", "npm /table-scan-pkg", "npm /table-scan-pkg/-/table-scan-pkg-1.0.0.tgz"],
+      },
+      "--no-scan --json": {
+        exit: 2,
+        json: {"name": "table-scan-pkg@1.x", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check table-scan-pkg@1.x", "npx hackmyagent secure <project-dir>"], "error": "Package \"table-scan-pkg@1.x\" not found in the OpenA2A Registry."},
+        requests: ["trust table-scan-pkg"],
+      },
+    },
+  },
+  // The library list is consulted with the package name, so --no-scan gives a
+  // versioned target the notice its package gets (#224).
+  {
+    form: "name@version, library by name with no registry data",
+    target: "express@4.18.0",
+    cells: {
+      "no flag": {
+        exit: 2,
+        shows: ["Scanning express@4.18.0...", "Package not found: express@4.18.0 (npm)", "→ Scan locally  ai-trust check express@4.18.0"],
+        requests: ["trust express", "npm /express"],
+      },
+      "--no-scan": {
+        exit: 0,
+        shows: ["express  library (by name — no registry data)", "Out of scope for ai-trust — ai-trust is for AI packages (MCP servers, agents, skills, AI tools, LLMs).", "npx hackmyagent check express"],
+        requests: ["trust express"],
+      },
+      "--json": {
+        exit: 2,
+        json: {"name": "express@4.18.0", "ecosystem": "npm", "found": false, "error": "Failed to download \"express@4.18.0\": Package \"express\" not found on npm. Verify the package name and try again."},
+        shows: ["Scanning express@4.18.0..."],
+        requests: ["trust express", "npm /express"],
+      },
+      "--no-scan --json": {
+        exit: 0,
+        json: {"name": "express", "ecosystem": "npm", "found": false, "outOfScope": true, "nextSteps": ["npx hackmyagent check express"]},
+        requests: ["trust express"],
+      },
+    },
+  },
   // Text after the `@` that is not a version or tag is refused before npm
   // runs; npm would read `npm:<name>` as another package.
   {
@@ -525,6 +610,36 @@ const ROWS: Row[] = [
       "--no-scan --json": {
         exit: 2,
         json: {"name": "table-py-agent", "ecosystem": "pypi", "found": false, "nextSteps": ["ai-trust check table-py-agent", "npx hackmyagent secure <project-dir>"], "error": "Package \"table-py-agent\" not found in the OpenA2A Registry."},
+        requests: ["trust table-py-agent"],
+      },
+    },
+  },
+  // The registry is asked about a versioned pip: target by the package name;
+  // PyPI is asked for that release, then for the project to tell a missing
+  // release from a missing project (#224).
+  {
+    form: "pip:name@version, no registry data",
+    target: "pip:table-py-agent@2.0.0",
+    cells: {
+      "no flag": {
+        exit: 2,
+        shows: ["Scanning table-py-agent@2.0.0...", "Package not found: table-py-agent@2.0.0 (pypi)"],
+        requests: ["trust table-py-agent", "pypi /pypi/table-py-agent/2.0.0/json", "pypi /pypi/table-py-agent/json"],
+      },
+      "--no-scan": {
+        exit: 2,
+        shows: ["Package not found: table-py-agent@2.0.0 (pypi)"],
+        requests: ["trust table-py-agent"],
+      },
+      "--json": {
+        exit: 2,
+        json: {"name": "table-py-agent@2.0.0", "ecosystem": "pypi", "found": false, "error": "Failed to download \"table-py-agent@2.0.0\": Package \"table-py-agent\" not found on PyPI. Verify the package name and try again."},
+        shows: ["Scanning table-py-agent@2.0.0..."],
+        requests: ["trust table-py-agent", "pypi /pypi/table-py-agent/2.0.0/json", "pypi /pypi/table-py-agent/json"],
+      },
+      "--no-scan --json": {
+        exit: 2,
+        json: {"name": "table-py-agent@2.0.0", "ecosystem": "pypi", "found": false, "error": "Package \"table-py-agent@2.0.0\" not found in the OpenA2A Registry."},
         requests: ["trust table-py-agent"],
       },
     },

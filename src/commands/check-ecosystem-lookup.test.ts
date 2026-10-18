@@ -131,6 +131,31 @@ describe("check looks a pip: target up as a PyPI package (#131)", () => {
     expect(process.exitCode).toBe(2);
   });
 
+  it("check pip:<name>@<version> --no-scan asks about <name> with ecosystem=pypi and notes that the answer is the package's (#224)", async () => {
+    const registry = fakeRegistry("ai_tool");
+    harness.fetchMock = registry.fetchMock;
+
+    await createProgram().parseAsync([
+      "node", "test", "--json", "check", `pip:${NAME}@2.0.0`, "--no-scan",
+    ]);
+
+    expect(registry.urls).toHaveLength(1);
+    expect(registry.urls[0].searchParams.get("name")).toBe(NAME);
+    expect(registry.urls[0].searchParams.get("ecosystem")).toBe("pypi");
+    const stderr = consoleErrSpy.mock.calls
+      .map((args) => args.join(" "))
+      .join("\n")
+      .replace(/\x1b\[[0-9;]*m/g, "");
+    expect(stderr).toContain(
+      `Note: the registry's answer is for the package ${NAME}, not for version 2.0.0.`,
+    );
+    const output = printedJson(consoleSpy);
+    expect(output.name).toBe(NAME);
+    expect(output.ecosystem).toBe("pypi");
+    expect(output.verdict).toBe("blocked");
+    expect(process.exitCode).toBe(2);
+  });
+
   it("check <name> --no-scan sends no ecosystem, as before", async () => {
     const registry = fakeRegistry("ai_tool");
     harness.fetchMock = registry.fetchMock;

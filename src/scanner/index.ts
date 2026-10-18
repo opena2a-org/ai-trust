@@ -38,6 +38,12 @@ export interface ScanResult {
    * local-path scans and when the manifest carries no usable version.
    */
   packageVersion?: string;
+  /**
+   * The version or tag the target gave after the name, as typed (`latest`,
+   * `1.x`, `1.0.0`). Absent when it gave none. A tag or a range resolves to
+   * one version, which `packageVersion` holds.
+   */
+  requestedVersion?: string;
   scan: HmaScanResult;
   /** Trust score derived from HMA score (0.0-1.0) */
   trustScore: number;
@@ -87,7 +93,10 @@ export async function scanPackage(
   name: string,
   options: HmaScanOptions & {
     ecosystem?: "npm" | "pypi";
-    /** An npm version or dist-tag to download instead of the latest version. */
+    /**
+     * An npm version or dist-tag, or a PyPI release, to download instead of
+     * the latest version.
+     */
     version?: string;
   } = {}
 ): Promise<ScanResult> {
@@ -160,6 +169,10 @@ export async function scanPackage(
 
     if (packageVersion !== undefined) {
       result.packageVersion = packageVersion;
+    }
+
+    if (version !== undefined) {
+      result.requestedVersion = version;
     }
 
     if (scan.semanticFindings && scan.semanticFindings.length > 0) {

@@ -43,7 +43,11 @@ export interface GitTarget {
 export interface PypiTarget {
   kind: "pypi";
   ecosystem: "pypi";
+  /** The package name, without a version. */
   name: string;
+  /** The release after the name, when the target gives one. */
+  version?: string;
+  /** The name, followed by `@<version>` as typed. */
   spec: string;
 }
 
@@ -102,7 +106,11 @@ function classifyPackageTarget(raw: string): PackageTarget | InvalidTarget {
   const { name: typed, ecosystem } = parsePackageTarget(raw);
   // MCP shorthand (`server-*` -> `@modelcontextprotocol/server-*`) names npm
   // packages; a pip: target is used as given.
-  if (ecosystem === "pypi") return { kind: "pypi", ecosystem, name: typed, spec: typed };
+  if (ecosystem === "pypi") {
+    const release = NAME_AT_VERSION.exec(typed);
+    if (release) return { kind: "pypi", ecosystem, name: release[1], version: release[2], spec: typed };
+    return { kind: "pypi", ecosystem, name: typed, spec: typed };
+  }
 
   const spec = resolvePackageName(typed);
   const shorthand = spec !== typed ? { shorthand: typed } : {};

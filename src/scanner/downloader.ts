@@ -15,11 +15,24 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-/** PyPI JSON API base: `${PYPI_JSON_API}/<name>/json` describes the latest release. */
+/**
+ * PyPI JSON API base: `${PYPI_JSON_API}/<name>/json` describes the latest
+ * release, and `${PYPI_JSON_API}/<name>/<version>/json` the release
+ * `<version>`.
+ */
 const PYPI_JSON_API = "https://pypi.org/pypi";
 
 /** PEP 508 project name. Anything else is refused before a request is made. */
 const PYPI_NAME_PATTERN = /^([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9])$/;
+
+/**
+ * A release to download after a PyPI project name, as in `<name>@2.0.0`:
+ * letters, digits, `.`, `_`, `+`, `!` and `-`, beginning with a letter or
+ * digit, the characters a PEP 440 version is written with. Anything else,
+ * a `/` included, is refused before a request is made: the version becomes
+ * a segment of the JSON API path.
+ */
+const PYPI_VERSION_PATTERN = /^[0-9A-Za-z][0-9A-Za-z.!+_-]*$/;
 
 /**
  * An npm registry package name: an optional `@scope/` and a name of letters,
@@ -61,22 +74,15 @@ export interface DownloadResult {
 /**
  * Download a package and extract it to a temp directory.
  * Routes to npm or PyPI based on the ecosystem parameter. `version` is an npm
- * version or dist-tag to download instead of the latest version; a PyPI
- * download refuses one.
+ * version or dist-tag, or a PyPI release, to download instead of the latest
+ * version.
  */
 export async function downloadPackage(
   name: string,
   ecosystem: "npm" | "pypi" = "npm",
   version?: string
 ): Promise<DownloadResult> {
-  if (ecosystem === "pypi") {
-    if (version !== undefined) {
-      throw new Error(
-        `Failed to download "${name}": a version cannot be given for a PyPI package.`
-      );
-    }
-    return downloadPypiPackage(name);
-  }
+  if (ecosystem === "pypi") return downloadPypiPackage(name, version);
   return downloadNpmPackage(name, version);
 }
 
@@ -154,23 +160,42 @@ async function downloadNpmPackage(name: string, version?: string): Promise<Downl
 /**
  * Download a Python package from PyPI and extract it to a temp directory.
  * The archive is fetched from the URL the PyPI JSON API lists for the latest
- * release (the sdist, or a wheel when the release has none) and checked
- * against the SHA-256 digest listed beside it. pip is not used: `pip
- * download` prepares an sdist's metadata by running the package's build
- * backend, which executes the code this scan is meant to inspect.
+ * release, or for the release `version` when one is given (the sdist, or a
+ * wheel when the release has none), and checked against the SHA-256 digest
+ * listed beside it. pip is not used: `pip download` prepares an sdist's
+ * metadata by running the package's build backend, which executes the code
+ * this scan is meant to inspect.
  */
-async function downloadPypiPackage(name: string): Promise<DownloadResult> {
+async function downloadPypiPackage(name: string, version?: string): Promise<DownloadResult> {
+  const spec = version === undefined ? name : `${name}@${version}`;
   if (!PYPI_NAME_PATTERN.test(name)) {
     throw new Error(
-      `Failed to download "${name}": "${name}" is not a valid PyPI package name.`
+      `Failed to download "${spec}": "${name}" is not a valid PyPI package name.`
+    );
+  }
+  if (version !== undefined && !PYPI_VERSION_PATTERN.test(version)) {
+    throw new Error(
+      `Failed to download "${spec}": "${version}" is not a version ai-trust can download from PyPI. Give a release version, as in pip:${name}@1.2.3.`
     );
   }
 
   const tempDir = await mkdtemp(join(tmpdir(), "ai-trust-scan-"));
 
   try {
-    const res = await fetchFromPypi(`${PYPI_JSON_API}/${name}/json`, 30_000);
+    const latestUrl = `${PYPI_JSON_API}/${name}/json`;
+    const res = await fetchFromPypi(
+      version === undefined ? latestUrl : `${PYPI_JSON_API}/${name}/${version}/json`,
+      30_000
+    );
     if (res.status === 404) {
+      // PyPI answers 404 for a release when the project has no such release
+      // and when there is no such project: the project's own page tells the
+      // two apart.
+      if (version !== undefined && (await pypiStatus(latestUrl)) !== 404) {
+        throw new Error(
+          `Version "${version}" of "${name}" not found on PyPI. Verify the version and try again.`
+        );
+      }
       throw new Error(
         `Package "${name}" not found on PyPI. Verify the package name and try again.`
       );
@@ -181,7 +206,7 @@ async function downloadPypiPackage(name: string): Promise<DownloadResult> {
     const urls = ((await res.json()) as { urls?: unknown } | null)?.urls;
     const file = pickPypiFile(Array.isArray(urls) ? urls : []);
     if (!file) {
-      throw new Error(`No downloadable archive found for "${name}" on PyPI`);
+      throw new Error(`No downloadable archive found for "${spec}" on PyPI`);
     }
 
     // Saved under a fixed name, so the listed filename never becomes a path.
@@ -213,7 +238,7 @@ async function downloadPypiPackage(name: string): Promise<DownloadResult> {
   } catch (err) {
     await rm(tempDir, { recursive: true, force: true });
     const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Failed to download "${name}": ${message}`);
+    throw new Error(`Failed to download "${spec}": ${message}`);
   }
 }
 
@@ -250,6 +275,13 @@ export function pickPypiFile(files: unknown[]): PypiReleaseFile | undefined {
     (f) => f.packagetype === "bdist_wheel" && archiveExtension(f.filename) === ".whl"
   );
   return wheels.find((f) => f.filename.endsWith("-none-any.whl")) ?? wheels[0];
+}
+
+/** The HTTP status PyPI answers `url` with. The body is not read. */
+async function pypiStatus(url: string): Promise<number> {
+  const res = await fetchFromPypi(url, 30_000);
+  await res.body?.cancel();
+  return res.status;
 }
 
 async function fetchFromPypi(url: string, timeoutMs: number): Promise<Response> {
@@ -310,7 +342,8 @@ async function fetchPypiArchive(file: PypiReleaseFile, dest: string): Promise<vo
 
 /**
  * Extract a clean error message from npm's verbose stderr. npm reports a
- * version or tag the package does not have as `npm error code ETARGET`.
+ * version or tag the package does not have as `code ETARGET`, on a line that
+ * begins `npm error`, or `npm ERR!` in older npm releases.
  */
 function extractNpmError(name: string, version: string | undefined, err: unknown): string {
   if (
@@ -320,7 +353,7 @@ function extractNpmError(name: string, version: string | undefined, err: unknown
     typeof (err as { stderr: unknown }).stderr === "string"
   ) {
     const stderr = (err as { stderr: string }).stderr;
-    if (version !== undefined && /^npm error code ETARGET\b/m.test(stderr)) {
+    if (version !== undefined && /^npm (?:error|ERR!) code ETARGET\b/m.test(stderr)) {
       return `Version "${version}" of "${name}" not found on npm. Verify the version and try again.`;
     }
     const notFound = stderr.includes("404") || stderr.includes("Not Found");

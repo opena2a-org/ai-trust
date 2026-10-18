@@ -28,6 +28,11 @@ describe("classifyCheckTarget", () => {
     ["name@tag", "table-tool@latest", { kind: "npm", ecosystem: "npm", name: "table-tool", version: "latest", spec: "table-tool@latest" }],
     ["npm:name", "npm:table-tool", npm("table-tool")],
     ["pip:name", "pip:table-pylib", pypi("table-pylib")],
+    [
+      "pip:name@version",
+      "pip:table-pylib@2.0.0",
+      { kind: "pypi", ecosystem: "pypi", name: "table-pylib", version: "2.0.0", spec: "table-pylib@2.0.0" },
+    ],
     ["pip: with nothing after", "pip:", { kind: "invalid", reason: "no-package-name", prefix: "pip:" }],
     ["npm: with nothing after", "npm:", { kind: "invalid", reason: "no-package-name", prefix: "npm:" }],
     ["pip: with spaces around", " pip: ", { kind: "invalid", reason: "no-package-name", prefix: "pip:" }],
