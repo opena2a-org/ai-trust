@@ -645,8 +645,11 @@ function main() {
           // PUBLISHED label. Trimmed, a path can name a different file from the
           // one given, as a file name may begin with whitespace; a tarball
           // whose name does is named as `./<name>`. A value made only of
-          // whitespace is left to the empty-value check below.
-          const begins = unpadded !== explicitTarget;
+          // whitespace is left to the empty-value check below. Each end is
+          // tested on the value itself, so the side named is the padded one:
+          // a value padded only at its end is reported as `ends`, not as
+          // `begins and ends`.
+          const begins = explicitTarget.trimStart() !== explicitTarget;
           const ends = explicitTarget.trimEnd() !== explicitTarget;
           problems.push(
             `the \`--target\` value ${JSON.stringify(explicitTarget)} ` +
