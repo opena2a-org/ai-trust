@@ -486,6 +486,17 @@ async function withScannerEnv<T>(fn: (env: NodeJS.ProcessEnv) => Promise<T>): Pr
 }
 
 /**
+ * The error runHmaScan throws when a scanner run gives no report ai-trust
+ * can read. Its message is "HMA scan failed: " followed by the run's error.
+ */
+export class HmaScanError extends Error {
+  constructor(message: string) {
+    super(`HMA scan failed: ${message}`);
+    this.name = "HmaScanError";
+  }
+}
+
+/**
  * Run HMA security scan against a directory.
  *
  * @returns Parsed scan results
@@ -547,7 +558,7 @@ export async function runHmaScan(
         );
         if (!rejected) {
           const message = err instanceof Error ? err.message : String(err);
-          throw new Error(`HMA scan failed: ${message}`);
+          throw new HmaScanError(message);
         }
         attemptArgs = attemptArgs.filter((a) => a !== rejected);
       }

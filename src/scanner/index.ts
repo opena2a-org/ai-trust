@@ -5,6 +5,7 @@
 export { downloadPackage } from "./downloader.js";
 export type { DownloadResult } from "./downloader.js";
 export {
+  HmaScanError,
   isHmaAvailable,
   nothingToScan,
   reinstallCommand,
@@ -190,6 +191,17 @@ export async function scanPackage(
 }
 
 /**
+ * The refusal of a scanLocalPath target that could not be read or is not a
+ * directory. It is thrown before the scanner runs.
+ */
+export class ScanPathError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ScanPathError";
+  }
+}
+
+/**
  * Scan a local directory directly (no download step). Used for adversarial
  * corpus fixtures and any other on-disk target. Skips the LOCAL_ONLY filter
  * because for local sources those categories ARE meaningful (a missing
@@ -204,12 +216,12 @@ export async function scanLocalPath(
     st = await stat(targetDir);
   } catch (e) {
     const code = (e as NodeJS.ErrnoException).code ?? "unknown";
-    throw new Error(
+    throw new ScanPathError(
       `scanLocalPath: ${targetDir} could not be read (${code}).`,
     );
   }
   if (!st.isDirectory()) {
-    throw new Error(`scanLocalPath: ${targetDir} is not a directory.`);
+    throw new ScanPathError(`scanLocalPath: ${targetDir} is not a directory.`);
   }
   const scan = await runHmaScan(targetDir, options);
   const trustScore = scan.maxScore > 0 ? scan.score / scan.maxScore : 0;

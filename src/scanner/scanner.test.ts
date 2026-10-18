@@ -19,7 +19,13 @@ vi.mock("./hma.js", () => ({
 
 import { downloadPackage } from "./downloader.js";
 import { runHmaScan } from "./hma.js";
-import { scanPackage, scanLocalPath, assertPackageMatchesName, readPackageVersion } from "./index.js";
+import {
+  scanPackage,
+  scanLocalPath,
+  ScanPathError,
+  assertPackageMatchesName,
+  readPackageVersion,
+} from "./index.js";
 
 let tmpRoot: string;
 const mockCleanup = vi.fn().mockResolvedValue(undefined);
@@ -553,6 +559,32 @@ describe("scanLocalPath", () => {
     await expect(scanLocalPath(filePath)).rejects.toThrow(
       /is not a directory/,
     );
+  });
+
+  // check --scan-path prints its directory fix for a ScanPathError only (#226).
+  it("refuses a target that does not exist or is a file with a ScanPathError, before the scanner runs", async () => {
+    const filePath = join(tmpRoot, "file.txt");
+    writeFileSync(filePath, "hello");
+
+    for (const target of [join(tmpRoot, "does-not-exist"), filePath]) {
+      await expect(scanLocalPath(target)).rejects.toBeInstanceOf(ScanPathError);
+    }
+    expect(runHmaScan).not.toHaveBeenCalled();
+  });
+
+  it("passes a scanner failure on a directory it can read through unchanged, not as a ScanPathError", async () => {
+    const dir = join(tmpRoot, "real-dir");
+    mkdirSync(dir, { recursive: true });
+    const failure = new Error("HMA scan failed: Command failed: hackmyagent secure\nscanner crashed\n");
+    vi.mocked(runHmaScan).mockRejectedValue(failure);
+
+    const err = await scanLocalPath(dir).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+    expect(err).toBe(failure);
+    expect(err).not.toBeInstanceOf(ScanPathError);
   });
 
   it("scans a real directory and returns a verdict", async () => {

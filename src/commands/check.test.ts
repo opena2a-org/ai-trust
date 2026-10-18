@@ -41,6 +41,8 @@ vi.mock("../output/formatter.js", async (importOriginal) => {
 
 // Mock scanner
 vi.mock("../scanner/index.js", () => ({
+  HmaScanError: class HmaScanError extends Error {},
+  ScanPathError: class ScanPathError extends Error {},
   isHmaAvailable: vi.fn().mockResolvedValue(false),
   reinstallCommand: vi.fn().mockReturnValue("cd /work/project && npm install"),
   scanPackage: vi.fn(),
@@ -85,10 +87,12 @@ import {
   formatNotFound,
 } from "../output/formatter.js";
 import {
+  HmaScanError,
   isHmaAvailable,
   scanPackage,
   scanLocalPath,
   scannerNodeVersionProblem,
+  ScanPathError,
 } from "../scanner/index.js";
 import type { AnalystLayerStatus, ScanResult } from "../scanner/index.js";
 import { confirm } from "../utils/prompt.js";
@@ -2465,5 +2469,100 @@ describe("check --analm says whether the analyst layer ran", () => {
     expect(analmLines()).toEqual([
       "AnaLM: the analyst layer did not run: the registry lists this package as a library, so no local scan ran.",
     ]);
+  });
+});
+
+// #226: when the scanner ended without a report, check --scan-path printed
+// the fix for a directory that does not exist or cannot be read, although the
+// directory existed and was readable.
+describe("check --scan-path prints the fix for the failure it hit", () => {
+  let consoleSpy: ReturnType<typeof vi.spyOn>;
+  let consoleErrSpy: ReturnType<typeof vi.spyOn>;
+
+  const DIRECTORY_FIX = "Fix: pass --scan-path to a directory that exists and is readable.";
+
+  function stderrLines(): string[] {
+    return consoleErrSpy.mock.calls.map((args) =>
+      args.join(" ").replace(/\x1b\[[0-9;]*m/g, ""),
+    );
+  }
+
+  /** Run `check fixture --scan-path <dir> --no-deep`; returns the code it exits with. */
+  async function checkScanPath(dir: string): Promise<number | undefined> {
+    let exitCode: number | undefined;
+    const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      exitCode = code;
+      throw new Error("process.exit");
+    }) as never);
+    try {
+      await createProgram()
+        .parseAsync(["node", "test", "check", "fixture", "--scan-path", dir, "--no-deep"])
+        .catch(() => {});
+    } finally {
+      exit.mockRestore();
+    }
+    return exitCode;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(isHmaAvailable).mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    consoleSpy.mockRestore();
+    consoleErrSpy.mockRestore();
+  });
+
+  it("names the scanner and its reinstall, not the directory, when the scanner gives no report", async () => {
+    const failure = new HmaScanError(
+      "HMA scan failed: Command failed: node hackmyagent/dist/cli.js secure --format json --no-contribute --static-only /tmp/fixture\nscanner crashed\n",
+    );
+    vi.mocked(scanLocalPath).mockRejectedValue(failure);
+
+    const exitCode = await checkScanPath("/tmp/fixture");
+
+    expect(stderrLines()).toEqual([
+      `error: ${failure.message}`,
+      "Fix: the scanner produced no readable report. Run it directly: npx hackmyagent secure /tmp/fixture",
+      "Or reinstall the hackmyagent copy ai-trust runs: cd /work/project && npm install",
+    ]);
+    expect(exitCode).toBe(2);
+  });
+
+  it("quotes a directory with a space or shell syntax in the scanner command it prints", async () => {
+    vi.mocked(scanLocalPath).mockRejectedValue(new HmaScanError("HMA scan failed: No JSON output found from HMA scan"));
+
+    await checkScanPath("/tmp/my fixture; echo injected");
+
+    expect(stderrLines()).toContain(
+      "Fix: the scanner produced no readable report. Run it directly: npx hackmyagent secure '/tmp/my fixture; echo injected'",
+    );
+  });
+
+  it.each([
+    ["does not exist", "/nonexistent", "scanLocalPath: /nonexistent could not be read (ENOENT)."],
+    ["is a file", "/tmp/fixture.txt", "scanLocalPath: /tmp/fixture.txt is not a directory."],
+  ])("names the directory, not the scanner, when the --scan-path target %s", async (_label, dir, message) => {
+    vi.mocked(scanLocalPath).mockRejectedValue(new ScanPathError(message));
+
+    const exitCode = await checkScanPath(dir);
+
+    expect(stderrLines()).toEqual([`error: ${message}`, DIRECTORY_FIX]);
+    expect(exitCode).toBe(2);
+  });
+
+  it("prints an error of another kind alone, with neither fix", async () => {
+    const failure = new Error(
+      "ai-trust runs the scanner with a new temporary home directory and could not create one in /missing (ENOENT). Point TMPDIR at a directory that exists and that you can write to, for example: export TMPDIR=/tmp",
+    );
+    vi.mocked(scanLocalPath).mockRejectedValue(failure);
+
+    const exitCode = await checkScanPath("/tmp/fixture");
+
+    expect(stderrLines()).toEqual([`error: ${failure.message}`]);
+    expect(exitCode).toBe(2);
   });
 });
