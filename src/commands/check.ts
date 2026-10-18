@@ -526,7 +526,14 @@ async function handleScanFlow(
 
   let scanResult: ScanResult;
   try {
-    scanResult = await scanPackage(name, { deep: opts.deep ?? true, analm: opts.analm, ecosystem });
+    // A `<name>@<version>` target downloads that version: the downloader
+    // checks the name and the version apart.
+    scanResult = await scanPackage(target.name, {
+      deep: opts.deep ?? true,
+      analm: opts.analm,
+      ecosystem,
+      version: target.kind === "npm" ? target.version : undefined,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     // Translate recognized downloader errors into a not-found block so users
@@ -583,8 +590,9 @@ async function handleScanFlow(
   finish(verdictOutcome(scanResult.verdict));
 
   // The scan ping and the community contribution: whether to share is
-  // decided by decideContribution, with the same inputs as `audit`.
-  await shareScans("check", [{ name, scanResult }], {
+  // decided by decideContribution, with the same inputs as `audit`. A scan is
+  // shared under the package name, without a version.
+  await shareScans("check", [{ name: target.name, scanResult }], {
     flag: opts.contribute,
     registryUrl: globalOpts.registryUrl,
     ecosystem,

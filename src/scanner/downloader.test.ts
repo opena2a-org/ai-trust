@@ -177,6 +177,17 @@ describe("downloadPackage (PyPI)", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(existsSync(pipCalls)).toBe(false);
   });
+
+  it("refuses a version before any request: a PyPI download fetches the latest release only", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(downloadPackage("markerpkg", "pypi", "0.1")).rejects.toThrow(
+      'Failed to download "markerpkg": a version cannot be given for a PyPI package.',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(readdirSync(scanTmp)).toEqual([]);
+  });
 });
 
 describe("pickPypiFile", () => {
@@ -252,5 +263,73 @@ describe("downloadPackage (npm)", () => {
       expect(args).toContain("--ignore-scripts");
       expect(args.slice(-2)).toEqual(["--", name]);
     }
+  });
+
+  it("packs <name>@<version> after `--` for a version or a tag, with lifecycle scripts off", async () => {
+    for (const [name, version] of [
+      ["pkg-name", "1.2.3"],
+      ["@scope/pkg-name", "2.0.0-beta.1"],
+      ["pkg-name", "latest"],
+    ]) {
+      await expect(downloadPackage(name, "npm", version)).rejects.toThrow(
+        `Failed to download "${name}@${version}": Package "${name}" not found on npm.`,
+      );
+      const args = readFileSync(npmArgs, "utf8").trimEnd().split("\n");
+      expect(args[0]).toBe("pack");
+      expect(args).toContain("--ignore-scripts");
+      expect(args.slice(-2)).toEqual(["--", `${name}@${version}`]);
+    }
+  });
+
+  it("refuses other text after the name before npm runs: a path, a tarball, another package, a repository or a range", async () => {
+    for (const version of [
+      "file:../local-dir",
+      "../local-dir",
+      ".",
+      "local.tgz",
+      "1.0.0.tar.gz",
+      "npm:other-pkg",
+      "github:some-user/some-repo",
+      "git+https://example.test/repo.git",
+      "^1.0.0",
+      "1.0.0 || 2.0.0",
+      "",
+    ]) {
+      await expect(downloadPackage("pkg-name", "npm", version)).rejects.toThrow(
+        `Failed to download "pkg-name@${version}": "${version}" is not a version or tag ai-trust can download.`,
+      );
+    }
+    expect(existsSync(npmArgs)).toBe(false);
+    expect(readdirSync(scanTmp)).toEqual([]);
+  });
+
+  it("names the name, not the whole spec, when the name before a version is not an npm package name", async () => {
+    await expect(downloadPackage("some-user/some-repo", "npm", "1.0.0")).rejects.toThrow(
+      'Failed to download "some-user/some-repo@1.0.0": "some-user/some-repo" is not a valid npm package name.',
+    );
+    expect(existsSync(npmArgs)).toBe(false);
+  });
+
+  it("reports a version the package does not have as that version not found on npm", async () => {
+    writeFileSync(
+      join(root, "bin", "npm"),
+      [
+        "#!/bin/sh",
+        `for a in "$@"; do printf '%s\\n' "$a"; done > "${npmArgs}"`,
+        "echo 'npm error code ETARGET' >&2",
+        "echo 'npm error notarget No matching version found for pkg-name@9.9.9.' >&2",
+        // A log name with 404 in it does not turn a missing version into a missing package.
+        "echo 'npm error A complete log of this run can be found in: /tmp/_logs/2026-10-18T15_11_17_404Z-debug-0.log' >&2",
+        "exit 1",
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+
+    await expect(downloadPackage("pkg-name", "npm", "9.9.9")).rejects.toThrow(
+      'Failed to download "pkg-name@9.9.9": Version "9.9.9" of "pkg-name" not found on npm. Verify the version and try again.',
+    );
+    expect(readFileSync(npmArgs, "utf8").trimEnd().split("\n").slice(-2)).toEqual(["--", "pkg-name@9.9.9"]);
+    expect(readdirSync(scanTmp)).toEqual([]);
   });
 });

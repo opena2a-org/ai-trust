@@ -21,7 +21,11 @@ import {
 } from "./opt-in.js";
 
 export interface SharedScan {
-  /** The name the package was downloaded and scanned under. */
+  /**
+   * The package name the scan is shared under, without a version. The
+   * contribution carries the version read from the downloaded package's
+   * manifest.
+   */
   name: string;
   scanResult: ScanResult;
 }

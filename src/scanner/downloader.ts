@@ -32,6 +32,16 @@ const NPM_NAME_PATTERN = /^(?:@[A-Za-z0-9-][A-Za-z0-9._-]*\/)?[A-Za-z0-9-][A-Za-
 /** `npm pack` reads a name ending `.tgz`, `.tar` or `.tar.gz` as a local file. */
 const NPM_TARBALL_SUFFIX = /\.(?:tgz|tar|tar\.gz)$/i;
 
+/**
+ * A version or dist-tag to pack after an npm package name, as in
+ * `<name>@1.2.3` or `<name>@latest`: letters, digits, `.`, `_`, `+` and `-`,
+ * beginning with a letter or digit, with no `.tgz`, `.tar` or `.tar.gz`
+ * ending. Anything else is refused before `npm pack` runs: it reads
+ * `<name>@file:<dir>` as a local directory, `<name>@<file>.tgz` as a local
+ * tarball and `<name>@npm:<other>` as another package.
+ */
+const NPM_VERSION_PATTERN = /^[0-9A-Za-z][0-9A-Za-z.+_-]*$/;
+
 /** One file of a release, as listed in the `urls` array of the PyPI JSON API. */
 export interface PypiReleaseFile {
   filename: string;
@@ -50,26 +60,45 @@ export interface DownloadResult {
 
 /**
  * Download a package and extract it to a temp directory.
- * Routes to npm or PyPI based on the ecosystem parameter.
+ * Routes to npm or PyPI based on the ecosystem parameter. `version` is an npm
+ * version or dist-tag to download instead of the latest version; a PyPI
+ * download refuses one.
  */
 export async function downloadPackage(
   name: string,
-  ecosystem: "npm" | "pypi" = "npm"
+  ecosystem: "npm" | "pypi" = "npm",
+  version?: string
 ): Promise<DownloadResult> {
   if (ecosystem === "pypi") {
+    if (version !== undefined) {
+      throw new Error(
+        `Failed to download "${name}": a version cannot be given for a PyPI package.`
+      );
+    }
     return downloadPypiPackage(name);
   }
-  return downloadNpmPackage(name);
+  return downloadNpmPackage(name, version);
 }
 
 /**
  * Download an npm package tarball and extract it to a temp directory.
  * Uses `npm pack --pack-destination` to fetch the tarball, then extracts it.
+ * The name and the version are checked apart, then packed as
+ * `<name>@<version>`.
  */
-async function downloadNpmPackage(name: string): Promise<DownloadResult> {
+async function downloadNpmPackage(name: string, version?: string): Promise<DownloadResult> {
+  const spec = version === undefined ? name : `${name}@${version}`;
   if (!NPM_NAME_PATTERN.test(name) || NPM_TARBALL_SUFFIX.test(name)) {
     throw new Error(
-      `Failed to download "${name}": "${name}" is not a valid npm package name.`
+      `Failed to download "${spec}": "${name}" is not a valid npm package name.`
+    );
+  }
+  if (
+    version !== undefined &&
+    (!NPM_VERSION_PATTERN.test(version) || NPM_TARBALL_SUFFIX.test(version))
+  ) {
+    throw new Error(
+      `Failed to download "${spec}": "${version}" is not a version or tag ai-trust can download. Give an exact version, as in ${name}@1.2.3, or a tag, as in ${name}@latest.`
     );
   }
 
@@ -81,7 +110,7 @@ async function downloadNpmPackage(name: string): Promise<DownloadResult> {
     // as a package instead of being read as an npm option.
     const { stdout } = await execFileAsync(
       "npm",
-      ["pack", "--ignore-scripts", "--pack-destination", tempDir, "--", name],
+      ["pack", "--ignore-scripts", "--pack-destination", tempDir, "--", spec],
       { timeout: 60_000 }
     );
 
@@ -118,7 +147,7 @@ async function downloadNpmPackage(name: string): Promise<DownloadResult> {
     };
   } catch (err) {
     await rm(tempDir, { recursive: true, force: true });
-    throw new Error(`Failed to download "${name}": ${extractNpmError(name, err)}`);
+    throw new Error(`Failed to download "${spec}": ${extractNpmError(name, version, err)}`);
   }
 }
 
@@ -280,9 +309,10 @@ async function fetchPypiArchive(file: PypiReleaseFile, dest: string): Promise<vo
 }
 
 /**
- * Extract a clean error message from npm's verbose stderr.
+ * Extract a clean error message from npm's verbose stderr. npm reports a
+ * version or tag the package does not have as `npm error code ETARGET`.
  */
-function extractNpmError(name: string, err: unknown): string {
+function extractNpmError(name: string, version: string | undefined, err: unknown): string {
   if (
     err &&
     typeof err === "object" &&
@@ -290,6 +320,9 @@ function extractNpmError(name: string, err: unknown): string {
     typeof (err as { stderr: unknown }).stderr === "string"
   ) {
     const stderr = (err as { stderr: string }).stderr;
+    if (version !== undefined && /^npm error code ETARGET\b/m.test(stderr)) {
+      return `Version "${version}" of "${name}" not found on npm. Verify the version and try again.`;
+    }
     const notFound = stderr.includes("404") || stderr.includes("Not Found");
     if (notFound) {
       return `Package "${name}" not found on npm. Verify the package name and try again.`;
