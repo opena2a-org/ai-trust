@@ -61,7 +61,7 @@ The check counts travel in a summary that the contribute library queues in `~/.o
 
 **Shared by the bundled scanner (hackmyagent): no telemetry, no scan results, and no file with any LLM provider.**
 
-ai-trust runs the scanner with your saved choices out of its reach, with its usage telemetry off (`OPENA2A_TELEMETRY=off`), with `--no-contribute`, and without `ANTHROPIC_API_KEY` in its environment. During an ai-trust scan, the scanner sends no classification telemetry, no usage events and no scan results, whatever `~/.opena2a/config.json` and `~/.hackmyagent/config.json` hold, and it changes neither file. With `ANTHROPIC_API_KEY` set in your shell, the scanner still runs without it, so a deep scan sends no file to any LLM provider.
+ai-trust runs the scanner with your saved choices out of its reach, with its usage telemetry off (`OPENA2A_TELEMETRY=off`), with `--no-contribute`, and without `ANTHROPIC_API_KEY` in its environment. It also sets `ORT_DISABLE_TELEMETRY=1` for `onnxruntime-node`, the library a deep scan loads its classifier with; loaded without it, `onnxruntime-node` keeps a telemetry database (`onnxruntime.db`) in `Library/Application Support/Microsoft/DeveloperTools/.onnxruntime` under the home directory. During an ai-trust scan, the scanner sends no classification telemetry, no usage events and no scan results, whatever `~/.opena2a/config.json` and `~/.hackmyagent/config.json` hold, and it changes neither file. With `ANTHROPIC_API_KEY` set in your shell, the scanner still runs without it, so a deep scan sends no file to any LLM provider.
 
 **Never shared, with the registry or with any LLM provider:**
 

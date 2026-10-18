@@ -298,9 +298,9 @@ describe("registry answers through the built CLI", () => {
       expect(status).toBe(0);
       expect(stdout).not.toMatch(CONTROL);
       expect(stderr).not.toMatch(CONTROL);
-      expect(stderr).toContain("lib]0;x-ctrl SECOND LINE  library (registry-classified)");
+      expect(stdout).toContain("lib]0;x-ctrl SECOND LINE  library (registry-classified)");
       // Quoted for the shell: the name has a ";" and spaces in it (#141).
-      expect(stderr).toContain("npx hackmyagent check 'lib]0;x-ctrl SECOND LINE'");
+      expect(stdout).toContain("npx hackmyagent check 'lib]0;x-ctrl SECOND LINE'");
     });
 
     it("check mcp:<name> prints the registry's narrative without them", async () => {
@@ -552,9 +552,9 @@ describe("registry answers through the built CLI", () => {
 
   describe("a registry name with shell syntax in a suggested command (#141)", () => {
     it("check pip:<name> --no-scan quotes it in the hackmyagent check command", async () => {
-      const { stderr } = await runCli(["check", "pip:shell-lib", "--no-scan"]);
+      const { stdout } = await runCli(["check", "pip:shell-lib", "--no-scan"]);
 
-      expect(stderr.split("\n")).toContain("    npx hackmyagent check 'pip:shell-lib; echo injected'");
+      expect(stdout.split("\n")).toContain("    npx hackmyagent check 'pip:shell-lib; echo injected'");
     });
 
     it("check pip:<name> --no-scan --json quotes it in nextSteps", async () => {
@@ -619,9 +619,9 @@ describe("registry answers through the built CLI", () => {
     });
 
     it("check pip:<name> --no-scan names pypi beside a registry-classified library", async () => {
-      const { stderr } = await runCli(["check", "pip:pypi-lib", "--no-scan"]);
+      const { stdout } = await runCli(["check", "pip:pypi-lib", "--no-scan"]);
 
-      expect(stderr).toContain("pypi-lib (pypi)  library (registry-classified)");
+      expect(stdout).toContain("pypi-lib (pypi)  library (registry-classified)");
     });
 
     it("check pip:<name> --no-scan --json says pypi for a registry answer", async () => {
@@ -655,9 +655,9 @@ describe("registry answers through the built CLI", () => {
     });
 
     it("check pip:<name> --no-scan names pypi beside a library known by name only", async () => {
-      const { stderr } = await runCli(["check", "pip:chalk", "--no-scan"]);
+      const { stdout } = await runCli(["check", "pip:chalk", "--no-scan"]);
 
-      expect(stderr).toContain("chalk (pypi)  library (by name");
+      expect(stdout).toContain("chalk (pypi)  library (by name");
     });
 
     it("check <name> --no-scan --json says npm, and the text header names no ecosystem", async () => {
@@ -667,6 +667,26 @@ describe("registry answers through the built CLI", () => {
       expect(json).toMatchObject({ name: "cve-clean", ecosystem: "npm" });
       const header = stdout.split("\n").find((l) => l.trim().length > 0);
       expect(header).toMatch(/^ {2}cve-clean {2}/);
+    });
+  });
+
+  describe("the out-of-scope notice is the command's output (#218)", () => {
+    it("check --no-scan prints a registry-classified library's notice on stdout", async () => {
+      const { stdout, stderr, status } = await runCli(["check", "pip:pypi-lib", "--no-scan"]);
+
+      expect(status).toBe(0);
+      expect(stdout).toContain("Out of scope for ai-trust");
+      expect(stdout).toContain("npx hackmyagent check pip:pypi-lib");
+      expect(stderr).not.toContain("Out of scope for ai-trust");
+    });
+
+    it("check --no-scan prints a by-name library's notice on stdout", async () => {
+      const { stdout, stderr, status } = await runCli(["check", "express", "--no-scan"]);
+
+      expect(status).toBe(0);
+      expect(stdout).toContain("express  library (by name — no registry data)");
+      expect(stdout).toContain("npx hackmyagent check express");
+      expect(stderr).not.toContain("Out of scope for ai-trust");
     });
   });
 });

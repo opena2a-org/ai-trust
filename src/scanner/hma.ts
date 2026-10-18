@@ -435,7 +435,10 @@ export function scannerTempDirProblem(): string | null {
  * choices read as on; `--no-contribute` changes none of that. So the
  * scanner runs with HOME, USERPROFILE, OPENA2A_HOME and XDG_CONFIG_HOME in a
  * new temporary directory, removed afterwards, and with OPENA2A_TELEMETRY
- * set to off; every decision ai-trust made reaches it as a flag. The model
+ * set to off and ORT_DISABLE_TELEMETRY set, so the onnxruntime-node its deep
+ * scan loads keeps no telemetry database under Library/Application Support/
+ * Microsoft/DeveloperTools/.onnxruntime in that home; every decision ai-trust
+ * made reaches it as a flag. The model
  * directories are linked into that directory, so a deep scan finds its
  * models, and keeps one it downloads, where it did before. The scanner runs
  * without SCANNER_PROVIDER_VARS, so a deep scan, the default, sends no file
@@ -472,6 +475,7 @@ async function withScannerEnv<T>(fn: (env: NodeJS.ProcessEnv) => Promise<T>): Pr
       OPENA2A_HOME: join(home, ".opena2a"),
       XDG_CONFIG_HOME: join(home, ".config"),
       OPENA2A_TELEMETRY: "off",
+      ORT_DISABLE_TELEMETRY: "1",
     });
   } finally {
     // The links go first, so removing the directory cannot reach what they point to.
