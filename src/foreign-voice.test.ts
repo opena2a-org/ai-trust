@@ -287,7 +287,7 @@ describe("check on a library points to hackmyagent in the npx form", () => {
     it(`check ${name} --no-scan`, async () => {
       const { status, stdout, stderr } = await runCli(["check", name, "--no-scan"]);
       expect(status).toBe(0);
-      expect(stderr).toContain(`    npx hackmyagent check ${name}\n`);
+      expect(stdout).toContain(`    npx hackmyagent check ${name}\n`);
       expect([...foreignVoice(stdout), ...foreignVoice(stderr)]).toEqual([]);
     }, 30000);
 

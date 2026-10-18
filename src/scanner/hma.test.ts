@@ -743,6 +743,7 @@ describe("scanner environment", () => {
     "OPENA2A_HOME",
     "XDG_CONFIG_HOME",
     "OPENA2A_TELEMETRY",
+    "ORT_DISABLE_TELEMETRY",
     "ANTHROPIC_API_KEY",
     "anthropic_api_key",
   ];
@@ -802,6 +803,14 @@ describe("scanner environment", () => {
     expect(env.OPENA2A_TELEMETRY).toBe("off");
     // Removed after the run.
     expect(existsSync(home)).toBe(false);
+  });
+
+  it("runs secure and the --version check with onnxruntime telemetry off (#218)", async () => {
+    await runHmaScan("/tmp/test-pkg");
+    expect(await isHmaAvailable()).toBe(true);
+
+    expect(seen).toHaveLength(2);
+    expect(seen.map((s) => s.env.ORT_DISABLE_TELEMETRY)).toEqual(["1", "1"]);
   });
 
   it("marks a no saved by ai-trust 0.7.6 before the scan (#133)", async () => {

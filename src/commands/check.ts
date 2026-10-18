@@ -743,17 +743,18 @@ function printLibraryWithTrust(
     return;
   }
   // The name is the registry's string: control characters are removed first.
+  // The notice is the command's result, so it goes to stdout like the JSON.
   const name = stripControlCharacters(result.name);
-  console.error("");
-  console.error(
+  console.log("");
+  console.log(
     `  ${chalk.bold.white(name)}${ecosystemSuffix(ecosystem)}  ${chalk.dim("library (registry-classified)")}`
   );
-  console.error(
+  console.log(
     `  ${chalk.cyan("Out of scope for ai-trust")} ${chalk.dim("\u2014 the registry classifies this as a general-purpose library.")}`
   );
-  console.error(`  ${chalk.dim("For a thorough security audit:")}`);
-  console.error(`    ${chalk.cyan(`npx hackmyagent check ${hmaCheckTarget(name, ecosystem)}`)}`);
-  console.error("");
+  console.log(`  ${chalk.dim("For a thorough security audit:")}`);
+  console.log(`    ${chalk.cyan(`npx hackmyagent check ${hmaCheckTarget(name, ecosystem)}`)}`);
+  console.log("");
 }
 
 /**
@@ -784,16 +785,16 @@ function printOutOfScopeByName(target: PackageTarget, asJson: boolean): void {
       nextSteps: [`npx hackmyagent check ${hmaCheckTarget(name, ecosystem)}`],
     }));
   } else {
-    console.error("");
-    console.error(
+    console.log("");
+    console.log(
       `  ${chalk.bold.white(name)}${ecosystemSuffix(ecosystem)}  ${chalk.dim("library (by name — no registry data)")}`
     );
-    console.error(
+    console.log(
       `  ${chalk.cyan("Out of scope for ai-trust")} ${chalk.dim("\u2014 ai-trust is for AI packages (MCP servers, agents, skills, AI tools, LLMs).")}`
     );
-    console.error("");
-    console.error(`  For general security scanning, use HackMyAgent:`);
-    console.error(`    ${chalk.cyan(`npx hackmyagent check ${hmaCheckTarget(name, ecosystem)}`)}`);
-    console.error("");
+    console.log("");
+    console.log(`  For general security scanning, use HackMyAgent:`);
+    console.log(`    ${chalk.cyan(`npx hackmyagent check ${hmaCheckTarget(name, ecosystem)}`)}`);
+    console.log("");
   }
 }

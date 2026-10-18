@@ -1622,8 +1622,9 @@ describe("check command", () => {
     });
 
     describe("the hackmyagent hint keeps the pip: prefix of a PyPI target (#132)", () => {
-      function stderrText(): string {
-        return consoleErrSpy.mock.calls
+      // The out-of-scope notice goes to stdout (#218).
+      function stdoutText(): string {
+        return consoleSpy.mock.calls
           .map((args) => args.join(" "))
           .join("\n")
           .replace(/\x1b\[[0-9;]*m/g, "");
@@ -1657,7 +1658,7 @@ describe("check command", () => {
         const program = createProgram();
         await program.parseAsync(["node", "test", "check", "pip:requests", "--no-scan"]);
 
-        expect(stderrText()).toMatch(/^ {4}npx hackmyagent check pip:requests$/m);
+        expect(stdoutText()).toMatch(/^ {4}npx hackmyagent check pip:requests$/m);
         expect(process.exitCode).toBeUndefined();
       });
 
@@ -1678,7 +1679,7 @@ describe("check command", () => {
         await program.parseAsync(["node", "test", "check", "pip:requests"]);
 
         expect(scanPackage).not.toHaveBeenCalled();
-        expect(stderrText()).toMatch(/^ {4}npx hackmyagent check pip:requests$/m);
+        expect(stdoutText()).toMatch(/^ {4}npx hackmyagent check pip:requests$/m);
       });
 
       it("library by name with no registry data (--no-scan) cites npx hackmyagent check pip:<name>", async () => {
@@ -1687,7 +1688,7 @@ describe("check command", () => {
         const program = createProgram();
         await program.parseAsync(["node", "test", "check", "pip:requests", "--no-scan"]);
 
-        expect(stderrText()).toMatch(/^ {4}npx hackmyagent check pip:requests$/m);
+        expect(stdoutText()).toMatch(/^ {4}npx hackmyagent check pip:requests$/m);
         expect(process.exitCode).toBeUndefined();
       });
 
@@ -1707,7 +1708,7 @@ describe("check command", () => {
         const program = createProgram();
         await program.parseAsync(["node", "test", "check", "express", "--no-scan"]);
 
-        expect(stderrText()).toMatch(/^ {4}npx hackmyagent check express$/m);
+        expect(stdoutText()).toMatch(/^ {4}npx hackmyagent check express$/m);
       });
     });
   });
