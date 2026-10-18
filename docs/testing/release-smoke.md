@@ -221,11 +221,13 @@ unset OPENA2A_TELEMETRY
 | 5.5 | `OPENA2A_TELEMETRY=off node dist/index.js telemetry status` | `state: off` (env wins) |
 | 5.6 | `OPENA2A_TELEMETRY_DEBUG=print node dist/index.js check express --no-scan 2>&1 \| grep opena2a:telemetry` | JSON payload: `tool: "ai-trust"`, `event: "command"`, `name: "check"`, `success: true`, `duration_ms: <int>`. No PII. |
 | 5.7 | `time node dist/index.js check express --no-scan`, then the same with `OPENA2A_TELEMETRY=off` (unreachable URL) | Both complete. Telemetry timeout ≤ 2 s: the first run takes at most about 2 s longer than the second, not about 10 s. |
-| 5.8 | `node dist/index.js --help`, then `OPENA2A_TELEMETRY=off node dist/index.js --help` | The line under `Telemetry:` reads `Usage telemetry is on and each event carries a persistent install ID. Disable: OPENA2A_TELEMETRY=off`, then `Usage telemetry is off. Enable: unset OPENA2A_TELEMETRY and run ai-trust telemetry on`. Each matches the state 5.1 and 5.5 print. Neither help says "anonymous". |
+| 5.8 | `node dist/index.js --help`, then `OPENA2A_TELEMETRY=off node dist/index.js --help` | The line under `Telemetry:` reads `Usage telemetry is on and each event carries a persistent install ID. Disable: OPENA2A_TELEMETRY=off`, then `Usage telemetry is off. Enable: unset OPENA2A_TELEMETRY and run ai-trust telemetry on`. Each matches the state 5.1 and 5.5 print. Neither help says "anonymous". The contribution line below it is the same in both helps. |
+| 5.9 | With `H=$(mktemp -d)`: `OPENA2A_HOME=$H node dist/index.js --help`, then `OPENA2A_HOME=$H node dist/index.js config contribute off` and `OPENA2A_HOME=$H node dist/index.js --help`, then `OPENA2A_HOME=$H node dist/index.js config contribute on` and `OPENA2A_HOME=$H node dist/index.js --help`. Run no scan with `$H`. | The second line under `Telemetry:` reads `Community contribution: not set (scan results are not shared). Enable: ai-trust config contribute on, or pass --contribute to check or audit for one scan`, then `Community contribution: disabled. Saved as off, so scan results are not shared. Enable: ai-trust config contribute on`, then `Community contribution: enabled. Package scan results are shared with the OpenA2A Registry. Keep a scan's results on this machine: --no-contribute. Disable: ai-trust config contribute off`. Each starts with the line `OPENA2A_HOME=$H node dist/index.js config contribute status` prints in that state. |
 
 Fail the release if:
 - Version disclosure line is absent
 - The `--help` telemetry line states a different state than `--version` in the same environment
+- The `--help` contribution line states a different choice than `config contribute status` with the same `OPENA2A_HOME`
 - Debug payload contains package names, file paths, or trust scores
 - Any command blocks > 2 s when the telemetry endpoint is unreachable
 

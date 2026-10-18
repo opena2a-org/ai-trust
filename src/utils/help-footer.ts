@@ -11,6 +11,11 @@
  * usage event carries the install ID that `ai-trust telemetry status` prints,
  * kept in the telemetry config file, so the line names it and does not call
  * the telemetry anonymous.
+ *
+ * The second line reports the saved contribution choice, the value
+ * readContributeChoice() returns, in the words `ai-trust config contribute
+ * status` prints, and gives the steps that change it. OPENA2A_TELEMETRY does
+ * not change it.
  */
 
 const USAGE_TELEMETRY_ON =
@@ -48,10 +53,33 @@ export function onKeptOffByVariable(statusOutput: string): string {
     .join("\n");
 }
 
-export function helpFooter(usageTelemetryEnabled: boolean): string {
+/**
+ * The saved contribution choice in words: `config contribute status` prints
+ * them after "Community contribution: ", and so does the help footer.
+ */
+export function describeContributeChoice(choice: boolean | undefined): string {
+  if (choice === true) return "enabled";
+  if (choice === false) return "disabled";
+  return "not set (scan results are not shared)";
+}
+
+function contributionLine(choice: boolean | undefined): string {
+  const state = `Community contribution: ${describeContributeChoice(choice)}.`;
+  // `check --scan-path` scans a directory and shares nothing, so the line
+  // says package scans.
+  if (choice === true) {
+    return `${state} Package scan results are shared with the OpenA2A Registry. Keep a scan's results on this machine: --no-contribute. Disable: ai-trust config contribute off`;
+  }
+  if (choice === false) {
+    return `${state} Saved as off, so scan results are not shared. Enable: ai-trust config contribute on`;
+  }
+  return `${state} Enable: ai-trust config contribute on, or pass --contribute to check or audit for one scan`;
+}
+
+export function helpFooter(usageTelemetryEnabled: boolean, contributionChoice: boolean | undefined): string {
   return `
 Telemetry:
   ${usageTelemetryEnabled ? USAGE_TELEMETRY_ON : USAGE_TELEMETRY_OFF}
-  Local scans may contribute to the OpenA2A Registry. Disable: --no-contribute (what ai-trust sends for this scan) or ai-trust config contribute off (saved)
+  ${contributionLine(contributionChoice)}
 `;
 }
