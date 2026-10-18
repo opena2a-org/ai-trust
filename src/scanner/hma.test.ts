@@ -37,6 +37,7 @@ vi.mock("node:fs", async (importOriginal) => {
 
 import { execFile } from "node:child_process";
 import {
+  HmaScanError,
   isHmaAvailable,
   nothingToScan,
   runHmaScan,
@@ -713,6 +714,19 @@ ${JSON.stringify({
         .mocked(execFile as any)
         .mock.calls.filter((call: unknown[]) => (call[1] as string[]).includes("secure"));
       expect(secureCalls).toHaveLength(2);
+    });
+
+    // check --scan-path tells a scanner failure from a directory it cannot
+    // read by this class (#226).
+    it("is an HmaScanError when the scanner exits 1 without a report", async () => {
+      vi.mocked(execFile as any).mockRejectedValue(
+        Object.assign(
+          new Error("Command failed: hackmyagent secure /tmp/test-pkg\nscanner crashed\n"),
+          { code: 1, stdout: "", stderr: "scanner crashed\n" },
+        ),
+      );
+
+      await expect(runHmaScan("/tmp/test-pkg", { deep: false })).rejects.toBeInstanceOf(HmaScanError);
     });
   });
 });

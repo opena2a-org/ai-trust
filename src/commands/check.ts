@@ -26,12 +26,14 @@ import { logResolved } from "../utils/resolve.js";
 import { stripControlCharacters } from "../output/sanitize.js";
 import { analystLayerNote } from "../output/analyst-note.js";
 import {
+  HmaScanError,
   isHmaAvailable,
   reinstallCommand,
   scanPackage,
   scanLocalPath,
   scannerNodeVersionProblem,
   scannerTempDirProblem,
+  ScanPathError,
 } from "../scanner/index.js";
 import type { ScanResult } from "../scanner/index.js";
 import { nothingToScan } from "../scanner/hma.js";
@@ -166,11 +168,26 @@ export function registerCheckCommand(program: Command): void {
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           console.error(chalk.red(`error: ${msg}`));
-          console.error(
-            chalk.dim(
-              "Fix: pass --scan-path to a directory that exists and is readable.",
-            ),
-          );
+          // The directory hint is for a directory scanLocalPath refused. The
+          // scanner can also fail on a directory that exists and is readable.
+          // Another error, such as a temporary home for the scanner that
+          // could not be created, prints alone: its message names its fix.
+          if (e instanceof ScanPathError) {
+            console.error(
+              chalk.dim(
+                "Fix: pass --scan-path to a directory that exists and is readable.",
+              ),
+            );
+          } else if (e instanceof HmaScanError) {
+            console.error(
+              chalk.dim(
+                `Fix: the scanner produced no readable report. Run it directly: npx hackmyagent secure ${shellArg(opts.scanPath)}`,
+              ),
+            );
+            console.error(
+              chalk.dim(`Or reinstall the hackmyagent copy ai-trust runs: ${reinstallCommand()}`),
+            );
+          }
           process.exit(2);
         }
         // Override packageName with the user-supplied name so output is
