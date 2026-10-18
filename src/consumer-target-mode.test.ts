@@ -277,6 +277,7 @@ describe.skipIf(process.platform === "win32")("consumer-resolution gate --target
       [["--target", " ai-trust@0.7.6"], " ai-trust@0.7.6", "begins"],
       [["--target= ai-trust@0.7.6"], " ai-trust@0.7.6", "begins"],
       [["--target", "ai-trust@0.7.6\n"], "ai-trust@0.7.6\n", "ends"],
+      [["--target", "ai-trust@0.7.6 "], "ai-trust@0.7.6 ", "ends"],
       [["--target", "ai-trust-0.0.0.tgz "], "ai-trust-0.0.0.tgz ", "ends"],
       [["--target", " ai-trust-0.0.0.tgz"], " ai-trust-0.0.0.tgz", "begins"],
       [["--target", "\tai-trust-0.0.0.tgz "], "\tai-trust-0.0.0.tgz ", "begins and ends"],
@@ -287,6 +288,11 @@ describe.skipIf(process.platform === "win32")("consumer-resolution gate --target
       expect(run.stdout).toBe("");
       expect(run.stderr).toContain("Consumer-resolution audit FAILED — the command line was not understood:\n");
       expect(run.stderr).toContain(`  - ${refused(value, where)}\n`);
+      // The side named is the padded one alone: a value padded only at its
+      // end is not reported as padded at its start, or at both ends.
+      for (const elsewhere of ["begins", "ends", "begins and ends"]) {
+        if (elsewhere !== where) expect(run.stderr).not.toContain(refused(value, elsewhere));
+      }
       expect(run.stderr).toContain("  - Nothing was resolved, installed or measured. Not a pass.\n");
       expect(run.stderr).toContain("Usage:\n");
       expect(`${run.stdout}${run.stderr}`).not.toMatch(/PUBLISHED|CANDIDATE/);
