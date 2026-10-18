@@ -101,6 +101,30 @@ describe("CHANGELOG.md", () => {
     ).toEqual([]);
   });
 
+  // Unreleased is the next release's notes, so a sentence there that says which
+  // hackmyagent is pinned has to name the pin package.json declares. Two
+  // entries written while the pin was `0.25.0` still said `hackmyagent` "stays
+  // pinned `0.25.0`" after a later entry moved the pin to `0.33.2`.
+  it("names the pin package.json declares wherever Unreleased says which hackmyagent is pinned", () => {
+    // "`hackmyagent` stays pinned `A`", "`hackmyagent` is pinned exactly at `A`",
+    // "the pinned `hackmyagent` A", "the pinned `hackmyagent@A`"
+    const PINNED_NOW =
+      /`hackmyagent` (?:stays|is) pinned (?:exactly at )?`\^?(\d+\.\d+\.\d+)`|\b[Tt]he pinned `hackmyagent(?:` |@)(\d+\.\d+\.\d+)/g;
+    const lines = CHANGELOG.split("\n");
+    const start = lines.indexOf("## Unreleased");
+    const end = lines.findIndex((line, i) => i > start && line.startsWith("## "));
+    const unreleased = start === -1 ? [] : lines.slice(start + 1, end === -1 ? undefined : end);
+    const pin = SCANNER_PIN.replace(/^[\^~]/, "");
+
+    const stale = unreleased.flatMap((line, i) =>
+      [...line.matchAll(PINNED_NOW)]
+        .map((m) => m[1] ?? m[2])
+        .filter((version) => version !== pin)
+        .map((version) => `CHANGELOG.md:${start + 2 + i} names hackmyagent ${version} as pinned`),
+    );
+    expect(stale, `package.json pins hackmyagent ${pin}`).toEqual([]);
+  });
+
   // The entry for the saved-state end-to-end test says which scanner requests
   // that test does not send to its capture server. It named the model download
   // as the only one, while the preload's `redirect` also passes loopback
