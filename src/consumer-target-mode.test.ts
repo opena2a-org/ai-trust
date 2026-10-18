@@ -29,6 +29,11 @@
  * names no artifact; it now fails before npm runs, naming the value, under
  * neither label. A tarball whose name begins with `-` is named as `./<name>`.
  *
+ * That check read the value with its whitespace, where the check for an empty
+ * value trims it, so ` -x` passed both: it started the PUBLISHED run and was
+ * handed to `npm install` after its own flags. Leading whitespace is now read
+ * past, so a value of whitespace and then `-` fails the same way, naming it.
+ *
  * `scripts/audit-consumer-resolution.mjs` ends in a bare `main();`, so it
  * runs here as a process. The `npm` on its PATH is a stub that prints its
  * arguments and exits 1: no run reaches the registry, and a run that installs
@@ -215,6 +220,29 @@ describe.skipIf(process.platform === "win32")("consumer-resolution gate --target
       expect(run.stdout).toBe("");
       expect(run.stderr).toContain("Consumer-resolution audit FAILED — the command line was not understood:\n");
       for (const line of named) expect(run.stderr).toContain(`  - ${line}\n`);
+      expect(run.stderr).toContain("  - Nothing was resolved, installed or measured. Not a pass.\n");
+      expect(run.stderr).toContain("Usage:\n");
+      expect(`${run.stdout}${run.stderr}`).not.toMatch(/PUBLISHED|CANDIDATE/);
+      expect(run.stderr).not.toContain(NPM_CALLED);
+    }
+  });
+
+  it("fails a --target value of whitespace and then - before running npm, naming it, under neither run's label", () => {
+    const refused = (value: string) =>
+      `the \`--target\` value ${JSON.stringify(value)} begins with whitespace and then \`-\`, ` +
+      "so it names no artifact to audit";
+    const cases: Array<[string[], string]> = [
+      [["--target", " -x"], " -x"],
+      [["--target= -x"], " -x"],
+      [["--target", "\t --help"], "\t --help"],
+      [["--target", "\n-ai-trust-0.0.0.tgz"], "\n-ai-trust-0.0.0.tgz"],
+    ];
+    for (const [args, value] of cases) {
+      const run = gateArgs(args, join(scratch, "packed"));
+      expect(run.status).toBe(1);
+      expect(run.stdout).toBe("");
+      expect(run.stderr).toContain("Consumer-resolution audit FAILED — the command line was not understood:\n");
+      expect(run.stderr).toContain(`  - ${refused(value)}\n`);
       expect(run.stderr).toContain("  - Nothing was resolved, installed or measured. Not a pass.\n");
       expect(run.stderr).toContain("Usage:\n");
       expect(`${run.stdout}${run.stderr}`).not.toMatch(/PUBLISHED|CANDIDATE/);

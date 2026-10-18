@@ -627,10 +627,14 @@ function main() {
         // refused here. Read as a registry spec, it would reach `npm install`
         // after the install's own flags, and npm reads `--help` or `-h` there
         // as a flag of its own: it prints its usage and installs nothing. A
-        // tarball whose name begins with `-` is named as `./<name>`.
-        if (explicitTarget?.startsWith('-')) {
+        // tarball whose name begins with `-` is named as `./<name>`. Leading
+        // whitespace is read past, as the empty-value check below trims it, so
+        // a value of whitespace and then `-` is refused here too.
+        const unpadded = explicitTarget?.trimStart();
+        if (unpadded?.startsWith('-')) {
           problems.push(
-            `the \`--target\` value ${JSON.stringify(explicitTarget)} begins with \`-\`, ` +
+            `the \`--target\` value ${JSON.stringify(explicitTarget)} begins with ` +
+              `${unpadded === explicitTarget ? '' : 'whitespace and then '}\`-\`, ` +
               'so it names no artifact to audit'
           );
         }
