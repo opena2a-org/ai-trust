@@ -592,13 +592,62 @@ function nestedCopies(lock, probeDir, name) {
     .map((p) => ({ path: p, version: lock.packages[p]?.version ?? null }));
 }
 
+const USAGE =
+  'Usage:\n' +
+  '  node scripts/audit-consumer-resolution.mjs                    ' +
+  `audit the published ${PACKAGE_NAME}@latest\n` +
+  '  node scripts/audit-consumer-resolution.mjs --target <value>   ' +
+  'audit a tarball path, such as `npm pack` writes, or a registry spec\n' +
+  '  node scripts/audit-consumer-resolution.mjs --target=<value>   same as --target <value>\n' +
+  '  node scripts/audit-consumer-resolution.mjs --help (or -h)     print this text\n';
+
 function main() {
   const argv = process.argv.slice(2);
   // `--target <value>` and `--target=<value>` name the same artifact. Reading
   // only the first form would leave the second as no `--target`, which audits
   // the published package instead of the one named on the command line.
-  const targetArg = argv.findIndex((arg) => arg === '--target' || arg.startsWith('--target='));
-  const inlineTarget = targetArg !== -1 && argv[targetArg].startsWith('--target=');
+  // Any other argument is refused rather than skipped: a mistyped flag, or a
+  // tarball path given without `--target`, is an attempt to name an artifact,
+  // and skipping it would leave the run that audits the published package.
+  let targetArg = -1;
+  let inlineTarget = false;
+  let help = false;
+  const problems = [];
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--target' || arg.startsWith('--target=')) {
+      if (targetArg !== -1) {
+        problems.push(`${JSON.stringify(arg)}: \`--target\` was already given; name one artifact per run`);
+      } else {
+        targetArg = i;
+        inlineTarget = arg !== '--target';
+      }
+      // The two-argument form takes the next argument as its value, whatever it is.
+      if (arg === '--target') i++;
+    } else if (arg === '--help' || arg === '-h') {
+      help = true;
+    } else {
+      problems.push(`unrecognised argument ${JSON.stringify(arg)}`);
+    }
+  }
+
+  if (help) {
+    console.log(USAGE);
+    process.exit(0);
+  }
+
+  // Said before the dist-tag is resolved or anything is installed, and under
+  // neither run's label: which artifact was meant cannot be told.
+  if (problems.length > 0) {
+    console.error(
+      '\nConsumer-resolution audit FAILED — the command line was not understood:\n\n' +
+        problems.map((p) => `  - ${p}\n`).join('') +
+        '  - Nothing was resolved, installed or measured. Not a pass.\n\n' +
+        USAGE
+    );
+    process.exit(1);
+  }
+
   const explicitTarget =
     targetArg === -1
       ? null
