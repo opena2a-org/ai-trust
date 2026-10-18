@@ -611,7 +611,7 @@ function handleNoScanNotFound(
       error: `Package "${name}" not found in the OpenA2A Registry.`,
       nextSteps: [
         // Without --no-scan, check downloads and scans the package.
-        `${checkCitation()} ${name}`,
+        `${checkCitation()} ${shellArg(name)}`,
         `npx hackmyagent secure <project-dir>`,
       ],
     })));

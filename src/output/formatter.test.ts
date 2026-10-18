@@ -2099,6 +2099,12 @@ describe("Full project audit next step", () => {
       expect(output).not.toContain("ai-trust audit");
     });
 
+    it("quotes a name with shell syntax in the Scan locally command (#218)", () => {
+      const output = formatNotFound({ pkg: "shell-lib; echo injected", ecosystem: "npm" });
+      expect(output).toContain("Scan locally  ai-trust check 'shell-lib; echo injected'");
+      expect(output).not.toContain("ai-trust check shell-lib; echo injected");
+    });
+
     it("names the file that exists", () => {
       inDir("requirements.txt");
       const output = formatNotFound({ pkg: "mcp-server-xyz", ecosystem: "npm" });

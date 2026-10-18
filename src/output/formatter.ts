@@ -558,7 +558,7 @@ export function formatNotFound(input: NotFoundBlockInput): string {
     {
       label: "Scan locally",
       // check scans by default; --scan-if-missing is a no-op.
-      command: `${checkCitation()} ${input.pkg}`,
+      command: `${checkCitation()} ${shellArg(input.pkg)}`,
       primary: true,
     },
   ];
