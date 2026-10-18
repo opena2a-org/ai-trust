@@ -4,7 +4,14 @@
 
 export { downloadPackage } from "./downloader.js";
 export type { DownloadResult } from "./downloader.js";
-export { isHmaAvailable, nothingToScan, reinstallCommand, runHmaScan, scannerTempDirProblem } from "./hma.js";
+export {
+  isHmaAvailable,
+  nothingToScan,
+  reinstallCommand,
+  runHmaScan,
+  scannerNodeVersionProblem,
+  scannerTempDirProblem,
+} from "./hma.js";
 export type {
   HmaScanResult,
   HmaFinding,

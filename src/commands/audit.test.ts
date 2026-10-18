@@ -42,6 +42,7 @@ vi.mock("../scanner/index.js", () => ({
   isHmaAvailable: vi.fn().mockResolvedValue(false),
   reinstallCommand: vi.fn().mockReturnValue("npm install -g ai-trust"),
   scanPackage: vi.fn(),
+  scannerNodeVersionProblem: vi.fn().mockReturnValue(null),
   scannerTempDirProblem: vi.fn().mockReturnValue(null),
 }));
 
@@ -72,7 +73,7 @@ vi.mock("@opena2a/contribute", () => ({
 import { RegistryClient } from "@opena2a/registry-client";
 import { parseDependencyFile, detectEcosystem } from "../utils/parser.js";
 import { formatBatchResults } from "../output/formatter.js";
-import { isHmaAvailable, scanPackage } from "../scanner/index.js";
+import { isHmaAvailable, scanPackage, scannerNodeVersionProblem } from "../scanner/index.js";
 import { sendScanPing } from "../telemetry/contribute.js";
 import { readContributeChoice, saveContributeChoice } from "../telemetry/opt-in.js";
 import { contribute } from "@opena2a/contribute";
@@ -743,6 +744,34 @@ describe("audit command", () => {
     expect(help).toContain(
       "--scan-missing download and scan the packages the registry has no data for"
     );
+  });
+
+  it("--scan-missing names the Node.js version, not a reinstall, when the scanner cannot load on this Node.js", async () => {
+    const problem =
+      "The hackmyagent version ai-trust pins loads an ES module with require(), which Node.js 20.18.3 does not do (ERR_REQUIRE_ESM). Run ai-trust on Node.js 20.19.0 or a later 20.x release, or on 22.12.0 or later.";
+    vi.mocked(parseDependencyFile).mockResolvedValue([{ name: "esm-pkg" }]);
+    vi.mocked(RegistryClient).mockImplementation(
+      function () {
+        return {
+          checkTrust: vi.fn(),
+          batchQuery: vi.fn().mockResolvedValue({
+            results: [{ name: "esm-pkg", found: false }],
+            meta: { total: 1, found: 0, notFound: 1 },
+          }),
+        } as any;
+      }
+    );
+    vi.mocked(isHmaAvailable).mockResolvedValue(false);
+    vi.mocked(scannerNodeVersionProblem).mockReturnValueOnce(problem);
+
+    await createProgram().parseAsync(["node", "test", "audit", "package.json", "--scan-missing"]);
+
+    expect(consoleErrSpy).toHaveBeenCalledWith(
+      `HMA (HackMyAgent) is required for scanning, and it could not be started. ${problem}`
+    );
+    expect(consoleErrSpy).not.toHaveBeenCalledWith(expect.stringContaining("Reinstall"));
+    expect(consoleErrSpy).not.toHaveBeenCalledWith("  npm install -g ai-trust");
+    expect(scanPackage).not.toHaveBeenCalled();
   });
 
   describe("scan ping consent gating (regression: package name + verdict + score is scan-result data, requires the same consent as full contribution)", () => {

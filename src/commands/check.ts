@@ -29,6 +29,7 @@ import {
   reinstallCommand,
   scanPackage,
   scanLocalPath,
+  scannerNodeVersionProblem,
   scannerTempDirProblem,
 } from "../scanner/index.js";
 import type { ScanResult } from "../scanner/index.js";
@@ -145,11 +146,11 @@ export function registerCheckCommand(program: Command): void {
       // for the result (typically the fixture path).
       if (opts.scanPath) {
         if (!(await isHmaAvailable())) {
-          const tempDirProblem = scannerTempDirProblem();
+          const startProblem = scannerNodeVersionProblem() ?? scannerTempDirProblem();
           console.error(
             chalk.red(
-              tempDirProblem
-                ? `error: HMA could not be started. ${tempDirProblem}`
+              startProblem
+                ? `error: HMA could not be started. ${startProblem}`
                 : `error: HMA is not available. ai-trust runs the hackmyagent version it pins as a dependency, and that copy could not be run. Reinstall it: ${reinstallCommand()}`,
             ),
           );
@@ -625,10 +626,10 @@ function handleNoScanNotFound(
 async function checkHmaReady(): Promise<boolean> {
   const available = await isHmaAvailable();
   if (!available) {
-    const tempDirProblem = scannerTempDirProblem();
-    if (tempDirProblem) {
+    const startProblem = scannerNodeVersionProblem() ?? scannerTempDirProblem();
+    if (startProblem) {
       console.error(
-        `HMA (HackMyAgent) is required for scanning, and it could not be started. ${tempDirProblem}`
+        `HMA (HackMyAgent) is required for scanning, and it could not be started. ${startProblem}`
       );
     } else {
       console.error(

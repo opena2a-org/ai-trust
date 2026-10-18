@@ -245,9 +245,17 @@ function resolveHma(): { cmd: string; prefixArgs: string[] } {
 }
 
 /**
+ * The standard error of the scanner's --version run when the last
+ * isHmaAvailable() check failed, for scannerNodeVersionProblem(). Empty when
+ * that check passed or failed without that output.
+ */
+let _versionCheckStderr = "";
+
+/**
  * Check if the pinned HMA (hackmyagent) scanner is installed and runs.
  */
 export async function isHmaAvailable(): Promise<boolean> {
+  _versionCheckStderr = "";
   try {
     const hma = resolveHma();
     await withScannerEnv((env) =>
@@ -257,9 +265,36 @@ export async function isHmaAvailable(): Promise<boolean> {
       }),
     );
     return true;
-  } catch {
+  } catch (err: unknown) {
+    const stderr = (err as { stderr?: unknown } | null)?.stderr;
+    _versionCheckStderr = stderr == null ? "" : String(stderr);
     return false;
   }
+}
+
+/**
+ * Whether Node.js `version` loads an ES module with require() by default:
+ * 20.19.0 and later 20.x releases, and 22.12.0 and later. The `engines`
+ * range in package.json names the same versions.
+ */
+function requireLoadsEsm(version: string): boolean {
+  const [major, minor] = version.split(".").map(Number);
+  if (major === 20) return minor >= 19;
+  if (major === 22) return minor >= 12;
+  return major > 22;
+}
+
+/**
+ * Why the scanner cannot start on this Node.js, or null: the scanner's
+ * --version run in the last isHmaAvailable() check failed with
+ * ERR_REQUIRE_ESM, the error Node.js raises when require() is given an ES
+ * module it does not load, and Node.js `nodeVersion` is not one of the
+ * versions that load one by default. A reinstall does not fix that. For a
+ * caller that isHmaAvailable() answered false.
+ */
+export function scannerNodeVersionProblem(nodeVersion: string = process.versions.node): string | null {
+  if (!_versionCheckStderr.includes("ERR_REQUIRE_ESM") || requireLoadsEsm(nodeVersion)) return null;
+  return `The hackmyagent version ai-trust pins loads an ES module with require(), which Node.js ${nodeVersion} does not do (ERR_REQUIRE_ESM). Run ai-trust on Node.js 20.19.0 or a later 20.x release, or on 22.12.0 or later.`;
 }
 
 function packageName(dir: string): string | undefined {
