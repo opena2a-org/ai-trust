@@ -31,7 +31,9 @@ ai-trust check server-filesystem --no-scan                    # registry lookup 
 ai-trust check /path/to/local --scan-path /path/to/local      # scan a local directory
 ```
 
-Flags: `--type`, `--contribute`, `--no-scan`, `--no-deep`, `--scan-path`, `--all`, `--json`.
+Flags: `--type` (one of `mcp_server`, `a2a_agent`, `skill`, `ai_tool`, `llm`, `library`), `--contribute`, `--no-scan`, `--no-deep`, `--scan-path`, `--all`, `--json`.
+
+Any other `--type` value stops `check` before any lookup, download or scan, with exit code 1 and one line on stderr, `Error: --type must be one of mcp_server, a2a_agent, skill, ai_tool, llm, library; got "<value>"`. With `--json`, the same text is printed on stdout as `{"error": "..."}`. The registry looks a package up by name and type when `--type` is given, so with `--no-scan` a package it has under another type is not found, and the not-found block names the type it was asked for: `Package not found: <name> (npm, type a2a_agent)`.
 
 ### MCP server shorthand
 
@@ -121,7 +123,9 @@ ai-trust batch my-server-a my-server-b --type mcp_server
 ai-trust batch react vue express lodash chalk
 ```
 
-Flags: `--type`, `--min-trust` (trust level 0-4, default 2).
+Flags: `--type` (one of `mcp_server`, `a2a_agent`, `skill`, `ai_tool`, `llm`, `library`), `--min-trust` (trust level 0-4, default 2).
+
+Any other `--type` value stops `batch` before it looks anything up, with exit code 1, as for `check`. A package the registry has under a type other than the `--type` value is listed in a `Type mismatch` section under the type it is registered as (`This package is registered as mcp_server, not a2a_agent:`), with the `ai-trust batch <name> --type <registered type>` command that looks it up as that type, and `batch` exits 2. The Summary's `Audit failed` line names it, `1 dependency is excluded by --type a2a_agent: <name>`, and gives that command as the next step when no dependency is missing or below the level. In `--json` its result is the registry's answer, `"found": true` and `packageType` included, with `"excludedByType": true` added.
 
 ## Output options
 
@@ -155,5 +159,6 @@ ai-trust check server-filesystem --registry-url http://localhost:8080  # custom 
 | 2 | Warning or blocked: one or more packages have a warning or blocked verdict (except with `check --scan-path`) |
 | 2 | Below threshold: one or more packages fall below `--min-trust` (`audit`, `batch`) |
 | 2 | Not found: a package is not in the registry and was not scanned locally, or does not exist on npm or PyPI |
+| 2 | Type mismatch: `batch --type` excluded a package the registry has under another type |
 | 2 | Local scan could not run: `check --scan-path` found no scanner, or the directory does not exist or could not be scanned. In each case `--json` prints one object on stdout with `"found": false` and the message as `"error"` |
 | 2 | Nothing to scan: `check --scan-path` read 0 files in the directory and found none it could not read, so there is no score or verdict. `--json` prints `"scored": false` and `"filesExamined": 0`. A directory whose files were found but could not be read keeps its score, findings and exit code 0 |

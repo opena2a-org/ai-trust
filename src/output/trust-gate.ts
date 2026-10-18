@@ -6,6 +6,7 @@
  */
 
 import type { TrustAnswer } from "@opena2a/registry-client";
+import type { BatchAnswer } from "./formatter.js";
 import { sanitizeRegistryValue } from "./sanitize.js";
 
 export interface TrustGate {
@@ -15,21 +16,31 @@ export interface TrustGate {
   notFound: TrustAnswer[];
   /** Dependencies found below the minimum trust level. */
   belowThreshold: TrustAnswer[];
+  /**
+   * Dependencies `batch --type` excluded: the registry has them under
+   * another type. Neither list above counts them.
+   */
+  excludedByType: TrustAnswer[];
 }
 
 /**
  * The dependencies of a batch answer that fail the gate, of every tier: a
  * library below `--min-trust` fails it too, as `check` exits 2 for a library
- * the registry flags as blocked or warning. The answers are read after their
- * control characters are removed, as the text output reads them.
+ * the registry flags as blocked or warning, and so does a package
+ * `batch --type` excluded. The answers are read after their control
+ * characters are removed, as the text output reads them.
  */
 export function trustGate(results: readonly TrustAnswer[], minTrust: number): TrustGate {
   const answers = sanitizeRegistryValue([...results]);
-  const notFound = answers.filter((r) => !r.found);
-  const belowThreshold = answers.filter((r) => r.found && r.trustLevel < minTrust);
+  const isExcluded = (r: TrustAnswer): boolean => (r as BatchAnswer).excludedByType === true;
+  const excludedByType = answers.filter(isExcluded);
+  const ofType = answers.filter((r) => !isExcluded(r));
+  const notFound = ofType.filter((r) => !r.found);
+  const belowThreshold = ofType.filter((r) => r.found && r.trustLevel < minTrust);
   return {
-    passed: notFound.length === 0 && belowThreshold.length === 0,
+    passed: notFound.length === 0 && belowThreshold.length === 0 && excludedByType.length === 0,
     notFound,
     belowThreshold,
+    excludedByType,
   };
 }

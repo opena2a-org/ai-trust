@@ -2330,6 +2330,127 @@ describe("check command", () => {
       }
     }
   });
+
+  // An unknown --type was sent to the registry, which has no package of that
+  // type, and check said a registered MCP server was not found (#177).
+  describe("--type is one of the registry's package types (#177)", () => {
+    const TYPE_ERROR =
+      '--type must be one of mcp_server, a2a_agent, skill, ai_tool, llm, library; got "banana"';
+    const FILESYSTEM = "@modelcontextprotocol/server-filesystem";
+
+    // The --scan-path flow ends in process.exit when the scanner cannot run.
+    async function runCheck(args: string[]): Promise<void> {
+      const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+        throw new Error(`process.exit(${code})`);
+      }) as never);
+      try {
+        await createProgram().parseAsync(["node", "test", "check", ...args]);
+      } finally {
+        exit.mockRestore();
+      }
+    }
+
+    for (const flags of [[], ["--no-scan"], ["--scan-path", "/tmp/project"]]) {
+      it(`--type banana ${flags.join(" ") || "with no flag"}: a usage error before any lookup or scan`, async () => {
+        await runCheck(["server-filesystem", "--type", "banana", ...flags]);
+
+        expect(consoleErrSpy.mock.calls.map((c) => c.join(" "))).toEqual([`Error: ${TYPE_ERROR}`]);
+        expect(consoleSpy).not.toHaveBeenCalled();
+        expect(process.exitCode).toBe(1);
+        expect(RegistryClient).not.toHaveBeenCalled();
+        expect(isHmaAvailable).not.toHaveBeenCalled();
+        expect(scanPackage).not.toHaveBeenCalled();
+        expect(scanLocalPath).not.toHaveBeenCalled();
+      });
+
+      it(`-t banana ${flags.join(" ") || "with no flag"} --json: {"error"} on stdout, exit 1`, async () => {
+        await runCheck(["server-filesystem", "-t", "banana", ...flags, "--json"]);
+
+        expect(consoleSpy.mock.calls).toHaveLength(1);
+        expect(JSON.parse(String(consoleSpy.mock.calls[0][0]))).toEqual({ error: TYPE_ERROR });
+        expect(consoleErrSpy).not.toHaveBeenCalled();
+        expect(process.exitCode).toBe(1);
+        expect(RegistryClient).not.toHaveBeenCalled();
+        expect(isHmaAvailable).not.toHaveBeenCalled();
+      });
+    }
+
+    function mockTypedMiss(): ReturnType<typeof vi.fn> {
+      const checkTrust = vi.fn().mockRejectedValue(new PackageNotFoundError(FILESYSTEM));
+      vi.mocked(RegistryClient).mockImplementation(function () {
+        return { checkTrust, batchQuery: vi.fn(), publishScan: vi.fn() } as any;
+      });
+      return checkTrust;
+    }
+
+    it("--no-scan names the type in the not-found block, as the registry's miss is for that type", async () => {
+      const checkTrust = mockTypedMiss();
+      const real = await vi.importActual<typeof import("../output/formatter.js")>(
+        "../output/formatter.js"
+      );
+      vi.mocked(formatNotFound).mockImplementationOnce(real.formatNotFound);
+
+      await createProgram().parseAsync([
+        "node", "test", "check", "server-filesystem", "--no-scan", "--type", "a2a_agent",
+      ]);
+
+      expect(checkTrust).toHaveBeenCalledWith(FILESYSTEM, "a2a_agent");
+      const out = consoleSpy.mock.calls
+        .map((call) => call.join(" "))
+        .join("\n")
+        .replace(/\u001b\[[0-9;]*m/g, "");
+      expect(out).toContain(`Package not found: ${FILESYSTEM} (npm, type a2a_agent)`);
+      expect(process.exitCode).toBe(2);
+    });
+
+    it("--no-scan --json names the type in the not-found error", async () => {
+      mockTypedMiss();
+
+      await createProgram().parseAsync([
+        "node", "test", "check", "server-filesystem", "--no-scan", "--type", "a2a_agent", "--json",
+      ]);
+
+      const out = JSON.parse(String(consoleSpy.mock.calls[0][0]));
+      expect(out).toMatchObject({
+        name: FILESYSTEM,
+        found: false,
+        ecosystem: "npm",
+        error: `Package "${FILESYSTEM}" not found in the OpenA2A Registry as type a2a_agent.`,
+      });
+      expect(process.exitCode).toBe(2);
+    });
+
+    it("--no-scan without --type keeps the not-found block and error without a type", async () => {
+      mockTypedMiss();
+
+      await createProgram().parseAsync([
+        "node", "test", "check", "server-filesystem", "--no-scan", "--json",
+      ]);
+
+      const out = JSON.parse(String(consoleSpy.mock.calls[0][0]));
+      expect(out.error).toBe(`Package "${FILESYSTEM}" not found in the OpenA2A Registry.`);
+    });
+
+    it("lists the accepted values in its help", () => {
+      const check = createProgram().commands.find((c) => c.name() === "check")!;
+      const help = check.helpInformation().replace(/\s+/g, " ");
+
+      expect(help).toContain(
+        "-t, --type <type> package type filter (one of mcp_server, a2a_agent, skill, ai_tool, llm, library)"
+      );
+      expect(help).not.toContain("etc.");
+    });
+
+    it("docs/commands.md lists the values --type accepts for check and batch", () => {
+      const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+      const doc = readFileSync(resolve(root, "docs/commands.md"), "utf8");
+      const typeFlag =
+        "`--type` (one of `mcp_server`, `a2a_agent`, `skill`, `ai_tool`, `llm`, `library`)";
+
+      expect(doc).toContain(`Flags: ${typeFlag}, \`--contribute\``);
+      expect(doc).toContain(`Flags: ${typeFlag}, \`--min-trust\``);
+    });
+  });
 });
 
 // The documented exit-code contract is checked against the exit code the

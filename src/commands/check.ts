@@ -45,6 +45,7 @@ import { checkSkillOrMcp } from "../check/skill-mcp-check.js";
 import { classifyCheckTarget, targetArgument } from "../check/target.js";
 import type { InvalidTarget, PackageTarget, RichTarget } from "../check/target.js";
 import { checkCitation } from "../utils/cli-prefix.js";
+import { packageTypeChoices, packageTypeProblem } from "../utils/package-type.js";
 import { shellArg } from "../utils/shell-arg.js";
 import { buildCheckJson } from "../output/check-json.js";
 import { lstatSync } from "node:fs";
@@ -122,7 +123,7 @@ export function registerCheckCommand(program: Command): void {
     .description("Download and scan a single package, then report its trust verdict")
     .option(
       "-t, --type <type>",
-      "package type filter (mcp_server, a2a_agent, ai_tool, etc.)"
+      `package type filter (${packageTypeChoices()})`
     )
     .option(
       "--scan-if-missing",
@@ -159,6 +160,15 @@ export function registerCheckCommand(program: Command): void {
         registryUrl: string;
         json: boolean;
       };
+
+      // A --type that is not one of the package types is a usage error,
+      // before any lookup, download or scan.
+      const typeProblem = packageTypeProblem(opts.type);
+      if (typeProblem !== undefined) {
+        usageError(typeProblem, globalOpts.json);
+        return;
+      }
+
       const textOpts = {
         all: opts.all === true,
         rerunCommand: rerunCommand(
@@ -316,12 +326,7 @@ export function registerCheckCommand(program: Command): void {
           pkg.reason === "empty"
             ? `No package name given. Usage: ${checkCitation()} <package>`
             : `No package name after "${pkg.prefix}". Usage: ${checkCitation()} ${pkg.prefix}${placeholder}`;
-        if (globalOpts.json) {
-          console.log(formatJson({ error: problem }));
-        } else {
-          console.error(`Error: ${problem}`);
-        }
-        finish("usage-error");
+        usageError(problem, globalOpts.json);
         return;
       }
 
@@ -389,7 +394,7 @@ export function registerCheckCommand(program: Command): void {
               printOutOfScopeByName(pkg, globalOpts.json);
               return; // exit 0
             }
-            handleNoScanNotFound(pkg, globalOpts);
+            handleNoScanNotFound(pkg, globalOpts, opts.type);
           } else {
             const message = err instanceof Error ? err.message : String(err);
             if (globalOpts.json) {
@@ -688,16 +693,23 @@ function noteAnalystLayer(status: Parameters<typeof analystLayerNote>[0]): void 
   console.error(chalk.dim(`  ${analystLayerNote(status)}`));
 }
 
+/**
+ * The registry's miss with --no-scan. The registry looks a package up by name
+ * and type when --type is given, so the miss is for that type, and the output
+ * names it.
+ */
 function handleNoScanNotFound(
   target: PackageTarget,
-  globalOpts: { registryUrl: string; json: boolean }
+  globalOpts: { registryUrl: string; json: boolean },
+  type?: string
 ): void {
   const { spec: name, ecosystem } = target;
   if (globalOpts.json) {
+    const asType = type ? ` as type ${type}` : "";
     console.log(formatJson(buildNotFoundOutput({
       name,
       ecosystem,
-      error: `Package "${name}" not found in the OpenA2A Registry.`,
+      error: `Package "${name}" not found in the OpenA2A Registry${asType}.`,
       nextSteps: [
         // Without --no-scan, check downloads and scans the package.
         `${checkCitation()} ${shellArg(name)}`,
@@ -706,7 +718,7 @@ function handleNoScanNotFound(
     })));
   } else {
     // Shared cli-ui renderNotFoundBlock output (F2 from the check-command-divergence brief).
-    console.log(formatNotFound({ pkg: name, ecosystem }));
+    console.log(formatNotFound({ pkg: name, ecosystem, type }));
   }
   finish("not-found");
 }
@@ -762,6 +774,19 @@ type CheckOutcome = keyof typeof EXIT_CODES;
 function finish(outcome: CheckOutcome): void {
   const code = EXIT_CODES[outcome];
   if (code !== 0) process.exitCode = code;
+}
+
+/**
+ * Print a usage error and set its exit code. With --json the message is the
+ * `error` of one object on stdout, as for a --registry-url usage error.
+ */
+function usageError(problem: string, json: boolean): void {
+  if (json) {
+    console.log(formatJson({ error: problem }));
+  } else {
+    console.error(`Error: ${problem}`);
+  }
+  finish("usage-error");
 }
 
 /**
