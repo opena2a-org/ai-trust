@@ -151,5 +151,5 @@ ai-trust check server-filesystem --registry-url http://localhost:8080  # custom 
 | 2 | Warning or blocked: one or more packages have a warning or blocked verdict (except with `check --scan-path`) |
 | 2 | Below threshold: one or more packages fall below `--min-trust` (`audit`, `batch`) |
 | 2 | Not found: a package is not in the registry and was not scanned locally, or does not exist on npm or PyPI |
-| 2 | Local scan could not run: `check --scan-path` found no scanner, or the directory does not exist or could not be scanned |
+| 2 | Local scan could not run: `check --scan-path` found no scanner, or the directory does not exist or could not be scanned. When the directory does not exist or could not be scanned, `--json` prints one object on stdout with `"found": false` and the message as `"error"` |
 | 2 | Nothing to scan: `check --scan-path` read 0 files in the directory and found none it could not read, so there is no score or verdict. `--json` prints `"scored": false` and `"filesExamined": 0`. A directory whose files were found but could not be read keeps its score, findings and exit code 0 |
