@@ -37,6 +37,8 @@ import {
 } from "../scanner/index.js";
 import type { ScanResult } from "../scanner/index.js";
 import { nothingToScan } from "../scanner/hma.js";
+import type { HmaFinding } from "../scanner/hma.js";
+import { findingPath } from "../output/finding-location.js";
 import { confirm } from "../utils/prompt.js";
 import { shareScans } from "../telemetry/index.js";
 import { checkSkillOrMcp } from "../check/skill-mcp-check.js";
@@ -45,6 +47,7 @@ import type { InvalidTarget, PackageTarget, RichTarget } from "../check/target.j
 import { checkCitation } from "../utils/cli-prefix.js";
 import { shellArg } from "../utils/shell-arg.js";
 import { buildCheckJson } from "../output/check-json.js";
+import { lstatSync } from "node:fs";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
@@ -65,6 +68,30 @@ interface CheckOptions {
   scanPath?: string;
   /** Print every finding in text output, not the first ten (--all). */
   all?: boolean;
+}
+
+/**
+ * The `file` values of the failed findings that name nothing in the scanned
+ * directory. A scanner advisory about a missing file gives, as its `file`,
+ * the path its fix would create (DEP-001 names package-lock.json,
+ * SANDBOX-001 a Dockerfile), so each path is looked up, once per file,
+ * rather than inferred from the check id. A path that could not be looked up
+ * for another reason, such as permission denied, is not reported absent.
+ */
+function absentFindingFiles(scanPath: string, findings: HmaFinding[]): Set<string> {
+  const looked = new Set<string>();
+  const absent = new Set<string>();
+  for (const f of findings) {
+    if (f.passed || typeof f.file !== "string" || f.file === "" || looked.has(f.file)) continue;
+    looked.add(f.file);
+    try {
+      lstatSync(findingPath(scanPath, f.file));
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === "ENOENT" || code === "ENOTDIR") absent.add(f.file);
+    }
+  }
+  return absent;
 }
 
 /**
@@ -201,12 +228,22 @@ export function registerCheckCommand(program: Command): void {
         // labeled clearly when the same fixture is invoked under different
         // names (e.g. release-smoke harness uses surface/intent/fixture).
         result.packageName = rawName;
+        const absentFiles = absentFindingFiles(opts.scanPath, result.scan.findings);
         if (globalOpts.json) {
-          console.log(formatJson(buildCheckJson({ kind: "scan", scan: result })));
+          console.log(
+            formatJson(
+              buildCheckJson({ kind: "scan", scan: result, scanPath: opts.scanPath, absentFiles }),
+            ),
+          );
         } else {
           // --scan-path scans the user's own on-disk tree → local verdict.
           console.log(
-            formatScanResult(result, { remote: false, scanPath: opts.scanPath, ...textOpts })
+            formatScanResult(result, {
+              remote: false,
+              scanPath: opts.scanPath,
+              absentFiles,
+              ...textOpts,
+            })
           );
         }
         // A scan that read 0 files and found none it could not read measured

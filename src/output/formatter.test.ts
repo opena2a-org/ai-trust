@@ -1858,6 +1858,148 @@ describe("formatScanResult", () => {
     });
   });
 
+  describe("Verify lines and files that are not in the scanned directory (--scan-path)", () => {
+    // What the scanner reports for a project with no Dockerfile: SANDBOX-001
+    // names the file its fix would create, with no line and no fix, beside a
+    // finding on line 12 of a file that is there.
+    function treeResult(): ScanResult {
+      return makeScanResult({
+        packageName: "my-agent",
+        trustScore: 0.88,
+        trustLevel: 2,
+        verdict: "safe",
+        scan: {
+          score: 88,
+          maxScore: 100,
+          checksEvaluated: 85,
+          filesExamined: 2,
+          findings: [
+            {
+              checkId: "SANDBOX-001",
+              name: "Container Isolation",
+              description: "",
+              category: "sandboxing",
+              severity: "medium",
+              passed: false,
+              message: "Consider running in Docker containers for isolation",
+              file: "Dockerfile",
+              attackClass: "SANDBOX-ESCAPE",
+            },
+            {
+              checkId: "CODE-001",
+              name: "Dynamic Code Execution",
+              description: "",
+              category: "code",
+              severity: "low",
+              passed: false,
+              message: "eval() on request input",
+              file: "src/index.js",
+              line: 12,
+              fix: "Parse the input instead of evaluating it",
+            },
+          ],
+          projectType: "api",
+          timestamp: "2026-10-18T00:00:00Z",
+        },
+      });
+    }
+    const absentFiles = new Set(["Dockerfile"]);
+
+    /** The lines of the finding block whose header names `name`. */
+    function findingBlock(output: string, name: string): string {
+      const blocks = output.split("\n\n").filter((b) => b.includes("│"));
+      const block = blocks.find((b) => b.split("\n")[0].endsWith(`  ${name}`));
+      if (!block) throw new Error(`no finding block for ${name}`);
+      return block;
+    }
+
+    it("prints the command that shows the line under a finding with a file and a line", () => {
+      const output = formatScanResult(treeResult(), {
+        remote: false,
+        scanPath: "/tmp/fx/tree",
+        absentFiles,
+      });
+
+      expect(findingBlock(output, "Dynamic Code Execution").split("\n")).toEqual([
+        "  │ LOW  Dynamic Code Execution",
+        "  │ src/index.js:12",
+        "  │ eval() on request input",
+        "  │ Verify: sed -n '12p' /tmp/fx/tree/src/index.js",
+        "  │ Fix: Parse the input instead of evaluating it",
+      ]);
+    });
+
+    it("says a file that is not in the directory is not present, gives it no Verify, and says the scanner supplied no fix", () => {
+      const output = formatScanResult(treeResult(), {
+        remote: false,
+        scanPath: "/tmp/fx/tree",
+        absentFiles,
+      });
+
+      expect(findingBlock(output, "Container Isolation").split("\n")).toEqual([
+        "  │ MEDIUM  Container Isolation",
+        "  │ Dockerfile (not present)",
+        "  │ Consider running in Docker containers for isolation",
+        "  │ Fix: none supplied by the scanner for SANDBOX-001; background: npx hackmyagent explain SANDBOX-001",
+        "  │ Attack: SANDBOX-ESCAPE",
+      ]);
+      expect(output).not.toContain("in Dockerfile");
+      expect(output).toContain("Looks safe to use. Container Isolation (no Dockerfile) + 1 more.");
+      expect(output.match(/Verify:/g)).toHaveLength(1);
+    });
+
+    it("keeps the line of a finding whose file is not present, and gives it no Verify", () => {
+      const result = treeResult();
+      result.scan.findings[1].file = "src/removed.js";
+      const output = formatScanResult(result, {
+        remote: false,
+        scanPath: "/tmp/fx/tree",
+        absentFiles: new Set(["Dockerfile", "src/removed.js"]),
+      });
+
+      expect(output).toContain("│ src/removed.js:12 (not present)\n");
+      expect(output).not.toContain("Verify:");
+    });
+
+    it("quotes a directory with shell syntax in the Verify command, and makes one that starts with - an operand", () => {
+      const spaced = formatScanResult(treeResult(), {
+        remote: false,
+        scanPath: "/tmp/my dir;rm",
+        absentFiles,
+      });
+      expect(spaced).toContain("│ Verify: sed -n '12p' '/tmp/my dir;rm/src/index.js'\n");
+
+      const dashed = formatScanResult(treeResult(), { remote: false, scanPath: "-tree", absentFiles });
+      expect(dashed).toContain("│ Verify: sed -n '12p' ./-tree/src/index.js\n");
+    });
+
+    it("prints no Verify for a path with a control or format character, which the line cannot show as it is", () => {
+      // An ESC sequence, and a right-to-left override (U+202E).
+      const rlo = String.fromCodePoint(0x202e);
+      for (const file of ["src/in\u001b[2Kdex.js", `src/in${rlo}dex.js`]) {
+        const result = treeResult();
+        result.scan.findings[1].file = file;
+        const output = formatScanResult(result, { remote: false, scanPath: "/tmp/fx/tree", absentFiles });
+
+        expect(output).not.toContain("Verify:");
+        expect(output).not.toContain("\u001b");
+      }
+    });
+
+    it("leaves a downloaded package's findings as the scanner reported them: no Verify, no presence label, no added Fix line", () => {
+      const output = formatScanResult(treeResult(), { remote: true });
+
+      expect(findingBlock(output, "Container Isolation").split("\n")).toEqual([
+        "  │ MEDIUM  Container Isolation",
+        "  │ Dockerfile",
+        "  │ Consider running in Docker containers for isolation",
+        "  │ Attack: SANDBOX-ESCAPE",
+      ]);
+      expect(output).not.toContain("Verify:");
+      expect(output).toContain("Container Isolation in Dockerfile + 1 more.");
+    });
+  });
+
   it("remote verdict (downloaded package): medium-only findings avoid `secure --fix`", () => {
     // cli-ui 0.5.2 surface.remote: a downloaded third-party package's verdict
     // guidance must be review / choose-a-vetted-version, never `secure --fix`

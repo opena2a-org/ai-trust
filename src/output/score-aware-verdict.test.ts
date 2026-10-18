@@ -5,9 +5,9 @@
  * package must NOT say "Not safe to ship".
  */
 import { describe, it, expect } from "vitest";
-import type { VerdictFinding } from "@opena2a/cli-ui";
 import {
   buildScoreAwareVerdict,
+  type LeadFinding,
   type VerdictCounts,
 } from "./score-aware-verdict.js";
 
@@ -26,7 +26,7 @@ const counts = (c: Partial<VerdictCounts>): VerdictCounts => {
   return merged;
 };
 
-const finding = (over: Partial<VerdictFinding> = {}): VerdictFinding => ({
+const finding = (over: Partial<LeadFinding> = {}): LeadFinding => ({
   severity: "high",
   name: "Some Finding",
   checkId: "X-001",
@@ -132,6 +132,26 @@ describe("message names the lead finding (action-oriented)", () => {
     );
     expect(v.message).toContain("Exposed Credential in mcp.json:10");
     expect(v.message).toContain("+ 2 more");
+  });
+
+  it("names a lead whose file is not in the scanned directory as the file it lacks, not a place in it", () => {
+    const v = buildScoreAwareVerdict(
+      "safe",
+      counts({ medium: 1, low: 1 }),
+      [
+        finding({
+          severity: "medium",
+          name: "Container Isolation",
+          file: "Dockerfile",
+          line: undefined,
+          absent: true,
+        }),
+        finding({ severity: "low" }),
+      ],
+      { kind: "api", remote: false },
+    );
+    expect(v.message).toContain("Looks safe to use. Container Isolation (no Dockerfile) + 1 more. ");
+    expect(v.message).not.toContain("in Dockerfile");
   });
 
   it("remote vs local guidance differs", () => {

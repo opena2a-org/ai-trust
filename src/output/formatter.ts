@@ -30,9 +30,9 @@ import {
   type NextStepsCta,
   type NotFoundBlockInput,
   type NotFoundTone,
-  type VerdictFinding,
 } from "@opena2a/cli-ui";
-import { buildScoreAwareVerdict } from "./score-aware-verdict.js";
+import { buildScoreAwareVerdict, type LeadFinding } from "./score-aware-verdict.js";
+import { verifyCommand } from "./finding-location.js";
 import {
   hasRecordedIssues,
   readSecurityProfile,
@@ -188,6 +188,16 @@ function unclassifiedSectionLines(unknown: TrustAnswer[]): string[] {
  */
 function runnableFix(fix: string): string {
   return citeCommandsInText(fix);
+}
+
+/**
+ * The Fix line of a finding the scanner gave no fix for: it says so, and
+ * names the scanner command that describes the check.
+ */
+function noFixSupplied(checkId: string): string {
+  const id = stripControlCharacters(checkId).trim();
+  if (id === "") return "none supplied by the scanner";
+  return `none supplied by the scanner for ${id}; background: npx hackmyagent explain ${shellArg(id)}`;
 }
 
 // ── Formatters ────────────────────────────────────────────────────────
@@ -1016,9 +1026,16 @@ export interface FormatScanResultOptions {
   ecosystem?: "npm" | "pypi";
   /**
    * The directory `check --scan-path` scanned, as the user gave it. Named in
-   * the notice for a scan that read 0 files, with a command that lists it.
+   * the notice for a scan that read 0 files, with a command that lists it,
+   * and in the Verify command of each finding with a file and a line.
    */
   scanPath?: string;
+  /**
+   * The `file` values of findings that name nothing in `scanPath`, as
+   * check.ts found them. Such a finding names the file its fix would create:
+   * its location is marked "(not present)" and it gets no Verify command.
+   */
+  absentFiles?: ReadonlySet<string>;
   /**
    * Print every failed finding (`check --all`). Without it the first ten are
    * printed, by severity, and a line counts the rest.
@@ -1089,12 +1106,14 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
   // `--json`. cli-ui's severity-first buildVerdict stays for HMA/opena2a
   // own-code scans — verdict calibration is intentionally context-specific
   // (own-code vs third-party). See score-aware-verdict.ts.
-  const verdictFindings: VerdictFinding[] = failed.map((f) => ({
+  const absentFiles = opts.absentFiles ?? new Set<string>();
+  const verdictFindings: LeadFinding[] = failed.map((f) => ({
     severity: f.severity as "critical" | "high" | "medium" | "low",
     name: f.name,
     checkId: f.checkId,
     file: typeof f.file === "string" ? stripControlCharacters(f.file) : undefined,
     line: f.line,
+    absent: typeof f.file === "string" && absentFiles.has(f.file),
   }));
   const rawKind = result.scan.projectType?.trim();
   const projectLabel = rawKind && rawKind !== "unknown" ? rawKind : "package";
@@ -1246,16 +1265,26 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
         `  ${sevColor("\u2502")} ${sevColor.bold(label)}  ${chalk.bold.white(f.name)}`
       );
       // The path comes from the scanned tree, so control characters in it
-      // are removed before it reaches the terminal.
+      // are removed before it reaches the terminal. A file the scanned
+      // directory does not have is the one the fix would create.
       if (typeof f.file === "string" && f.file !== "") {
         const loc = stripControlCharacters(f.file) + (typeof f.line === "number" ? `:${f.line}` : "");
-        lines.push(`  ${sevColor("\u2502")} ${chalk.dim(loc)}`);
+        const shown = absentFiles.has(f.file) ? `${loc} (not present)` : loc;
+        lines.push(`  ${sevColor("\u2502")} ${chalk.dim(shown)}`);
       }
       if (f.message && f.message !== f.name) {
         lines.push(`  ${sevColor("\u2502")} ${f.message}`);
       }
+      // Only a scanned directory is still on disk to verify against, and
+      // only a reader's own tree is theirs to fix.
+      if (opts.scanPath !== undefined) {
+        const verify = verifyCommand(opts.scanPath, f, absentFiles);
+        if (verify) lines.push(`  ${sevColor("\u2502")} ${chalk.cyan("Verify:")} ${verify}`);
+      }
       if (f.fix) {
         lines.push(`  ${sevColor("\u2502")} ${chalk.cyan("Fix:")} ${runnableFix(f.fix)}`);
+      } else if (opts.scanPath !== undefined) {
+        lines.push(`  ${sevColor("\u2502")} ${chalk.cyan("Fix:")} ${noFixSupplied(f.checkId)}`);
       }
       if (f.attackClass) {
         lines.push(

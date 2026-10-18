@@ -40,10 +40,25 @@ export interface ScoreAwareVerdict {
   message: string;
 }
 
-/** "name in file:line", falling back to checkId / "finding". Mirrors cli-ui buildVerdict. */
-function formatLead(f: VerdictFinding): string {
+/** A finding the verdict can name as its lead. */
+export interface LeadFinding extends VerdictFinding {
+  /**
+   * The finding's file is not in the scanned directory (`check --scan-path`):
+   * it names the file the fix would create, as the scanner's DEP-001 names
+   * package-lock.json, not a place in the tree.
+   */
+  absent?: boolean;
+}
+
+/**
+ * "name in file:line", or "name (no file)" for a file that is not in the
+ * scanned directory, falling back to checkId / "finding". Mirrors cli-ui
+ * buildVerdict.
+ */
+function formatLead(f: LeadFinding): string {
   const label = f.name?.trim() || f.checkId?.trim() || "finding";
   if (f.file) {
+    if (f.absent) return `${label} (no ${f.file})`;
     const loc = f.line ? `${f.file}:${f.line}` : f.file;
     return `${label} in ${loc}`;
   }
@@ -72,7 +87,7 @@ function countSuffix(counts: VerdictCounts): string {
 export function buildScoreAwareVerdict(
   verdict: ScoreAwareVerdictLevel,
   counts: VerdictCounts,
-  findings: VerdictFinding[],
+  findings: LeadFinding[],
   surface: { kind: string; remote: boolean },
 ): ScoreAwareVerdict {
   const remote = surface.remote === true;

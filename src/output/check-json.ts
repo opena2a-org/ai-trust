@@ -17,6 +17,7 @@ import {
   readSecurityProfile,
   type RegistrySecurityProfile,
 } from "./security-profile.js";
+import { verifyCommand } from "./finding-location.js";
 
 /** A single security finding surfaced in the JSON output. */
 export interface CheckJsonFinding {
@@ -36,6 +37,21 @@ export interface CheckJsonFinding {
   line?: number;
   /** The scanner's fix for the finding, when it supplied one. */
   fix?: string;
+  /**
+   * The command that prints `line` of `file` in the scanned directory, as the
+   * text output's Verify line prints it (`check --scan-path` only). Omitted
+   * when the finding has no line or its file is not in the directory.
+   */
+  verify?: string;
+}
+
+/**
+ * The directory `check --scan-path` scanned, and the `file` values of
+ * findings that name nothing in it.
+ */
+export interface ScannedDirectory {
+  scanPath: string;
+  absentFiles: ReadonlySet<string>;
 }
 
 /** Stable, camelCase trust result for `ai-trust check --json`. */
@@ -114,7 +130,7 @@ function mapFinding(f: {
   file?: string;
   line?: number;
   fix?: string;
-}): CheckJsonFinding {
+}, scanned: ScannedDirectory | undefined): CheckJsonFinding {
   const out: CheckJsonFinding = {
     checkId: f.checkId,
     name: f.name,
@@ -129,6 +145,8 @@ function mapFinding(f: {
   // no line, so the field is omitted rather than written as null.
   if (typeof f.line === "number") out.line = f.line;
   if (typeof f.fix === "string" && f.fix !== "") out.fix = f.fix;
+  const verify = scanned ? verifyCommand(scanned.scanPath, f, scanned.absentFiles) : undefined;
+  if (verify !== undefined) out.verify = verify;
   return out;
 }
 
@@ -156,10 +174,15 @@ export function buildCheckJsonFromAnswer(
   return out;
 }
 
-/** Build the JSON result from a local `ScanResult`. */
+/**
+ * Build the JSON result from a local `ScanResult`. `scanned` is given for
+ * `check --scan-path`, whose findings name files in a directory that is
+ * still on disk.
+ */
 export function buildCheckJsonFromScan(
   scan: ScanResult,
   ecosystem?: "npm" | "pypi",
+  scanned?: ScannedDirectory,
 ): CheckJsonResult {
   // A scan that read 0 files and found none it could not read measured
   // nothing: the not-scored shape, as the out-of-scope answer uses, with the
@@ -193,7 +216,7 @@ export function buildCheckJsonFromScan(
   };
   if (scan.scan.projectType !== undefined) out.packageType = scan.scan.projectType;
   const failed = (scan.scan.findings ?? []).filter((f) => !f.passed);
-  if (failed.length > 0) out.findings = failed.map(mapFinding);
+  if (failed.length > 0) out.findings = failed.map((f) => mapFinding(f, scanned));
   if (scan.scan.filesExamined !== undefined) out.filesExamined = scan.scan.filesExamined;
   return out;
 }
@@ -202,9 +225,12 @@ export function buildCheckJsonFromScan(
 export function buildCheckJson(
   input:
     | { kind: "registry"; answer: TrustAnswer; ecosystem?: "npm" | "pypi" }
-    | { kind: "scan"; scan: ScanResult; ecosystem?: "npm" | "pypi" },
+    | ({ kind: "scan"; scan: ScanResult; ecosystem?: "npm" | "pypi" } & Partial<ScannedDirectory>),
 ): CheckJsonResult {
-  return input.kind === "registry"
-    ? buildCheckJsonFromAnswer(input.answer, input.ecosystem)
-    : buildCheckJsonFromScan(input.scan, input.ecosystem);
+  if (input.kind === "registry") return buildCheckJsonFromAnswer(input.answer, input.ecosystem);
+  const scanned =
+    input.scanPath !== undefined
+      ? { scanPath: input.scanPath, absentFiles: input.absentFiles ?? new Set<string>() }
+      : undefined;
+  return buildCheckJsonFromScan(input.scan, input.ecosystem, scanned);
 }
