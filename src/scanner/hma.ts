@@ -19,6 +19,7 @@ import { basename, dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { recordEarlierNo } from "../telemetry/opt-in.js";
+import { maskSecrets } from "./mask-secrets.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -665,7 +666,8 @@ function parseHmaOutput(stdout: string): HmaScanResult {
       category: f.category ?? "",
       severity: f.severity ?? "low",
       passed: f.passed ?? true,
-      message: f.message ?? "",
+      // A message can quote the scanned files, a key in them included.
+      message: maskSecrets(String(f.message ?? "")),
       file: f.file,
       line: f.line,
       fix: f.fix,

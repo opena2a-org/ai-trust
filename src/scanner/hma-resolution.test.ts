@@ -35,8 +35,8 @@ import { reinstallCommand } from "./hma.js";
 const execFileAsync = promisify(execFile);
 
 const SRC_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
-/** hma.ts and the ai-trust module it imports, relative to src/. */
-const HMA_SOURCES = ["scanner/hma.ts", "telemetry/opt-in.ts"];
+/** hma.ts and the ai-trust modules it imports, relative to src/. */
+const HMA_SOURCES = ["scanner/hma.ts", "scanner/mask-secrets.ts", "telemetry/opt-in.ts"];
 
 let root: string;
 
