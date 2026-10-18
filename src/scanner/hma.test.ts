@@ -639,6 +639,82 @@ ${JSON.stringify({
       expect(nothingToScan({ unreadableInputs: 0 })).toBe(false);
     });
   });
+
+  // runHmaWithArgs and runHmaScan each added "HMA scan failed: " to the
+  // error, so the message carried the prefix twice.
+  describe("failure message", () => {
+    it.each([
+      [
+        "the report is larger than maxBuffer",
+        () =>
+          Promise.reject(
+            // What Node's execFile rejects with: the error carries the stdout
+            // read before the limit, here a report cut off mid-way.
+            Object.assign(new RangeError("stdout maxBuffer length exceeded"), {
+              code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER",
+              stdout: '{"score": 85, "maxScore": 100, "findings": [',
+              stderr: "",
+            }),
+          ),
+        "HMA scan failed: stdout maxBuffer length exceeded",
+      ],
+      [
+        "the scanner exits 1 without a report",
+        () =>
+          Promise.reject(
+            Object.assign(
+              new Error("Command failed: hackmyagent secure /tmp/test-pkg\nscanner crashed\n"),
+              { code: 1, stdout: "", stderr: "scanner crashed\n" },
+            ),
+          ),
+        "HMA scan failed: Command failed: hackmyagent secure /tmp/test-pkg\nscanner crashed\n",
+      ],
+      [
+        "the scanner exits 0 without a report",
+        () => Promise.resolve({ stdout: "Some non-JSON output\n", stderr: "" }),
+        "HMA scan failed: No JSON output found from HMA scan",
+      ],
+    ])("says \"HMA scan failed\" once when %s", async (_label, run, expected) => {
+      vi.mocked(execFile as any).mockImplementation(run);
+
+      const err = await runHmaScan("/tmp/test-pkg").then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).toBe(expected);
+    });
+
+    it("says \"HMA scan failed\" once when the retry without an unknown flag also fails", async () => {
+      vi.mocked(execFile as any).mockImplementation(
+        async (_cmd: string, args: string[]) => {
+          const stderr = args.includes("--static-only")
+            ? "error: unknown option '--static-only'\n"
+            : "scanner crashed\n";
+          throw Object.assign(new Error(`Command failed: hackmyagent secure\n${stderr}`), {
+            code: 1,
+            stdout: "",
+            stderr,
+          });
+        },
+      );
+
+      const err = await runHmaScan("/tmp/test-pkg", { deep: false }).then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).toBe(
+        "HMA scan failed: Command failed: hackmyagent secure\nscanner crashed\n",
+      );
+      const secureCalls = vi
+        .mocked(execFile as any)
+        .mock.calls.filter((call: unknown[]) => (call[1] as string[]).includes("secure"));
+      expect(secureCalls).toHaveLength(2);
+    });
+  });
 });
 
 describe("runHmaScan contribution", () => {

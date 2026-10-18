@@ -615,8 +615,9 @@ async function runHmaWithArgs(
         }
       }
     }
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`HMA scan failed: ${message}`);
+    // Unwrapped: runHmaScan reads the scanner's stderr from this error to
+    // decide on a retry, and adds the "HMA scan failed: " prefix itself.
+    throw err;
   }
 }
 
