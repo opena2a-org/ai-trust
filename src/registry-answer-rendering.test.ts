@@ -478,7 +478,9 @@ describe("registry answers through the built CLI", () => {
     });
   });
 
-  describe("a trust score off the 0-1 scale", () => {
+  // The #141 case here runs the built CLI three times and the table case
+  // twice; on Node 20 in CI three runs took longer than the 5 s default.
+  describe("a trust score off the 0-1 scale", { timeout: 30000 }, () => {
     const OFF_SCALE = ["score-55", "score-negative", "score-text"];
 
     it("batch and audit print the table with no score for it", async () => {
