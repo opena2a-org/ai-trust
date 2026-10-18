@@ -333,6 +333,80 @@ describe("buildCheckJsonFromScan (scan path)", () => {
     expect(f).not.toHaveProperty("line");
   });
 
+  describe("verify (--scan-path)", () => {
+    // A finding on line 12 of a file in the scanned directory, and SANDBOX-001
+    // naming a Dockerfile the directory does not have, with no line and no fix.
+    const tree: ScanResult = {
+      ...baseScan,
+      scan: {
+        ...baseScan.scan,
+        findings: [
+          {
+            checkId: "CODE-001",
+            name: "Dynamic Code Execution",
+            description: "",
+            category: "code",
+            severity: "high",
+            passed: false,
+            message: "eval() on request input",
+            file: "src/index.js",
+            line: 12,
+            fix: "Parse the input instead of evaluating it",
+          },
+          {
+            checkId: "SANDBOX-001",
+            name: "Container Isolation",
+            description: "",
+            category: "sandboxing",
+            severity: "medium",
+            passed: false,
+            message: "Consider running in Docker containers for isolation",
+            file: "Dockerfile",
+          },
+        ],
+      },
+    };
+    const local = { scanPath: "/tmp/fx/tree", absentFiles: new Set(["Dockerfile"]) };
+
+    it("is the command that shows the finding's line, for a file in the scanned directory", () => {
+      const json = buildCheckJsonFromScan(tree, undefined, local);
+      expect(json.findings![0]).toEqual({
+        checkId: "CODE-001",
+        name: "Dynamic Code Execution",
+        severity: "high",
+        passed: false,
+        message: "eval() on request input",
+        category: "code",
+        file: "src/index.js",
+        line: 12,
+        fix: "Parse the input instead of evaluating it",
+        verify: "sed -n '12p' /tmp/fx/tree/src/index.js",
+      });
+      expect(buildCheckJson({ kind: "scan", scan: tree, ...local }).findings![0].verify).toBe(
+        "sed -n '12p' /tmp/fx/tree/src/index.js",
+      );
+    });
+
+    it("is absent for a file the scanned directory does not have, which keeps its file and gets no fix", () => {
+      const f = buildCheckJsonFromScan(tree, undefined, local).findings![1];
+      expect(f.file).toBe("Dockerfile");
+      expect(f).not.toHaveProperty("verify");
+      expect(f).not.toHaveProperty("fix");
+    });
+
+    it("is absent for a finding with no line, and for a scan with no scanned directory", () => {
+      const noLine = buildCheckJsonFromScan(
+        withFinding({ file: ".claude/settings.json" }),
+        undefined,
+        { scanPath: "/tmp/fx/tree", absentFiles: new Set() },
+      );
+      expect(noLine.findings![0]).not.toHaveProperty("verify");
+
+      const downloaded = buildCheckJsonFromScan(tree);
+      expect(downloaded.findings![0]).not.toHaveProperty("verify");
+    });
+  });
+
   it("records the number of files the scanner read", () => {
     const json = buildCheckJsonFromScan({
       ...baseScan,

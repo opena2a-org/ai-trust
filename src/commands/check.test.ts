@@ -4,8 +4,9 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Command } from "commander";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { registerCheckCommand } from "./check.js";
 
@@ -1579,6 +1580,81 @@ describe("check command", () => {
         .commands.find((c) => c.name() === "check")!
         .helpInformation();
       expect(help).toMatch(/--all\s+print every finding/);
+    });
+  });
+
+  describe("--scan-path looks up each finding's file in the directory", () => {
+    let dir: string;
+
+    // The directory holds src/index.js and no Dockerfile.
+    function scanned(): ScanResult {
+      return {
+        packageName: "fixture",
+        scan: {
+          score: 88,
+          maxScore: 100,
+          findings: [
+            {
+              checkId: "CODE-001",
+              name: "Dynamic Code Execution",
+              description: "",
+              category: "code",
+              severity: "low",
+              passed: false,
+              message: "eval() on request input",
+              file: "src/index.js",
+              line: 12,
+            },
+            {
+              checkId: "SANDBOX-001",
+              name: "Container Isolation",
+              description: "",
+              category: "sandboxing",
+              severity: "medium",
+              passed: false,
+              message: "Consider running in Docker containers for isolation",
+              file: "Dockerfile",
+            },
+          ],
+          projectType: "api",
+          timestamp: "2026-10-18T00:00:00Z",
+        },
+        trustScore: 0.88,
+        trustLevel: 2,
+        verdict: "safe",
+      };
+    }
+
+    beforeEach(() => {
+      dir = mkdtempSync(join(tmpdir(), "ai-trust-finding-files-"));
+      mkdirSync(join(dir, "src"));
+      writeFileSync(join(dir, "src", "index.js"), "placeholder\n");
+      vi.mocked(isHmaAvailable).mockResolvedValue(true);
+      vi.mocked(scanLocalPath).mockResolvedValue(scanned());
+    });
+
+    afterEach(() => {
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    it("passes the directory and the files it does not have to the text output", async () => {
+      await createProgram().parseAsync(["node", "test", "check", "fixture", "--scan-path", dir, "--no-deep"]);
+
+      expect(formatScanResult).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ remote: false, scanPath: dir, absentFiles: new Set(["Dockerfile"]) }),
+      );
+    });
+
+    it("gives --json the Verify command of a finding whose file is there, and none for one whose file is not", async () => {
+      await createProgram().parseAsync([
+        "node", "test", "check", "fixture", "--scan-path", dir, "--no-deep", "--json",
+      ]);
+
+      const out = JSON.parse(consoleSpy.mock.calls[0][0] as string);
+      expect(out.findings[0].verify).toBe(`sed -n '12p' ${join(dir, "src", "index.js")}`);
+      expect(out.findings[1].file).toBe("Dockerfile");
+      expect(out.findings[1]).not.toHaveProperty("verify");
     });
   });
 
