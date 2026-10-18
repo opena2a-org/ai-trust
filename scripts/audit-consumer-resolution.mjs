@@ -234,13 +234,18 @@ function run(cmd, args, opts = {}) {
  * Which of the two questions this invocation is answering.
  *
  * Decided from the target rather than from a flag, so the label cannot drift
- * away from the thing actually installed: a target that exists on disk as a
- * tarball is by construction something this repo just built, anything else is
+ * away from the thing actually installed: a target that names a tarball file
+ * is by construction something this repo just built, anything else is
  * resolved from the registry.
+ *
+ * The name decides, not whether the file is there. A mistyped tarball path is
+ * still the CANDIDATE run, and `main` fails it as one before anything is
+ * installed. A tarball URL names no file on disk: npm fetches it, so it is not
+ * a candidate path.
  */
 function classifyTarget(spec) {
   const asPath = spec.startsWith('file:') ? spec.slice('file:'.length) : spec;
-  if (/\.(tgz|tar\.gz)$/i.test(asPath) && existsSync(asPath)) {
+  if (/\.(tgz|tar\.gz)$/i.test(asPath) && !/^[a-z][a-z\d+.-]*:\/\//i.test(asPath)) {
     return {
       mode: 'CANDIDATE',
       spec: path.resolve(asPath),
@@ -620,6 +625,15 @@ function main() {
     console.log(`[${target.mode}] Target: ${spec}`);
     console.log(`[${target.mode}] This checkout is at ${repoVersion}.\n`);
 
+    // A tarball that is not on disk leaves nothing to install. Said here,
+    // under the CANDIDATE label, before `npm install` is run with its path.
+    if (target.mode === 'CANDIDATE' && !existsSync(spec)) {
+      throw new Error(
+        `the tarball ${spec} does not exist, so there is no candidate artifact to install. ` +
+          'Check the path given to --target. Not a pass.'
+      );
+    }
+
     const probeDir = path.join(scratch, 'probe');
     mkdirSync(probeDir, { recursive: true });
     const { report, lock, counts, liveness, installStderr } = auditConsumerTree(spec, probeDir);
@@ -794,7 +808,7 @@ function main() {
     for (const f of failures) console.error(`  - ${f}\n`);
     if (target.mode === 'CANDIDATE') {
       console.error(
-        '  This is the CANDIDATE run. It measured the tarball this branch would publish, so a\n' +
+        '  This is the CANDIDATE run, for the tarball this branch would publish, so a\n' +
           '  failure here is about the change under review and is fixable in this branch.\n'
       );
     } else {
