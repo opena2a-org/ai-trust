@@ -9,6 +9,12 @@
  * measures what users install from npm, which says a failure there is not
  * fixable by merging.
  *
+ * A `--target` with no value after it names no artifact, and it was read as
+ * no `--target`: the run looked up the published version and handed
+ * it to `npm install` under the PUBLISHED label. It now fails before npm
+ * runs, under neither label, while a run without `--target` still asks npm
+ * for the published version.
+ *
  * `scripts/audit-consumer-resolution.mjs` ends in a bare `main();`, so it
  * runs here as a process. The `npm` on its PATH is a stub that prints its
  * arguments and exits 1: no run reaches the registry, and a run that installs
@@ -41,14 +47,18 @@ afterAll(() => {
   rmSync(scratch, { recursive: true, force: true });
 });
 
-function gate(target: string, cwd = scratch) {
-  const res = spawnSync(process.execPath, [GATE, "--target", target], {
+function gateArgs(args: string[], cwd = scratch) {
+  const res = spawnSync(process.execPath, [GATE, ...args], {
     cwd,
     encoding: "utf8",
     timeout: 60_000,
     env: { PATH: join(scratch, "bin"), HOME: join(scratch, "home"), TMPDIR: join(scratch, "tmp") },
   });
   return { stdout: res.stdout ?? "", stderr: res.stderr ?? "", status: res.status };
+}
+
+function gate(target: string, cwd = scratch) {
+  return gateArgs(["--target", target], cwd);
 }
 
 function expectMissingCandidate(run: ReturnType<typeof gate>, tarball: string) {
@@ -96,5 +106,32 @@ describe.skipIf(process.platform === "win32")("consumer-resolution gate --target
       expect(run.stderr).toContain(`${INSTALL} ${spec}\n`);
       expect(`${run.stdout}${run.stderr}`).not.toContain("CANDIDATE");
     }
+  });
+
+  it("fails a --target with no value before running npm, under neither run's label", () => {
+    const cases: Array<[string[], string]> = [
+      [["--target", ""], 'the argument after it is ""'],
+      [["--target", " \t "], 'the argument after it is " \\t "'],
+      [["--target"], "nothing follows it"],
+    ];
+    for (const [args, given] of cases) {
+      const run = gateArgs(args);
+      expect(run.status).toBe(1);
+      expect(run.stdout).toBe("");
+      expect(run.stderr).toContain(
+        `Consumer-resolution audit FAILED — \`--target\` was given no value: ${given}.\n`,
+      );
+      expect(run.stderr).toContain("`--target` takes the artifact to audit");
+      expect(`${run.stdout}${run.stderr}`).not.toMatch(/PUBLISHED|CANDIDATE/);
+      expect(run.stderr).not.toContain(NPM_CALLED);
+    }
+  });
+
+  it("asks npm for the published dist-tag when --target is left out, as the PUBLISHED run", () => {
+    const run = gateArgs([]);
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain("[PUBLISHED] Consumer-resolution audit FAILED");
+    expect(run.stderr).toContain(`${NPM_CALLED} view ai-trust dist-tags.latest\n`);
+    expect(run.stderr).not.toContain("was given no value");
   });
 });
