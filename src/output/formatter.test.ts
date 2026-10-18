@@ -572,6 +572,96 @@ describe("registry scan date and recorded findings", () => {
   });
 });
 
+describe("a registry answer with a scan date and a scan status that is not a finished one", () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  // An hour past the day boundary, so the age does not depend on the clock.
+  const daysAgo = (days: number) => new Date(Date.now() - days * DAY_MS - 60 * 60 * 1000).toISOString();
+  const trustLine = (output: string) =>
+    output.split("\n").find((line) => line.trimStart().startsWith("Trust"));
+
+  // Listed, a score, a scan date 231 days back, one recorded high finding and
+  // scan status pending: the fields of the registry's answer for
+  // @upstash/context7-mcp.
+  function pendingAnswer(overrides: Partial<TrustAnswer> = {}): TrustAnswer {
+    return {
+      ...makeTrustAnswer({
+        name: "@upstash/context7-mcp",
+        trustLevel: 2,
+        trustScore: 0.773,
+        verdict: "listed",
+        scanStatus: "pending",
+        lastScannedAt: daysAgo(231),
+        ...overrides,
+      }),
+      securityProfile: { criticalCount: 0, highCount: 1, knownCves: [] },
+    } as TrustAnswer;
+  }
+
+  it("says the score is not shown, with the scan status and the age of the last recorded scan", () => {
+    const output = formatCheckResult(pendingAnswer());
+    const trust = trustLine(output);
+
+    expect(trust).toContain("pending");
+    expect(trust).toContain("231 days ago (stale)");
+    expect(trust).toBe(
+      "  Trust     score not shown: the registry's scan status is pending · last recorded scan 231 days ago (stale)",
+    );
+    // The same age the header prints.
+    expect(output.split("\n")[1]).toContain("scanned 231 days ago (stale)");
+    expect(output).not.toContain("not scanned");
+    expect(output).not.toContain("request a scan");
+  });
+
+  it("shows no score for it, and the Next Steps scan measures the package now", () => {
+    const output = formatCheckResult(pendingAnswer());
+
+    expect(trustLine(output)).not.toMatch(/\/100/);
+    expect(output).not.toContain("77/100");
+    expect(output).toContain("Scan locally  ai-trust check @upstash/context7-mcp");
+  });
+
+  it("names the status word the registry sent", () => {
+    for (const scanStatus of ["not_applicable", "running", "PENDING"]) {
+      const output = formatCheckResult(pendingAnswer({ scanStatus }));
+
+      expect(trustLine(output), scanStatus).toContain(
+        `score not shown: the registry's scan status is ${scanStatus} · last recorded scan 231 days ago (stale)`,
+      );
+      expect(output, scanStatus).not.toContain("not scanned");
+    }
+  });
+
+  it("says the answer has no scan status when the status is empty", () => {
+    for (const scanStatus of ["", "  ", undefined]) {
+      const output = formatCheckResult(pendingAnswer({ scanStatus }));
+
+      expect(trustLine(output), JSON.stringify(scanStatus)).toBe(
+        "  Trust     score not shown: the registry's answer has no scan status · last recorded scan 231 days ago (stale)",
+      );
+    }
+  });
+
+  it("still says not scanned when the answer carries no scan date, or one that does not parse", () => {
+    for (const lastScannedAt of [undefined, "not-a-date"]) {
+      const output = formatCheckResult(pendingAnswer({ lastScannedAt }));
+
+      expect(trustLine(output), String(lastScannedAt)).toContain("not scanned");
+      expect(trustLine(output), String(lastScannedAt)).not.toContain("score not shown");
+    }
+  });
+
+  it("still draws the meter for a finished scan, and says a failed scan failed", () => {
+    for (const scanStatus of ["passed", "warnings"]) {
+      expect(trustLine(formatCheckResult(pendingAnswer({ scanStatus }))), scanStatus).toContain(
+        "77/100",
+      );
+    }
+    expect(trustLine(formatCheckResult(pendingAnswer({ scanStatus: "failed" })))).toContain(
+      "Scan failed",
+    );
+  });
+});
+
 describe("registry score beside a fresh scan", () => {
   const DAY_MS = 24 * 60 * 60 * 1000;
   const daysAgo = (days: number) => new Date(Date.now() - days * DAY_MS - 60 * 60 * 1000).toISOString();

@@ -355,6 +355,21 @@ function registryScanAge(lastScannedAt: string | undefined): string | null {
 }
 
 /**
+ * Trust line of an answer that carries a scan date under a scan status that is
+ * not a finished one (pending, not_applicable, empty or unrecognized). The
+ * score is not shown, and the line names the status the registry sent and the
+ * age of its last recorded scan, the age the header prints, instead of saying
+ * "not scanned" under that header.
+ */
+function unfinishedScanTrustText(scanStatus: string | undefined, age: string): string {
+  const status = scanStatus?.trim();
+  const reason = status
+    ? `the registry's scan status is ${status}`
+    : "the registry's answer has no scan status";
+  return `score not shown: ${reason} · last recorded scan ${age}`;
+}
+
+/**
  * A difference between the registry's score and this run's score, in points
  * on the 0-100 scale, above which the scan output sets the two side by side.
  */
@@ -522,6 +537,17 @@ export function formatCheckResult(
       out.push(
         `  ${"Trust".padEnd(CHECK_LABEL_WIDTH)}-- ${chalk.dim(
           "(the registry's score is not a number from 0 to 1)"
+        )}`
+      );
+      continue;
+    }
+    // A scan status that is not a finished one shows no score, but a recorded
+    // date means the registry scanned the package: no "not scanned" under the
+    // header's date.
+    if (line.label === "Trust" && scanStatusForMeter === undefined && !isScanError && scanAge) {
+      out.push(
+        `  ${"Trust".padEnd(CHECK_LABEL_WIDTH)}${chalk.dim(
+          unfinishedScanTrustText(answer.scanStatus, scanAge)
         )}`
       );
       continue;
