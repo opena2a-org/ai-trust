@@ -15,7 +15,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { tmpdir } from "node:os";
-import { registryUrlProblem } from "./utils/registry-url.js";
+import { CREDENTIALS_PROBLEM, registryUrlProblem } from "./utils/registry-url.js";
 
 const CLI_PATH = resolve(__dirname, "../dist/index.js");
 
@@ -104,7 +104,51 @@ describe("--registry-url that is not an http(s) URL", () => {
   });
 });
 
+// Placeholder userinfo: the test needs a URL with user:password@ in it.
+const WITH_CREDENTIALS = "http://FAKE-USER:FAKE-PASSWORD@127.0.0.1:9";
+
+describe("--registry-url with credentials in it", () => {
+  for (const { label, args } of COMMANDS) {
+    it(`${label}: refused before any request, the value not echoed, exit 1`, () => {
+      const res = run(["--registry-url", WITH_CREDENTIALS, ...args()]);
+      expect(res.stderr).toBe(`Error: ${CREDENTIALS_PROBLEM}\n`);
+      expect(res.stderr).not.toContain("FAKE-PASSWORD");
+      expect(res.stdout).toBe("");
+      expect(res.status).toBe(1);
+    });
+  }
+
+  it("check --json: the refusal as an error object on stdout, nothing on stderr, exit 1", () => {
+    const res = run(["--registry-url", WITH_CREDENTIALS, "--json", "check", "x", "--no-scan"]);
+    expect(JSON.parse(res.stdout)).toEqual({ error: CREDENTIALS_PROBLEM });
+    expect(res.stdout).not.toContain("FAKE-PASSWORD");
+    expect(res.stderr).toBe("");
+    expect(res.status).toBe(1);
+  });
+
+  it("names the option, the user:password@ part and an example", () => {
+    expect(CREDENTIALS_PROBLEM).toBe(
+      "--registry-url must not include credentials (user:password@). ai-trust sends no credentials to the registry; pass the URL without them. Example: --registry-url https://api.oa2a.org",
+    );
+  });
+});
+
 describe("registryUrlProblem", () => {
+  it("refuses a URL with a user name, a password, or both", () => {
+    expect(registryUrlProblem(WITH_CREDENTIALS)).toBe(CREDENTIALS_PROBLEM);
+    expect(registryUrlProblem("https://FAKE-USER@api.oa2a.org")).toBe(CREDENTIALS_PROBLEM);
+    expect(registryUrlProblem("https://:FAKE-PASSWORD@api.oa2a.org")).toBe(CREDENTIALS_PROBLEM);
+  });
+
+  it("quotes a value that does not parse or is not http(s) without its userinfo", () => {
+    // Port out of range: does not parse, so the message quotes the value.
+    const unparsable = registryUrlProblem("http://FAKE-USER:FAKE-PASSWORD@127.0.0.1:99999");
+    expect(unparsable).toContain('got "http://127.0.0.1:99999".');
+    expect(unparsable).not.toContain("FAKE-PASSWORD");
+    const schemeless = registryUrlProblem("//FAKE-USER:FAKE-PASSWORD@api.oa2a.org");
+    expect(schemeless).toContain('got "//api.oa2a.org".');
+  });
+
   it("accepts http and https URLs", () => {
     expect(registryUrlProblem("https://api.oa2a.org")).toBeUndefined();
     expect(registryUrlProblem("http://localhost:8080")).toBeUndefined();
