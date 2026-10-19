@@ -14,6 +14,8 @@
  *   one shows no score in `check --no-scan`, and its Trust line names the
  *   status and the age of the last recorded scan instead of "not scanned";
  * - a trust score off the 0-1 scale shows no score in `batch` and `audit`;
+ * - after an HTTP 500 or a body that is not JSON, `audit` names the registry
+ *   and a next step, as `batch` does;
  * - `check pip:` and `check npm:` are usage errors;
  * - `check pip:<name>` output says pypi, and `check <name> --json` says npm.
  */
@@ -37,6 +39,8 @@ const RAW_CVE = `CVE-${OSC_TITLE}-1\r\nEXTRA LINE`;
 // error message the CLI prints.
 const BAD_BODY_PACKAGE = "bad-body";
 const BAD_BODY = `${OSC_TITLE}<html>`;
+// A batch query naming this package is answered with HTTP 500 and a JSON body.
+const STATUS_500_PACKAGE = "status-500";
 const DAY_MS = 24 * 60 * 60 * 1000;
 // An hour past the day boundary, so the age the CLI prints does not depend on the clock.
 const SCANNED_231_DAYS_AGO = new Date(Date.now() - 231 * DAY_MS - 60 * 60 * 1000).toISOString();
@@ -200,6 +204,9 @@ function startRegistry(): Promise<Server> {
       req.on("end", () => {
         const { packages } = JSON.parse(body) as { packages: Array<{ name: string }> };
         if (packages.some((p) => p.name === BAD_BODY_PACKAGE)) return sendBadBody();
+        if (packages.some((p) => p.name === STATUS_500_PACKAGE)) {
+          return send(500, { error: "internal error" });
+        }
         const results = packages.map((p) => BATCH[p.name] ?? answer(p.name));
         send(200, { queriedAt: new Date().toISOString(), results, total: results.length });
       });
@@ -414,6 +421,40 @@ describe("registry answers through the built CLI", () => {
       expect(stderr).not.toMatch(CONTROL);
       expect(stderr).toMatch(/Registry lookup failed \(Registry returned invalid JSON: .*\]0;x<html>/);
     }, 60000);
+  });
+
+  describe("a registry that answers the batch query with an error (#237)", { timeout: 30000 }, () => {
+    it("audit names the registry and a next step after an HTTP 500 or a body that is not JSON, as batch does", async () => {
+      for (const { name, error, answered } of [
+        {
+          name: STATUS_500_PACKAGE,
+          error: "Error: Registry API returned 500",
+          answered: "answered 500",
+        },
+        {
+          name: BAD_BODY_PACKAGE,
+          error: expect.stringMatching(/^Error: Registry returned invalid JSON: /),
+          answered: "answered 200 with a body that is not JSON",
+        },
+      ]) {
+        const manifest = writeManifest(`answered-${name}`, { [name]: "1.0.0" });
+        const audit = await runCli(["audit", manifest]);
+        const batch = await runCli(["batch", name]);
+
+        expect(audit.status, name).toBe(1);
+        expect(audit.stderr.split("\n").slice(0, 3), name).toEqual([
+          error,
+          `  No dependencies were checked: the registry at ${registryUrl} ${answered}.`,
+          "  Next: run the audit again when the registry answers, or scan one package locally with ai-trust check <package>",
+        ]);
+        expect(batch.status, name).toBe(1);
+        expect(batch.stderr.split("\n").slice(0, 3), name).toEqual([
+          error,
+          `  The registry at ${registryUrl} ${answered}.`,
+          `  Next: run the batch again when the registry answers, or check one package locally with ai-trust check ${name}`,
+        ]);
+      }
+    });
   });
 
   describe("a security profile with a field the reader cannot use", () => {

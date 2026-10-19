@@ -855,13 +855,34 @@ describe("audit command", () => {
     });
   });
 
-  describe("a registry that does not answer: the next step (#177)", () => {
+  describe("a failed registry request: the registry and the next step (#177, #237)", () => {
     function registryFails(message: string, code: string): void {
       vi.mocked(parseDependencyFile).mockResolvedValue([{ name: "some-mcp" }]);
       const err = Object.assign(new Error(message), { code });
       vi.mocked(RegistryClient).mockImplementation(function () {
         return { checkTrust: vi.fn(), batchQuery: vi.fn().mockRejectedValue(err) } as any;
       });
+    }
+
+    type RegistryApiErrorArgs = ConstructorParameters<
+      typeof import("@opena2a/registry-client").RegistryApiError
+    >;
+
+    /** The client's own error class; the module mock above does not carry it. */
+    async function registryApiError(...args: RegistryApiErrorArgs): Promise<Error> {
+      const { RegistryApiError } = await vi.importActual<
+        typeof import("@opena2a/registry-client")
+      >("@opena2a/registry-client");
+      return new RegistryApiError(...args);
+    }
+
+    function registryFailsWith(err: Error): ReturnType<typeof vi.fn> {
+      vi.mocked(parseDependencyFile).mockResolvedValue([{ name: "some-mcp" }]);
+      const batchQuery = vi.fn().mockRejectedValue(err);
+      vi.mocked(RegistryClient).mockImplementation(function () {
+        return { checkTrust: vi.fn(), batchQuery } as any;
+      });
+      return batchQuery;
     }
 
     function stderrLines(): string[] {
@@ -915,26 +936,78 @@ describe("audit command", () => {
       }
     });
 
-    it("adds no next step when the registry answered with an error", async () => {
-      registryFails("Registry server error (500)", "server_error");
+    it("names the status a registry that answered with an error gave, and the same next step (#237)", async () => {
+      const batchQuery = registryFailsWith(
+        await registryApiError("Registry API returned 500", "server_error", 500, "{}")
+      );
       await createProgram().parseAsync(["node", "test", "audit", "package.json"]);
 
-      expect(stderrLines()).toEqual(["Error: Registry server error (500)"]);
+      expect(stderrLines()).toEqual([
+        "Error: Registry API returned 500",
+        "  No dependencies were checked: the registry at https://api.test.com answered 500.",
+        "  Next: run the audit again when the registry answers, or scan one package locally with ai-trust check <package>",
+      ]);
+      expect(batchQuery).toHaveBeenCalledTimes(1);
       expect(process.exitCode).toBe(1);
     });
 
-    it("adds no line for the status of a registry that answered, which check --no-scan and batch name", async () => {
-      vi.mocked(parseDependencyFile).mockResolvedValue([{ name: "some-mcp" }]);
-      const { RegistryApiError } = await vi.importActual<
-        typeof import("@opena2a/registry-client")
-      >("@opena2a/registry-client");
-      const err = new RegistryApiError("Registry API returned 500", "server_error", 500, "{}");
-      vi.mocked(RegistryClient).mockImplementation(function () {
-        return { checkTrust: vi.fn(), batchQuery: vi.fn().mockRejectedValue(err) } as any;
-      });
+    it("says the answer was not JSON when the registry answered with a body that does not parse (#237)", async () => {
+      registryFailsWith(
+        await registryApiError(
+          "Registry returned invalid JSON: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON",
+          "invalid_response",
+          200
+        )
+      );
+      await createProgram().parseAsync([
+        "node", "test", "audit", "package.json", "--registry-url", "http://127.0.0.1:8080",
+      ]);
+
+      expect(stderrLines()).toEqual([
+        "Error: Registry returned invalid JSON: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON",
+        "  No dependencies were checked: the registry at http://127.0.0.1:8080 answered 200 with a body that is not JSON.",
+        "  Next: run the audit again when the registry answers, or scan one package locally with ai-trust check <package>",
+      ]);
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("names the pip: form of check after an answered error for a requirements.txt (#237)", async () => {
+      vi.mocked(detectEcosystem).mockReturnValue("pypi");
+      try {
+        registryFailsWith(
+          await registryApiError("Registry API returned 503", "server_error", 503, "")
+        );
+        await createProgram().parseAsync(["node", "test", "audit", "requirements.txt"]);
+
+        expect(stderrLines().slice(1)).toEqual([
+          "  No dependencies were checked: the registry at https://api.test.com answered 503.",
+          "  Next: run the audit again when the registry answers, or scan one package locally with ai-trust check pip:<package>",
+        ]);
+      } finally {
+        vi.mocked(detectEcosystem).mockReturnValue("npm");
+      }
+    });
+
+    it("adds no registry line for an error the registry client did not raise", async () => {
+      registryFailsWith(new Error("unexpected failure"));
       await createProgram().parseAsync(["node", "test", "audit", "package.json"]);
 
-      expect(stderrLines()).toEqual(["Error: Registry API returned 500"]);
+      expect(stderrLines()).toEqual(["Error: unexpected failure"]);
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("leaves the --json output of an answered error as it was: one object on stdout, nothing on stderr", async () => {
+      registryFailsWith(
+        await registryApiError("Registry API returned 500", "server_error", 500, "{}")
+      );
+      await createProgram().parseAsync(["node", "test", "--json", "audit", "package.json"]);
+
+      expect(consoleSpy).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(consoleSpy.mock.calls[0][0] as string)).toEqual({
+        file: "package.json",
+        error: "Registry API returned 500",
+      });
+      expect(consoleErrSpy).not.toHaveBeenCalled();
       expect(process.exitCode).toBe(1);
     });
 
