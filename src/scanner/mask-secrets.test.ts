@@ -14,6 +14,20 @@ function fake(length: number): string {
   return "FAKE".repeat(Math.ceil(length / 4)).slice(0, length);
 }
 
+/**
+ * `length` characters of FAKE, fake and digits, picked by multiples of the
+ * golden ratio so that no short unit repeats: a value with no head that the
+ * scanner reads as a credential, as it reads a random one. Put together when
+ * the test runs.
+ */
+function fakeUnpatterned(length: number): string {
+  const alphabet = "FAKEfake0123456789";
+  return Array.from(
+    { length },
+    (_, i) => alphabet[Math.floor(i * 0.6180339887 * alphabet.length) % alphabet.length],
+  ).join("");
+}
+
 describe("maskSecrets", () => {
   it.each([
     ["sk-ant-api0", fake(24)],
@@ -94,5 +108,84 @@ describe("maskSecrets", () => {
     ]) {
       expect(maskSecrets(text)).toBe(text);
     }
+  });
+
+  describe("a value with no head", () => {
+    // The scanner's own fallback: a run of 40 or more `A-Z a-z 0-9 + = _`
+    // characters between word boundaries is a credential when some window of
+    // 40 of its characters is not filler.
+
+    it("is printed as one * for each character, at most 16", () => {
+      const value = fakeUnpatterned(46);
+      const masked = maskSecrets(`Credential risk: API Key for external requests: ${value}\\n\\nTool tips`);
+      expect(masked).toBe(`Credential risk: API Key for external requests: ${"*".repeat(16)}\\n\\nTool tips`);
+      expect(masked).not.toContain(value.slice(0, 8));
+    });
+
+    it("is masked at 40 characters and left at 39", () => {
+      expect(maskSecrets(`key ${fakeUnpatterned(40)}.`)).toBe(`key ${"*".repeat(16)}.`);
+      const short = `key ${fakeUnpatterned(39)}.`;
+      expect(maskSecrets(short)).toBe(short);
+    });
+
+    it("takes `+`, `=` and `_` into the value, and ends at `-`, `/`, `.` and a space", () => {
+      const joined = `${fakeUnpatterned(20)}+${fakeUnpatterned(9)}=_${fakeUnpatterned(12)}`;
+      expect(maskSecrets(`secret ${joined} end`)).toBe(`secret ${"*".repeat(16)} end`);
+      for (const separator of ["-", "/", ".", " "]) {
+        const text = `${fakeUnpatterned(30)}${separator}${fakeUnpatterned(30)}`;
+        expect(maskSecrets(text)).toBe(text);
+      }
+    });
+
+    it("is masked beside a value with a head, which keeps its head", () => {
+      const text = `a sk-${fake(43)} b ${fakeUnpatterned(44)} c`;
+      expect(maskSecrets(text)).toBe(`a sk-${"*".repeat(16)} b ${"*".repeat(16)} c`);
+    });
+
+    it("is masked whole when filler is joined to it", () => {
+      // One run in which `_` fills more than 90%; the window that holds the
+      // value is not filler.
+      const run = "_".repeat(400) + fakeUnpatterned(40);
+      expect(maskSecrets(`token ${run} end`)).toBe(`token ${"*".repeat(16)} end`);
+    });
+
+    it("is left when every window of 40 repeats a unit of 4 or fewer characters, or has one character in more than 36 places", () => {
+      for (const filler of [
+        "_".repeat(47),
+        "_=".repeat(25),
+        "01".repeat(20),
+        "abc".repeat(14),
+        "FAKE".repeat(12),
+        `${"_".repeat(46)}1`,
+        `${"a".repeat(37)}bcd`,
+      ]) {
+        const text = `Field: ${filler} end`;
+        expect(maskSecrets(text)).toBe(text);
+      }
+    });
+
+    it("is masked when its unit is 5 characters, and when one character has 36 of 40 places", () => {
+      expect(maskSecrets(`v ${"FAKE1".repeat(8)}`)).toBe(`v ${"*".repeat(16)}`);
+      expect(maskSecrets(`v ${"a".repeat(36)}bcde`)).toBe(`v ${"*".repeat(16)}`);
+    });
+
+    it("reads a run of 1 MB, filler or with a value at its end, in under a second", () => {
+      const filler = "_".repeat(1 << 20);
+      const pairs = "ab".repeat(1 << 19);
+      const valueAfterFiller = `${filler}${fakeUnpatterned(40)}`;
+      // Every boundary in the first 38 characters starts a run that has no
+      // end boundary 40 or more characters on.
+      const noEnd = `${"+a".repeat(19)}${"+".repeat(1 << 20)}`;
+      for (const [text, expected] of [
+        [filler, filler],
+        [pairs, pairs],
+        [valueAfterFiller, "*".repeat(16)],
+        [noEnd, noEnd],
+      ]) {
+        const start = performance.now();
+        expect(maskSecrets(text)).toBe(expected);
+        expect(performance.now() - start).toBeLessThan(1000);
+      }
+    });
   });
 });

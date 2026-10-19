@@ -486,6 +486,112 @@ ${JSON.stringify({
       expect(result.findings[0].message).toBe(quoted(`sk-${"*".repeat(16)}`));
       expect(JSON.stringify(result)).not.toContain(key);
     });
+
+    // A value with no head that the scanner reads as a credential: 46
+    // characters of FAKE, fake and digits, picked by multiples of the golden
+    // ratio so that no short unit repeats.
+    const unpatterned = Array.from(
+      { length: 46 },
+      (_, i) => "FAKEfake0123456789"[Math.floor(i * 0.6180339887 * 18) % 18],
+    ).join("");
+    const masked = `sk-${"*".repeat(16)}`;
+
+    it("is masked in the name, description and fix of a finding", async () => {
+      vi.mocked(execFile as any).mockResolvedValue({
+        stdout: JSON.stringify({
+          score: 21,
+          maxScore: 100,
+          findings: [
+            {
+              checkId: "AST-CRED-001",
+              name: `Credential Harvesting Pattern: ${key}`,
+              description: `The prompt hands out ${key}`,
+              severity: "critical",
+              passed: false,
+              message: quoted(key),
+              file: "system-prompts.json",
+              fix: `Remove ${key} from system-prompts.json`,
+            },
+          ],
+        }),
+        stderr: "",
+      });
+
+      const result = await runHmaScan("/tmp/test-pkg");
+
+      expect(result.findings[0]).toMatchObject({
+        name: `Credential Harvesting Pattern: ${masked}`,
+        description: `The prompt hands out ${masked}`,
+        message: quoted(masked),
+        fix: `Remove ${masked} from system-prompts.json`,
+        file: "system-prompts.json",
+      });
+      expect(JSON.stringify(result)).not.toContain(key);
+    });
+
+    it("is masked as 16 * when it has no head", async () => {
+      vi.mocked(execFile as any).mockResolvedValue({ stdout: reportQuoting(unpatterned), stderr: "" });
+
+      const result = await runHmaScan("/tmp/test-pkg");
+
+      expect(result.findings[0].message).toBe(quoted("*".repeat(16)));
+      expect(JSON.stringify(result)).not.toContain(unpatterned);
+    });
+
+    it("is masked in every string of an analyst finding's result, at any depth", async () => {
+      vi.mocked(execFile as any).mockResolvedValue({
+        stdout: JSON.stringify({
+          score: 21,
+          maxScore: 100,
+          findings: [],
+          analystFindings: [
+            {
+              taskType: "credentialContextClassification",
+              result: {
+                classification: "real",
+                reasoning: `The value ${key} is used for live requests`,
+                evidence: { lines: [quoted(key), { value: unpatterned }] },
+                score: 0.9,
+              },
+              confidence: 0.9,
+              modelVersion: "test",
+              durationMs: 1,
+              backend: "test",
+            },
+          ],
+        }),
+        stderr: "",
+      });
+
+      const result = await runHmaScan("/tmp/test-pkg");
+
+      expect(result.analystFindings?.[0].result).toEqual({
+        classification: "real",
+        reasoning: `The value ${masked} is used for live requests`,
+        evidence: { lines: [quoted(masked), { value: "*".repeat(16) }] },
+        score: 0.9,
+      });
+      expect(JSON.stringify(result)).not.toContain(key);
+      expect(JSON.stringify(result)).not.toContain(unpatterned);
+    });
+
+    it("is masked in the error of a scan that gives no report", async () => {
+      const stderr = `Cannot parse config: ${key} ${unpatterned}\n`;
+      vi.mocked(execFile as any).mockRejectedValue(
+        Object.assign(new Error(`Command failed: hackmyagent secure /tmp/test-pkg\n${stderr}`), {
+          code: 1,
+          stdout: "",
+          stderr,
+        }),
+      );
+
+      const error = await runHmaScan("/tmp/test-pkg").catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(HmaScanError);
+      expect((error as Error).message).toBe(
+        `HMA scan failed: Command failed: hackmyagent secure /tmp/test-pkg\nCannot parse config: ${masked} ${"*".repeat(16)}\n`,
+      );
+    });
   });
 
   describe("files the scanner read", () => {
