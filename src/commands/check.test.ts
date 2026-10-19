@@ -401,6 +401,60 @@ describe("check command", () => {
       expect(process.exitCode).toBe(1);
     });
 
+    describe("a registry error that quotes a URL with a user name and password (#232)", () => {
+      // Placeholder userinfo: the test needs a URL with user:password@ in it.
+      const PLANTED_NAME = "FAKE-USER";
+      const PLANTED_WORD = "FAKE-PASSWORD";
+      const URL_WITH_USERINFO = "http://FAKE-USER:FAKE-PASSWORD@127.0.0.1:9";
+      const QUOTED =
+        "Registry network error: Request cannot be constructed from a URL that includes credentials: ";
+      const QUERY = "/api/v1/trust/query?name=any-pkg&includeProfile=true&includeDeps=true";
+
+      function registryFails(): void {
+        vi.mocked(RegistryClient).mockImplementation(function () {
+          return {
+            checkTrust: vi.fn().mockRejectedValue(new Error(`${QUOTED}${URL_WITH_USERINFO}${QUERY}`)),
+            batchQuery: vi.fn(),
+            publishScan: vi.fn(),
+          } as any;
+        });
+      }
+
+      function printed(): string {
+        return [...consoleSpy.mock.calls, ...consoleErrSpy.mock.calls]
+          .map((c) => String(c[0]))
+          .join("\n");
+      }
+
+      it("prints the error line with [redacted] in place of them", async () => {
+        registryFails();
+        await createProgram().parseAsync([
+          "node", "test", "--registry-url", URL_WITH_USERINFO, "check", "any-pkg", "--no-scan",
+        ]);
+
+        expect(consoleErrSpy.mock.calls.map((c) => String(c[0]))).toEqual([
+          `Error: ${QUOTED}http://[redacted]@127.0.0.1:9${QUERY}`,
+        ]);
+        expect(printed()).not.toContain(PLANTED_NAME);
+        expect(printed()).not.toContain(PLANTED_WORD);
+        expect(process.exitCode).toBe(1);
+      });
+
+      it("--json: the error string has [redacted] in place of them", async () => {
+        registryFails();
+        await createProgram().parseAsync([
+          "node", "test", "--json", "--registry-url", URL_WITH_USERINFO, "check", "any-pkg", "--no-scan",
+        ]);
+
+        expect(JSON.parse(String(consoleSpy.mock.calls[0][0])).error).toBe(
+          `${QUOTED}http://[redacted]@127.0.0.1:9${QUERY}`,
+        );
+        expect(printed()).not.toContain(PLANTED_NAME);
+        expect(printed()).not.toContain(PLANTED_WORD);
+        expect(process.exitCode).toBe(1);
+      });
+    });
+
     it("shows not-found message with actionable next steps", async () => {
       const mockCheckTrust = vi
         .fn()
@@ -1690,6 +1744,64 @@ describe("check command", () => {
         all: false,
         rerunCommand:
           "ai-trust check pip:my-pkg --analm --no-contribute --registry-url https://registry.example.test",
+      });
+    });
+
+    describe("with a user name and password in --registry-url (#232)", () => {
+      // Placeholder userinfo: the test needs a URL with user:password@ in it.
+      const PLANTED_NAME = "FAKE-USER";
+      const PLANTED_WORD = "FAKE-PASSWORD";
+      const URL_WITH_USERINFO = "https://FAKE-USER:FAKE-PASSWORD@registry.example.test";
+
+      function printed(): string {
+        return [...consoleSpy.mock.calls, ...consoleErrSpy.mock.calls]
+          .map((c) => String(c[0]))
+          .join("\n");
+      }
+
+      it("the re-run command cites the registry URL without them", async () => {
+        vi.mocked(RegistryClient).mockImplementation(function () {
+          return {
+            checkTrust: vi.fn().mockRejectedValue(new PackageNotFoundError("my-pkg")),
+            publishScan: vi.fn(),
+          } as any;
+        });
+        vi.mocked(scanPackage).mockResolvedValue({ ...scanned, packageName: "my-pkg" });
+
+        await createProgram().parseAsync([
+          "node", "test", "check", "pip:my-pkg", "--registry-url", URL_WITH_USERINFO, "--no-contribute",
+        ]);
+
+        expect(formatScanResult).toHaveBeenCalledWith(expect.anything(), {
+          remote: true,
+          ecosystem: "pypi",
+          all: false,
+          rerunCommand:
+            "ai-trust check pip:my-pkg --no-contribute --registry-url https://registry.example.test/",
+        });
+      });
+
+      it("the registry lookup failure line has [redacted] in place of them", async () => {
+        const quoted =
+          "Registry network error: Request cannot be constructed from a URL that includes credentials: ";
+        const query = "/api/v1/trust/query?name=my-pkg&includeProfile=true&includeDeps=true";
+        vi.mocked(RegistryClient).mockImplementation(function () {
+          return {
+            checkTrust: vi.fn().mockRejectedValue(new Error(`${quoted}${URL_WITH_USERINFO}${query}`)),
+            publishScan: vi.fn(),
+          } as any;
+        });
+        vi.mocked(scanPackage).mockResolvedValue({ ...scanned, packageName: "my-pkg" });
+
+        await createProgram().parseAsync([
+          "node", "test", "check", "my-pkg", "--registry-url", URL_WITH_USERINFO, "--no-contribute",
+        ]);
+
+        expect(printed()).toContain(
+          `  Registry lookup failed (${quoted}https://[redacted]@registry.example.test${query}); proceeding with local scan.`,
+        );
+        expect(printed()).not.toContain(PLANTED_NAME);
+        expect(printed()).not.toContain(PLANTED_WORD);
       });
     });
 

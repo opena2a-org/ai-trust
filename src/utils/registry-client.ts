@@ -35,7 +35,7 @@
 
 import chalk from "chalk";
 import { RegistryClient } from "@opena2a/registry-client";
-import { stripControlCharacters } from "../output/sanitize.js";
+import { stripControlCharacters, urlWithoutUserinfo } from "../output/sanitize.js";
 
 /** Explicit per-request timeout, raised from the dependency's 10000 ms default. */
 export const REGISTRY_TIMEOUT_MS = 15000;
@@ -132,13 +132,14 @@ function shownUrl(baseUrl: string): string {
  * answered with an HTTP error. `check --no-scan`, `batch` and `audit` print
  * it after their `Error:` line, so the three name the registry the same way.
  * Undefined for an error the registry client did not raise. The URL is
- * `--registry-url` or its default, with control characters removed.
+ * `--registry-url` or its default, with control characters removed, and
+ * without a user name or password (urlWithoutUserinfo).
  */
 export function registryFailure(
   err: unknown,
   registryUrl: string,
 ): string | undefined {
-  const registry = `the registry at ${stripControlCharacters(registryUrl)}`;
+  const registry = `the registry at ${urlWithoutUserinfo(stripControlCharacters(registryUrl))}`;
   if (isTransientRegistryError(err)) return `${registry} did not answer`;
   if (!(err instanceof Error)) return undefined;
   const { code, statusCode } = err as Error & { code?: unknown; statusCode?: unknown };

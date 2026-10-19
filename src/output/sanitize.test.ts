@@ -3,9 +3,19 @@
  * them (#129).
  */
 import { describe, it, expect } from "vitest";
-import { capLength, sanitizeRegistryValue, stripControlCharacters } from "./sanitize.js";
+import {
+  capLength,
+  redactUrlUserinfo,
+  sanitizeRegistryValue,
+  stripControlCharacters,
+  urlWithoutUserinfo,
+} from "./sanitize.js";
 
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
+
+// Placeholder userinfo planted in the URLs below.
+const PLANTED_NAME = "FAKE-USER";
+const PLANTED_WORD = "FAKE-PASSWORD";
 
 describe("stripControlCharacters", () => {
   it("removes ESC and BEL from an OSC title sequence", () => {
@@ -111,5 +121,66 @@ describe("capLength", () => {
     const capped = capLength(`${"x".repeat(35)}\u{1F600}${"y".repeat(10)}`, 40);
     expect(capped).toBe(`${"x".repeat(35)}\u{1F600}...`);
     expect(capped).toHaveLength(40);
+  });
+});
+
+describe("redactUrlUserinfo (#232)", () => {
+  it("prints a URL's user name and password in an error message as [redacted]", () => {
+    const message =
+      "Registry network error: Request cannot be constructed from a URL that includes credentials: " +
+      "http://FAKE-USER:FAKE-PASSWORD@127.0.0.1:9/api/v1/trust/batch";
+    const redacted = redactUrlUserinfo(message);
+    expect(redacted).toBe(
+      "Registry network error: Request cannot be constructed from a URL that includes credentials: " +
+        "http://[redacted]@127.0.0.1:9/api/v1/trust/batch",
+    );
+    expect(redacted).not.toContain(PLANTED_NAME);
+    expect(redacted).not.toContain(PLANTED_WORD);
+  });
+
+  it("redacts a user name alone, a password holding @, and every URL in the text", () => {
+    expect(
+      redactUrlUserinfo(
+        "https://FAKE-USER@a.example.test and http://FAKE-USER:FAKE-PASSWORD@x@b.example.test/p",
+      ),
+    ).toBe("https://[redacted]@a.example.test and http://[redacted]@b.example.test/p");
+  });
+
+  it("leaves an @ outside a URL's user name and password as it is", () => {
+    for (const text of [
+      "node_modules/@scope/pkg/index.js",
+      "ai-trust check @modelcontextprotocol/server-filesystem",
+      "https://registry.npmjs.org/@scope%2fpkg",
+      "https://api.oa2a.org/api/v1/trust/query?name=@scope/pkg",
+      "https://api.oa2a.org/x#@fragment",
+      "fetch failed for https://api.oa2a.org while resolving @scope/pkg",
+      "Registry network error: fetch failed",
+    ]) {
+      expect(redactUrlUserinfo(text)).toBe(text);
+    }
+  });
+});
+
+describe("urlWithoutUserinfo (#232)", () => {
+  it("prints a URL with a user name or password as its origin and path", () => {
+    expect(urlWithoutUserinfo("http://FAKE-USER:FAKE-PASSWORD@127.0.0.1:9")).toBe(
+      "http://127.0.0.1:9/",
+    );
+    expect(urlWithoutUserinfo("https://FAKE-USER@registry.example.test/base")).toBe(
+      "https://registry.example.test/base",
+    );
+  });
+
+  it("returns a URL without them as it was given", () => {
+    for (const value of ["http://127.0.0.1:9", "https://api.oa2a.org", "https://registry.example.test/base/"]) {
+      expect(urlWithoutUserinfo(value)).toBe(value);
+    }
+  });
+
+  it("redacts them in a value that does not parse as a URL", () => {
+    // Port 99999 is out of range, so the value does not parse.
+    expect(urlWithoutUserinfo("http://FAKE-USER:FAKE-PASSWORD@127.0.0.1:99999")).toBe(
+      "http://[redacted]@127.0.0.1:99999",
+    );
   });
 });
