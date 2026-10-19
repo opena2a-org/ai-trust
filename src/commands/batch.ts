@@ -16,7 +16,7 @@ import {
 } from "../utils/registry-client.js";
 import { formatBatchResults, formatJson } from "../output/formatter.js";
 import type { BatchAnswer } from "../output/formatter.js";
-import { stripControlCharacters } from "../output/sanitize.js";
+import { redactUrlUserinfo, stripControlCharacters } from "../output/sanitize.js";
 import { trustGate } from "../output/trust-gate.js";
 import { packageTypeChoices, packageTypeProblem } from "../utils/package-type.js";
 import { parseMinTrust } from "../utils/min-trust.js";
@@ -159,11 +159,13 @@ export function registerBatchCommand(program: Command): void {
           }
         } catch (err) {
           const message = registryErrorMessage(err);
+          // A registry error can quote the request URL, and the URL's user
+          // name and password with it.
           if (globalOpts.json) {
-            console.log(formatJson({ error: message }));
+            console.log(formatJson({ error: redactUrlUserinfo(message) }));
           } else {
             // A registry error can quote the registry's response body.
-            console.error(`Error: ${stripControlCharacters(message)}`);
+            console.error(`Error: ${redactUrlUserinfo(stripControlCharacters(message))}`);
             const failure = registryFailureSentence(err, globalOpts.registryUrl);
             if (failure) {
               console.error(`  ${failure}`);

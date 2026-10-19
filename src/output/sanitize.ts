@@ -7,6 +7,10 @@
  * The text formatters pass registry values through this module first.
  * `--json` output does not: it carries each string as the registry sent it,
  * with the control characters written as JSON escapes (see formatJson).
+ *
+ * An error line, in text and in `--json`, and a suggested command print a
+ * URL without its user name and password (redactUrlUserinfo,
+ * urlWithoutUserinfo).
  */
 
 // Tab, line feed, vertical tab, form feed and carriage return separate words
@@ -57,4 +61,36 @@ export function capLength(text: string, max: number): string {
 
 function isHighSurrogate(codeUnit: number): boolean {
   return codeUnit >= 0xd800 && codeUnit <= 0xdbff;
+}
+
+// The user name and password of a URL: the text after `://` up to the last
+// `@` before a `/`, `?`, `#` or whitespace, which end the host.
+const URL_USERINFO = /:\/\/[^\s/?#]+@/g;
+
+/**
+ * Print `://[redacted]@` in place of the user name and password of each URL
+ * in the text. Node's fetch refuses a URL that carries them with an error
+ * that quotes the whole URL, and the registry client passes that error on.
+ * An `@` anywhere else, as in a path or an `@scope/name`, is left as it is.
+ */
+export function redactUrlUserinfo(text: string): string {
+  return text.replace(URL_USERINFO, "://[redacted]@");
+}
+
+/**
+ * A URL as a line of output or a suggested command prints it: as given when
+ * it has no user name or password, otherwise its origin and path. A value
+ * that does not parse as a URL, or has no origin to print, is printed as
+ * `redactUrlUserinfo` leaves it.
+ */
+export function urlWithoutUserinfo(value: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return redactUrlUserinfo(value);
+  }
+  if (parsed.username === "" && parsed.password === "") return value;
+  if (parsed.origin === "null") return redactUrlUserinfo(value);
+  return `${parsed.origin}${parsed.pathname}`;
 }

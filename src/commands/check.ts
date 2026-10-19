@@ -27,7 +27,11 @@ import {
 import type { FormatScanResultOptions } from "../output/formatter.js";
 import { buildNotFoundOutput, translateDownloadError } from "@opena2a/check-core";
 import { logResolved } from "../utils/resolve.js";
-import { stripControlCharacters } from "../output/sanitize.js";
+import {
+  redactUrlUserinfo,
+  stripControlCharacters,
+  urlWithoutUserinfo,
+} from "../output/sanitize.js";
 import { analystLayerNote } from "../output/analyst-note.js";
 import {
   HmaScanError,
@@ -117,7 +121,9 @@ function rerunCommand(
   if (opts.analm) parts.push("--analm");
   if (opts.contribute === true) parts.push("--contribute");
   if (opts.contribute === false) parts.push("--no-contribute");
-  if (registryUrlFromCli) parts.push("--registry-url", shellArg(registryUrlFromCli));
+  if (registryUrlFromCli) {
+    parts.push("--registry-url", shellArg(urlWithoutUserinfo(registryUrlFromCli)));
+  }
   return parts.join(" ");
 }
 
@@ -421,14 +427,16 @@ export function registerCheckCommand(program: Command): void {
             handleNoScanNotFound(pkg, globalOpts, opts.type);
           } else {
             const message = registryErrorMessage(err);
+            // A registry error can quote the request URL, and the URL's user
+            // name and password with it.
             if (globalOpts.json) {
               // The lookup failed, so whether the registry has the package is
               // not known: the object carries no `found`, since `found: false`
               // would read as a miss.
-              console.log(formatJson({ name, ecosystem, error: message }));
+              console.log(formatJson({ name, ecosystem, error: redactUrlUserinfo(message) }));
             } else {
               // A registry error can quote the registry's response body.
-              console.error(`Error: ${stripControlCharacters(message)}`);
+              console.error(`Error: ${redactUrlUserinfo(stripControlCharacters(message))}`);
               const failure = registryFailureSentence(err, globalOpts.registryUrl);
               if (failure) {
                 console.error(`  ${failure}`);
@@ -473,11 +481,13 @@ export function registerCheckCommand(program: Command): void {
         if (!(err instanceof PackageNotFoundError)) {
           // Unexpected registry error — don't fail the scan, just log and continue.
           // The user asked for trust info; let the scan produce something useful.
-          // A registry error can quote the registry's response body. The
-          // `--json` document carries it as `registryError`.
+          // A registry error can quote the registry's response body, and the
+          // request URL with its user name and password. The `--json` document
+          // carries it as `registryError`.
           registryError = registryErrorMessage(err);
+          const message = redactUrlUserinfo(stripControlCharacters(registryError));
           console.error(
-            chalk.dim(`  Registry lookup failed (${stripControlCharacters(registryError)}); proceeding with local scan.`),
+            chalk.dim(`  Registry lookup failed (${message}); proceeding with local scan.`),
           );
         }
         // PackageNotFoundError: registry doesn't know this package — scan it.

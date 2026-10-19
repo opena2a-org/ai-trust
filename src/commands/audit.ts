@@ -15,7 +15,11 @@ import { parseDependencyFile, detectEcosystem } from "../utils/parser.js";
 import { findAuditFile } from "../utils/audit-file.js";
 import { parseMinTrust } from "../utils/min-trust.js";
 import { shellArg } from "../utils/shell-arg.js";
-import { capLength, stripControlCharacters } from "../output/sanitize.js";
+import {
+  capLength,
+  redactUrlUserinfo,
+  stripControlCharacters,
+} from "../output/sanitize.js";
 import {
   formatBatchResults,
   formatJson,
@@ -230,11 +234,13 @@ export function registerAuditCommand(program: Command): void {
               ? nameTooLongMessage(file)
               : registryErrorMessage(err);
 
+        // A registry error can quote the request URL, and the URL's user name
+        // and password with it.
         if (globalOpts.json) {
-          console.log(formatJson({ file, error: message }));
+          console.log(formatJson({ file, error: redactUrlUserinfo(message) }));
         } else {
           // A registry error can quote the registry's response body.
-          console.error(`Error: ${stripControlCharacters(message)}`);
+          console.error(`Error: ${redactUrlUserinfo(stripControlCharacters(message))}`);
           // Set for a request the registry did not answer and for an answer
           // with an error status or a body that is not JSON, as in
           // `check --no-scan` and `batch`.

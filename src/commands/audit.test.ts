@@ -1022,6 +1022,52 @@ describe("audit command", () => {
         "  No dependencies were checked: the registry at http://127.0.0.1:9/[2Japi did not answer."
       );
     });
+
+    describe("with a user name and password in --registry-url (#232)", () => {
+      // Placeholder userinfo: the test needs a URL with user:password@ in it.
+      const PLANTED_NAME = "FAKE-USER";
+      const PLANTED_WORD = "FAKE-PASSWORD";
+      const URL_WITH_USERINFO = "http://FAKE-USER:FAKE-PASSWORD@127.0.0.1:9";
+      const QUOTED =
+        "Registry network error: Request cannot be constructed from a URL that includes credentials: ";
+
+      function printed(): string {
+        return [...consoleSpy.mock.calls, ...consoleErrSpy.mock.calls]
+          .map((c) => String(c[0]))
+          .join("\n");
+      }
+
+      it("prints the error line with [redacted] in place of them and the registry without them", async () => {
+        registryFails(`${QUOTED}${URL_WITH_USERINFO}/api/v1/trust/batch`, "network");
+        await createProgram().parseAsync([
+          "node", "test", "--registry-url", URL_WITH_USERINFO, "audit", "package.json",
+        ]);
+
+        expect(stderrLines()).toEqual([
+          `Error: ${QUOTED}http://[redacted]@127.0.0.1:9/api/v1/trust/batch`,
+          "  No dependencies were checked: the registry at http://127.0.0.1:9/ did not answer.",
+          "  Next: run the audit again when the registry answers, or scan one package locally with ai-trust check <package>",
+        ]);
+        expect(printed()).not.toContain(PLANTED_NAME);
+        expect(printed()).not.toContain(PLANTED_WORD);
+        expect(process.exitCode).toBe(1);
+      });
+
+      it("--json: the error string has [redacted] in place of them", async () => {
+        registryFails(`${QUOTED}${URL_WITH_USERINFO}/api/v1/trust/batch`, "network");
+        await createProgram().parseAsync([
+          "node", "test", "--json", "--registry-url", URL_WITH_USERINFO, "audit", "package.json",
+        ]);
+
+        expect(JSON.parse(String(consoleSpy.mock.calls[0][0]))).toEqual({
+          file: "package.json",
+          error: `${QUOTED}http://[redacted]@127.0.0.1:9/api/v1/trust/batch`,
+        });
+        expect(printed()).not.toContain(PLANTED_NAME);
+        expect(printed()).not.toContain(PLANTED_WORD);
+        expect(process.exitCode).toBe(1);
+      });
+    });
   });
 
   it("describes --scan-missing without the scanner's abbreviation (#177)", () => {

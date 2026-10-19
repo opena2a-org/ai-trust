@@ -696,4 +696,46 @@ describe("batch command", () => {
       expect(process.exitCode).toBe(1);
     });
   });
+
+  describe("a registry error that quotes a URL with a user name and password (#232)", () => {
+    // Placeholder userinfo: the test needs a URL with user:password@ in it.
+    const PLANTED_NAME = "FAKE-USER";
+    const PLANTED_WORD = "FAKE-PASSWORD";
+    const QUOTED =
+      "Registry network error: Request cannot be constructed from a URL that includes credentials: ";
+    const REDACTED = `${QUOTED}http://[redacted]@127.0.0.1:9/api/v1/trust/batch`;
+
+    function registryFails(): string[] {
+      const url = "http://FAKE-USER:FAKE-PASSWORD@127.0.0.1:9";
+      vi.mocked(RegistryClient).mockImplementation(function () {
+        return {
+          checkTrust: vi.fn(),
+          batchQuery: vi.fn().mockRejectedValue(new Error(`${QUOTED}${url}/api/v1/trust/batch`)),
+        } as any;
+      });
+      return ["--registry-url", url];
+    }
+
+    function printed(): string {
+      return [...consoleSpy.mock.calls, ...consoleErrSpy.mock.calls].map((c) => String(c[0])).join("\n");
+    }
+
+    it("prints the error line with [redacted] in place of them", async () => {
+      await createProgram().parseAsync(["node", "test", ...registryFails(), "batch", "pkg-a"]);
+
+      expect(consoleErrSpy.mock.calls.map((c) => String(c[0]))).toEqual([`Error: ${REDACTED}`]);
+      expect(printed()).not.toContain(PLANTED_NAME);
+      expect(printed()).not.toContain(PLANTED_WORD);
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("--json: the error string has [redacted] in place of them", async () => {
+      await createProgram().parseAsync(["node", "test", "--json", ...registryFails(), "batch", "pkg-a"]);
+
+      expect(JSON.parse(consoleSpy.mock.calls[0][0] as string)).toEqual({ error: REDACTED });
+      expect(printed()).not.toContain(PLANTED_NAME);
+      expect(printed()).not.toContain(PLANTED_WORD);
+      expect(process.exitCode).toBe(1);
+    });
+  });
 });
