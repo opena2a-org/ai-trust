@@ -2662,6 +2662,151 @@ describe("check --scan-path --json prints a failed scan as JSON on stdout", () =
   });
 });
 
+// #235: with --json, a check whose scanner could not be started printed the
+// reason as text on stderr and nothing on stdout, and exited 2 with
+// --scan-path and 1 in the default flow.
+describe("check --json prints a scanner that cannot be started as JSON on stdout", () => {
+  let consoleSpy: ReturnType<typeof vi.spyOn>;
+  let consoleErrSpy: ReturnType<typeof vi.spyOn>;
+  let savedExitCode: number | undefined;
+
+  const NOT_RUN =
+    "ai-trust runs the hackmyagent version it pins as a dependency, and that copy could not be run. Reinstall it:";
+  // What scannerNodeVersionProblem() returns on Node.js 20.18.3.
+  const START_PROBLEM =
+    "The hackmyagent version ai-trust pins loads an ES module with require(), which Node.js 20.18.3 does not do (ERR_REQUIRE_ESM). Run ai-trust on Node.js 20.19.0 or a later 20.x release, or on 22.12.0 or later.";
+
+  /**
+   * Run `check` with process.exit stubbed; returns the code it exited with,
+   * or the exit code it set when it did not call process.exit.
+   */
+  async function runCheck(args: string[]): Promise<number | undefined> {
+    let exitCode: number | undefined;
+    const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      exitCode = code;
+      throw new Error("process.exit");
+    }) as never);
+    try {
+      await createProgram().parseAsync(["node", "test", ...args]).catch(() => {});
+    } finally {
+      exit.mockRestore();
+    }
+    return exitCode ?? (process.exitCode as number | undefined);
+  }
+
+  /** The lines printed on stderr, without colour codes. */
+  function stderrLines(): string[] {
+    return consoleErrSpy.mock.calls.map((args) => args.join(" ").replace(/\x1b\[[0-9;]*m/g, ""));
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    savedExitCode = process.exitCode;
+    process.exitCode = undefined;
+    vi.mocked(isHmaAvailable).mockResolvedValue(false);
+    // The registry does not have the package, so the default flow goes on to scan it.
+    vi.mocked(RegistryClient).mockImplementation(function () {
+      return {
+        checkTrust: vi.fn().mockRejectedValue(new PackageNotFoundError("fixture")),
+        publishScan: vi.fn(),
+      } as any;
+    });
+  });
+
+  afterEach(() => {
+    consoleSpy.mockRestore();
+    consoleErrSpy.mockRestore();
+    process.exitCode = savedExitCode;
+  });
+
+  it("--scan-path prints one object with the reinstall command in its error, nothing on stderr, and exits 2", async () => {
+    const exitCode = await runCheck([
+      "--json", "check", "fixture", "--scan-path", "/tmp/fixture", "--no-deep",
+    ]);
+
+    expect(consoleSpy).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(consoleSpy.mock.calls[0][0]))).toEqual({
+      name: "fixture",
+      found: false,
+      error: `HMA is not available. ${NOT_RUN} cd /work/project && npm install`,
+    });
+    expect(consoleErrSpy).not.toHaveBeenCalled();
+    expect(exitCode).toBe(2);
+    expect(scanLocalPath).not.toHaveBeenCalled();
+  });
+
+  it("--scan-path gives why the scanner could not be started as the error", async () => {
+    vi.mocked(scannerNodeVersionProblem).mockReturnValueOnce(START_PROBLEM);
+
+    const exitCode = await runCheck([
+      "--json", "check", "fixture", "--scan-path", "/tmp/fixture", "--no-deep",
+    ]);
+
+    expect(consoleSpy).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(consoleSpy.mock.calls[0][0]))).toEqual({
+      name: "fixture",
+      found: false,
+      error: `HMA could not be started. ${START_PROBLEM}`,
+    });
+    expect(consoleErrSpy).not.toHaveBeenCalled();
+    expect(exitCode).toBe(2);
+  });
+
+  it("the default flow prints one object with the reinstall command in its error, nothing on stderr, and exits 1", async () => {
+    const exitCode = await runCheck(["--json", "check", "fixture", "--no-deep"]);
+
+    expect(consoleSpy).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(consoleSpy.mock.calls[0][0]))).toEqual({
+      name: "fixture",
+      found: false,
+      error: `HMA (HackMyAgent) is required for scanning. ${NOT_RUN} cd /work/project && npm install`,
+      ecosystem: "npm",
+    });
+    expect(consoleErrSpy).not.toHaveBeenCalled();
+    expect(exitCode).toBe(1);
+    expect(scanPackage).not.toHaveBeenCalled();
+  });
+
+  it("the default flow gives why the scanner could not be started as the error, with the target's ecosystem", async () => {
+    vi.mocked(scannerNodeVersionProblem).mockReturnValueOnce(START_PROBLEM);
+
+    const exitCode = await runCheck(["--json", "check", "pip:fixture", "--no-deep"]);
+
+    expect(consoleSpy).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(consoleSpy.mock.calls[0][0]))).toEqual({
+      name: "fixture",
+      found: false,
+      error: `HMA (HackMyAgent) is required for scanning, and it could not be started. ${START_PROBLEM}`,
+      ecosystem: "pypi",
+    });
+    expect(consoleErrSpy).not.toHaveBeenCalled();
+    expect(exitCode).toBe(1);
+  });
+
+  it("without --json, --scan-path prints the reason as text on stderr, nothing on stdout, and exits 2", async () => {
+    const exitCode = await runCheck(["check", "fixture", "--scan-path", "/tmp/fixture", "--no-deep"]);
+
+    expect(consoleSpy).not.toHaveBeenCalled();
+    expect(stderrLines()).toEqual([
+      `error: HMA is not available. ${NOT_RUN} cd /work/project && npm install`,
+    ]);
+    expect(exitCode).toBe(2);
+  });
+
+  it("without --json, the default flow prints the reason and the reinstall command as text on stderr, nothing on stdout, and exits 1", async () => {
+    const exitCode = await runCheck(["check", "fixture", "--no-deep"]);
+
+    expect(consoleSpy).not.toHaveBeenCalled();
+    expect(stderrLines()).toEqual([
+      `HMA (HackMyAgent) is required for scanning. ${NOT_RUN}`,
+      "  cd /work/project && npm install",
+    ]);
+    expect(exitCode).toBe(1);
+  });
+});
+
 // #178: `check --analm` printed the same output as `check` when the scanner's
 // analyst layer did not run. Every path below prints one line saying whether
 // it ran or why not.

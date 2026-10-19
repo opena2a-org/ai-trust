@@ -177,13 +177,16 @@ export function registerCheckCommand(program: Command): void {
       if (opts.scanPath) {
         if (!(await isHmaAvailable())) {
           const startProblem = scannerNodeVersionProblem() ?? scannerTempDirProblem();
-          console.error(
-            chalk.red(
-              startProblem
-                ? `error: HMA could not be started. ${startProblem}`
-                : `error: HMA is not available. ai-trust runs the hackmyagent version it pins as a dependency, and that copy could not be run. Reinstall it: ${reinstallCommand()}`,
-            ),
-          );
+          const msg = startProblem
+            ? `HMA could not be started. ${startProblem}`
+            : `HMA is not available. ai-trust runs the hackmyagent version it pins as a dependency, and that copy could not be run. Reinstall it: ${reinstallCommand()}`;
+          // With --json the error is one object on stdout, the object
+          // printed below for a scan that fails.
+          if (globalOpts.json) {
+            console.log(formatJson(buildNotFoundOutput({ name: rawName, error: msg })));
+          } else {
+            console.error(chalk.red(`error: ${msg}`));
+          }
           process.exit(2);
         }
         let result;
@@ -546,7 +549,7 @@ async function handleNotFound(
     chalk.gray(`Package "${name}" not found in the OpenA2A Registry.`)
   );
 
-  if (!(await checkHmaReady())) return;
+  if (!(await checkHmaReady(target, globalOpts.json))) return;
 
   const shouldScan = await confirm("No trust data yet. Scan it now?", true);
   if (!shouldScan) {
@@ -592,7 +595,7 @@ async function handleScanFlow(
   registryAnswer?: TrustAnswer
 ): Promise<void> {
   const { spec: name, ecosystem } = target;
-  if (!(await checkHmaReady())) return;
+  if (!(await checkHmaReady(target, globalOpts.json))) return;
 
   console.error(chalk.gray(statusMessage));
 
@@ -708,19 +711,29 @@ function handleNoScanNotFound(
   finish("not-found");
 }
 
-async function checkHmaReady(): Promise<boolean> {
+/**
+ * Whether the scanner runs. When it does not, print why and set the error
+ * exit code. With --json the message is the error of one object on stdout,
+ * the object handleScanFlow prints when the scan of `target` fails.
+ */
+async function checkHmaReady(target: PackageTarget, asJson: boolean): Promise<boolean> {
   const available = await isHmaAvailable();
   if (!available) {
     const startProblem = scannerNodeVersionProblem() ?? scannerTempDirProblem();
-    if (startProblem) {
-      console.error(
-        `HMA (HackMyAgent) is required for scanning, and it could not be started. ${startProblem}`
-      );
+    const problem = startProblem
+      ? `HMA (HackMyAgent) is required for scanning, and it could not be started. ${startProblem}`
+      : "HMA (HackMyAgent) is required for scanning. ai-trust runs the hackmyagent version it pins as a dependency, and that copy could not be run. Reinstall it:";
+    if (asJson) {
+      // The reinstall command, on a line of its own in text output, ends
+      // the error.
+      console.log(formatJson(buildNotFoundOutput({
+        name: target.spec,
+        ecosystem: target.ecosystem,
+        error: startProblem ? problem : `${problem} ${reinstallCommand()}`,
+      })));
     } else {
-      console.error(
-        "HMA (HackMyAgent) is required for scanning. ai-trust runs the hackmyagent version it pins as a dependency, and that copy could not be run. Reinstall it:"
-      );
-      console.error(`  ${reinstallCommand()}`);
+      console.error(problem);
+      if (!startProblem) console.error(`  ${reinstallCommand()}`);
     }
     finish("error");
     return false;
