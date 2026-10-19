@@ -151,6 +151,30 @@ describe("formatCheckResult", () => {
     expect(output).toContain("Unknown (99)");
   });
 
+  it("prints - and why for a trust level that is not a whole number (#238)", () => {
+    const levelLine = (output: string) =>
+      output.split("\n").find((line) => line.trimStart().startsWith("Level"));
+    for (const trustLevel of ["\t1", "1", 1.5, true, { level: 1 }]) {
+      const output = formatCheckResult(
+        makeTrustAnswer({ trustLevel: trustLevel as unknown as number }),
+      );
+
+      expect(levelLine(output), JSON.stringify(trustLevel)).toBe(
+        "  Level     - (the registry's trust level is not a whole number)",
+      );
+      expect(output, JSON.stringify(trustLevel)).not.toContain("undefined");
+    }
+    for (const trustLevel of [undefined, null]) {
+      const output = formatCheckResult(
+        makeTrustAnswer({ trustLevel: trustLevel as unknown as number }),
+      );
+
+      expect(levelLine(output), String(trustLevel)).toBe(
+        "  Level     - (the registry's answer has no trust level)",
+      );
+    }
+  });
+
   it("shows dependency info when available", () => {
     const answer = makeTrustAnswer({
       dependencies: {
@@ -680,6 +704,41 @@ describe("a registry answer with a scan date and a scan status that is not a fin
     }
   });
 
+  it("says the scan status is not a string when the registry sent another type (#238)", () => {
+    for (const scanStatus of [0, false, 5, true, { state: "passed" }, ["passed"]]) {
+      const output = formatCheckResult(
+        pendingAnswer({ scanStatus: scanStatus as unknown as string }),
+      );
+
+      expect(trustLine(output), JSON.stringify(scanStatus)).toBe(
+        "  Trust     score not shown: the registry's scan status is not a string · last recorded scan 231 days ago (stale)",
+      );
+      // The Findings line names no scan status for it.
+      expect(output, JSON.stringify(scanStatus)).toMatch(
+        /^ {2}Findings {2}0 critical · 1 high \(details not returned\)$/m,
+      );
+    }
+  });
+
+  it("says the answer has no scan status when the status is null (#238)", () => {
+    const output = formatCheckResult(pendingAnswer({ scanStatus: null as unknown as string }));
+
+    expect(trustLine(output)).toBe(
+      "  Trust     score not shown: the registry's answer has no scan status · last recorded scan 231 days ago (stale)",
+    );
+  });
+
+  it("says not scanned for a scan status of another type when the answer carries no scan date (#238)", () => {
+    for (const scanStatus of [0, 5, { state: "passed" }]) {
+      const output = formatCheckResult(
+        pendingAnswer({ scanStatus: scanStatus as unknown as string, lastScannedAt: undefined }),
+      );
+
+      expect(trustLine(output), JSON.stringify(scanStatus)).toContain("not scanned");
+      expect(output, JSON.stringify(scanStatus)).not.toContain("77/100");
+    }
+  });
+
   it("still says not scanned when the answer carries no scan date, or one that does not parse", () => {
     for (const lastScannedAt of [undefined, "not-a-date"]) {
       const output = formatCheckResult(pendingAnswer({ lastScannedAt }));
@@ -790,6 +849,19 @@ describe("registry score beside a fresh scan", () => {
     });
 
     expect(output).not.toContain("vs this scan");
+  });
+
+  it("prints no gap line when the registry's scan status is not a string (#238)", () => {
+    for (const scanStatus of [5, true, { state: "passed" }]) {
+      const answer = registryAnswer(0.3, { scanStatus: scanStatus as unknown as string });
+      const scan = scanWithScore(100);
+
+      expect(
+        formatScanResult(scan, { remote: true, registry: answer }),
+        JSON.stringify(scanStatus),
+      ).not.toContain("vs this scan");
+      expect(showsRegistryScore(answer, scan), JSON.stringify(scanStatus)).toBe(false);
+    }
   });
 
   it("prints no gap line when this scan had nothing to analyze", () => {
@@ -1059,6 +1131,70 @@ describe("formatBatchResults", () => {
       expect(summaryLine, scanStatus).toContain("not scanned");
       expect(output, scanStatus).not.toContain("0/100");
     }
+  });
+
+  it("shows no score and - for a scan status that is not a string (#238)", () => {
+    for (const scanStatus of [5, true, { state: "passed" }, 0, false]) {
+      const label = JSON.stringify(scanStatus);
+      const response = makeBatchResponse([
+        makeTrustAnswer({
+          name: "odd-status",
+          trustLevel: 2,
+          trustScore: 0.9,
+          verdict: "listed",
+          scanStatus: scanStatus as unknown as string,
+        }),
+      ]);
+      const output = formatBatchResults(response, 3);
+      const lines = output.split("\n");
+
+      // SCORE is "--", after an empty meter or with none, and "-" fills the
+      // SCAN column.
+      expect(lines.find((l) => l.startsWith("  odd-status")), label).toMatch(/ (?:━{8} )?-- +- {9}$/);
+      expect(lines.find((l) => l.includes("│") && l.includes("odd-status")), label).toContain(
+        "not scanned  Listed (2/4)",
+      );
+      expect(output, label).not.toContain("90/100");
+    }
+  });
+
+  it("prints - for a trust level that is not a whole number, in the table and the summary (#238)", () => {
+    for (const trustLevel of ["\t1", " 1", 1.5, null, true]) {
+      const label = JSON.stringify(trustLevel);
+      const response = makeBatchResponse([
+        makeTrustAnswer({
+          name: "odd-level",
+          trustLevel: trustLevel as unknown as number,
+          trustScore: 0,
+          verdict: "listed",
+          scanStatus: "warnings",
+        }),
+      ]);
+      const lines = formatBatchResults(response, 2).split("\n");
+
+      expect(lines.find((l) => l.startsWith("  odd-level")), label).toMatch(
+        /^ {2}odd-level\s+mcp_server\s+LISTED\s+- {11}\S/,
+      );
+      // The gate reads each of these as below level 2.
+      expect(lines.find((l) => l.includes("│") && l.includes("odd-level")), label).toMatch(
+        / {2}level unavailable$/,
+      );
+    }
+  });
+
+  it("prints - for a trust level that is not a number, and the shared label for a whole number off the scale (#238)", () => {
+    const response = makeBatchResponse([
+      makeTrustAnswer({ name: "text-level", trustLevel: "x" as unknown as number }),
+      makeTrustAnswer({ name: "high-level", trustLevel: 7 }),
+    ]);
+    const lines = formatBatchResults(response, 2).split("\n");
+
+    expect(lines.find((l) => l.startsWith("  text-level"))).toMatch(
+      /^ {2}text-level\s+mcp_server\s+SAFE\s+- {11}\S/,
+    );
+    expect(lines.find((l) => l.startsWith("  high-level"))).toMatch(
+      /^ {2}high-level\s+mcp_server\s+SAFE\s+Unknown \(7\) \S/,
+    );
   });
 
   it("keeps the score for the scan statuses that name a finished scan", () => {
