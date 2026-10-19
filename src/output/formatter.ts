@@ -53,9 +53,40 @@ import { shellArg } from "../utils/shell-arg.js";
 
 // ── Visual helpers ─────────────────────────────────────────────���──────
 
-function normalizeScanStatus(status?: string): string | undefined {
-  if (!status) return status;
+/**
+ * The scan status lowercased and trimmed. A value that is not a string (a
+ * number, a boolean, an object) is read as no scan status: the registry
+ * answer is remote data, whatever its declared type says.
+ */
+function normalizeScanStatus(status: unknown): string | undefined {
+  if (typeof status !== "string") return undefined;
   return status.toLowerCase().trim();
+}
+
+/**
+ * mapScanStatusForMeter for a scan status as the registry sent it. The shared
+ * helper calls toLowerCase on any truthy value, so a number such as 5 or an
+ * object throws there; here such a value gets no meter, as a missing status
+ * gets none.
+ */
+function meterScanStatus(status: unknown): ReturnType<typeof mapScanStatusForMeter> {
+  return mapScanStatusForMeter(normalizeScanStatus(status));
+}
+
+/** The scan status as the text output prints it: trimmed, or undefined when it is not a string. */
+function scanStatusText(status: unknown): string | undefined {
+  return typeof status === "string" ? status.trim() : undefined;
+}
+
+/**
+ * The answer with a scan status that is not a string read as none, so every
+ * column and line of a batch table that reads the scan status reads a string
+ * or undefined.
+ */
+function withStringScanStatus(answer: TrustAnswer): TrustAnswer {
+  return answer.scanStatus === undefined || typeof answer.scanStatus === "string"
+    ? answer
+    : { ...answer, scanStatus: undefined };
 }
 
 // ── ai-trust-specific helpers ─────────────────────────────────────────
@@ -279,7 +310,7 @@ function buildCheckCtas(
   version: string | undefined,
 ): NextStepsCta[] {
   const normalized = normalizeVerdict(answer.verdict);
-  const meterGate = mapScanStatusForMeter(answer.scanStatus);
+  const meterGate = meterScanStatus(answer.scanStatus);
   const isUnscanned = meterGate === undefined && !isScanError;
 
   const ctas: NextStepsCta[] = [];
@@ -370,7 +401,7 @@ function countText(count: number | undefined, severity: string): string {
 /** "Findings" and "CVEs" lines from the registry's security profile. */
 function securityProfileLines(
   profile: RegistrySecurityProfile,
-  scanStatus: string | undefined,
+  scanStatus: unknown,
 ): string[] {
   const { criticalCount, highCount } = profile;
   const counts = [countText(criticalCount, "critical"), countText(highCount, "high")];
@@ -378,7 +409,7 @@ function securityProfileLines(
   // above zero says so. The Next Steps scan is how to measure them now.
   if ((highCount ?? 0) > 0) counts[1] += ` ${DETAILS_NOT_RETURNED}`;
   else if ((criticalCount ?? 0) > 0) counts[0] += ` ${DETAILS_NOT_RETURNED}`;
-  const status = scanStatus?.trim();
+  const status = scanStatusText(scanStatus);
   if (status) counts.push(`scan status ${status}`);
   // Green only when both counts were reported and both are zero.
   let findingsTone: CheckTone;
@@ -420,17 +451,42 @@ function registryScanAge(lastScannedAt: string | undefined): string | null {
 
 /**
  * Trust line of an answer that carries a scan date under a scan status that is
- * not a finished one (pending, not_applicable, empty or unrecognized). The
- * score is not shown, and the line names the status the registry sent and the
+ * not a finished one (pending, not_applicable, empty, unrecognized, or a value
+ * that is not a string). The score is not shown, and the line names the status
+ * the registry sent, or says it sent none or one that is not a string, and the
  * age of its last recorded scan, the age the header prints, instead of saying
  * "not scanned" under that header.
  */
-function unfinishedScanTrustText(scanStatus: string | undefined, age: string): string {
-  const status = scanStatus?.trim();
-  const reason = status
-    ? `the registry's scan status is ${status}`
-    : "the registry's answer has no scan status";
+function unfinishedScanTrustText(scanStatus: unknown, age: string): string {
+  const status = scanStatusText(scanStatus);
+  let reason: string;
+  if (status) {
+    reason = `the registry's scan status is ${status}`;
+  } else if (status === undefined && scanStatus !== undefined && scanStatus !== null) {
+    reason = "the registry's scan status is not a string";
+  } else {
+    reason = "the registry's answer has no scan status";
+  }
   return `score not shown: ${reason} · last recorded scan ${age}`;
+}
+
+/**
+ * The name of the registry's trust level: the shared label for a whole number
+ * ("Listed", or "Unknown (7)" off the 0-4 scale), and undefined for any other
+ * value, which the text output prints as "-". The shared label looks the name
+ * up with the value as sent, so a string such as "\t1" or a fraction has none.
+ */
+function trustLevelName(level: unknown): string | undefined {
+  return typeof level === "number" && Number.isInteger(level) ? trustLevelLabel(level) : undefined;
+}
+
+/** Level line of an answer whose trust level is not a whole number: "-" and why. */
+function unreadableLevelText(level: unknown): string {
+  const reason =
+    level === undefined || level === null
+      ? "the registry's answer has no trust level"
+      : "the registry's trust level is not a whole number";
+  return `- (${reason})`;
 }
 
 /**
@@ -448,7 +504,7 @@ const REGISTRY_GAP_POINTS = 20;
  */
 function registryGapLine(registryAnswer: TrustAnswer, result: ScanResult): string | null {
   const answer = sanitizeRegistryValue(registryAnswer);
-  if (!answer.found || mapScanStatusForMeter(answer.scanStatus) === undefined) return null;
+  if (!answer.found || meterScanStatus(answer.scanStatus) === undefined) return null;
   const registryScore = scorePercent(answer.trustScore);
   if (registryScore === undefined) return null;
   const { score, maxScore } = result.scan;
@@ -544,7 +600,7 @@ export function formatCheckResult(
     });
   }
 
-  const scanStatusForMeter = mapScanStatusForMeter(answer.scanStatus);
+  const scanStatusForMeter = meterScanStatus(answer.scanStatus);
   // The shared meter reads a score above 1 as out of 100 and throws on a
   // negative or infinite one. A score that is not from 0 to 1 gets no meter:
   // the Trust line shows --, as batch and audit do.
@@ -624,6 +680,14 @@ export function formatCheckResult(
         `  ${"Trust".padEnd(CHECK_LABEL_WIDTH)}${chalk.dim(
           unfinishedScanTrustText(answer.scanStatus, scanAge)
         )}`
+      );
+      continue;
+    }
+    // The shared block looks the level's name up with the value as sent, so a
+    // string such as "\t1" or a fraction prints "undefined" there.
+    if (line.label === "Level" && !Number.isInteger(answer.trustLevel)) {
+      out.push(
+        `  ${"Level".padEnd(CHECK_LABEL_WIDTH)}${chalk.dim(unreadableLevelText(answer.trustLevel))}`
       );
       continue;
     }
@@ -841,8 +905,9 @@ export function formatBatchResults(
 ): string {
   const ecosystem = opts.ecosystem ?? "npm";
   const lines: string[] = [];
-  // Registry strings are remote data: control characters are removed first.
-  const results = sanitizeRegistryValue(response.results);
+  // Registry strings are remote data: control characters are removed first,
+  // and a scan status that is not a string is read as none.
+  const results = sanitizeRegistryValue(response.results).map(withStringScanStatus);
   // A package --type excluded is listed under its registered type, outside
   // the tiers.
   const excluded = results.filter(isExcludedByType);
@@ -1038,12 +1103,19 @@ export function formatBatchResults(
     const statusText = result.scanStatus || "-";
     const coloredStatus = scanStatusColor(result.scanStatus)(statusText.padEnd(scanWidth));
 
+    // A trust level that is not a whole number prints as the not-found row's "-".
+    const levelName = trustLevelName(result.trustLevel);
+    const levelCell =
+      levelName === undefined
+        ? chalk.dim("-".padEnd(levelWidth))
+        : chalk.bold(colorTrust(levelName.padEnd(levelWidth)));
+
     lines.push(
       "  " +
         name.padEnd(nameWidth) +
         (result.packageType || "-").padEnd(typeWidth) +
         colorVerdict(normalized.toUpperCase().padEnd(verdictWidth)) +
-        chalk.bold(colorTrust(trustLevelLabel(result.trustLevel).padEnd(levelWidth))) +
+        levelCell +
         scoreCell +
         coloredStatus
     );
@@ -1091,8 +1163,15 @@ export function formatBatchResults(
       } else {
         scoreSection = scoreMeter(pkgScore);
       }
+      // The gate compares the level with `<`, so a string such as "\t1" counts
+      // below level 2 there; it has no name here.
+      const levelName = trustLevelName(pkg.trustLevel);
+      const levelSection =
+        levelName === undefined
+          ? chalk.dim("level unavailable")
+          : `${tlc(levelName)} ${chalk.dim(`(${pkg.trustLevel}/4)`)}`;
       lines.push(
-        `  ${chalk.yellow("\u2502")} ${pkg.name}  ${scoreSection}  ${tlc(trustLevelLabel(pkg.trustLevel))} ${chalk.dim(`(${pkg.trustLevel}/4)`)}`
+        `  ${chalk.yellow("\u2502")} ${pkg.name}  ${scoreSection}  ${levelSection}`
       );
     }
   }

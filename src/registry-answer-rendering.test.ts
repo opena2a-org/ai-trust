@@ -16,6 +16,9 @@
  * - a trust score off the 0-1 scale shows no score in `batch` and `audit`;
  * - after an HTTP 500 or a body that is not JSON, `audit` names the registry
  *   and a next step, as `batch` does;
+ * - a scan status that is not a string shows no score, and a trust level that
+ *   is not a whole number shows `-`, in `check --no-scan`, `batch` and
+ *   `audit`, which exit with the code `--json` gives (#238);
  * - `check pip:` and `check npm:` are usage errors;
  * - `check pip:<name>` output says pypi, and `check <name> --json` says npm.
  */
@@ -59,6 +62,18 @@ function answer(name: string, overrides: Record<string, unknown> = {}): Record<s
   };
 }
 
+// The answer in #238's reproduction: listed, level 2, score 0 and a scan date,
+// with the field under test given a type the answer does not declare.
+function listedAnswer(name: string, overrides: Record<string, unknown>): Record<string, unknown> {
+  return answer(name, {
+    trustLevel: 2,
+    trustScore: 0,
+    verdict: "listed",
+    lastScannedAt: SCANNED_231_DAYS_AGO,
+    ...overrides,
+  });
+}
+
 const QUERY: Record<string, Record<string, unknown>> = {
   "cve-ctrl": answer("cve-ctrl", {
     securityProfile: { criticalCount: 0, highCount: 0, knownCves: [RAW_CVE] },
@@ -98,6 +113,22 @@ const QUERY: Record<string, Record<string, unknown>> = {
   "score-55": answer("score-55", { trustScore: 55, scanStatus: "completed" }),
   "score-negative": answer("score-negative", { trustScore: -0.5, scanStatus: "completed" }),
   "score-text": answer("score-text", { trustScore: "high", scanStatus: "completed" }),
+  // A scan status that is not a string, and a trust level that is not a whole number (#238).
+  "status-zero": listedAnswer("status-zero", {
+    scanStatus: 0,
+    securityProfile: { criticalCount: 0, highCount: 0, knownCves: [] },
+  }),
+  "status-false": listedAnswer("status-false", {
+    scanStatus: false,
+    lastScannedAt: undefined,
+    securityProfile: { criticalCount: 0, highCount: 0, knownCves: [] },
+  }),
+  "status-number": listedAnswer("status-number", { scanStatus: 5 }),
+  "status-object": listedAnswer("status-object", {
+    scanStatus: { state: "passed" },
+    lastScannedAt: undefined,
+  }),
+  "level-tab": listedAnswer("level-tab", { trustLevel: "\t1", scanStatus: "warnings" }),
   // Names with shell syntax in them, answered for a plain query name.
   "shell-lib": answer("shell-lib; echo injected", { packageType: "library", verdict: "listed" }),
   "shell-mcp": answer("shell-mcp; echo injected"),
@@ -141,6 +172,10 @@ const BATCH: Record<string, Record<string, unknown>> = {
   "score-55": answer("score-55", { trustScore: 55, scanStatus: "completed" }),
   "score-negative": answer("score-negative", { trustScore: -0.5, scanStatus: "completed" }),
   "score-text": answer("score-text", { trustScore: "high", scanStatus: "completed" }),
+  // A trust level that is not a whole number, and a scan status that is not a string (#238).
+  "level-tab": listedAnswer("level-tab", { trustLevel: "\t1", scanStatus: "warnings" }),
+  "level-fraction": listedAnswer("level-fraction", { trustLevel: 1.5, scanStatus: "warnings" }),
+  "status-number": listedAnswer("status-number", { scanStatus: 5 }),
 };
 
 const NARRATIVE = {
@@ -610,6 +645,98 @@ describe("registry answers through the built CLI", () => {
           /^ {2}Trust +-- \(the registry's score is not a number from 0 to 1\)$/m,
         );
         expect(stdout, name).not.toMatch(/\/100|NaN/);
+      }
+    });
+  });
+
+  // A case here runs the built CLI up to four times; on Node 20 in CI three
+  // runs took longer than the 5 s default.
+  describe("a field of a type the answer does not declare (#238)", { timeout: 30000 }, () => {
+    it("check --no-scan shows no score for a scan status that is not a string", async () => {
+      for (const name of ["status-zero", "status-number"]) {
+        const { stdout, stderr, status } = await runCli(["check", name, "--no-scan"]);
+
+        expect(stderr, name).not.toContain("Error");
+        expect(status, name).toBe(0);
+        expect(stdout, name).toMatch(
+          /^ {2}Trust {5}score not shown: the registry's scan status is not a string · last recorded scan 231 days ago \(stale\)$/m,
+        );
+        expect(stdout, name).not.toContain("/100");
+      }
+      for (const name of ["status-false", "status-object"]) {
+        const { stdout, stderr, status } = await runCli(["check", name, "--no-scan"]);
+
+        expect(stderr, name).not.toContain("Error");
+        expect(status, name).toBe(0);
+        expect(stdout, name).toMatch(/^ {2}Trust {5}not scanned/m);
+      }
+    });
+
+    it("check --no-scan names no scan status beside the profile's counts", async () => {
+      for (const name of ["status-zero", "status-false"]) {
+        const { stdout } = await runCli(["check", name, "--no-scan"]);
+
+        expect(stdout, name).toMatch(/^ {2}Findings {2}0 critical · 0 high$/m);
+      }
+    });
+
+    it("check --no-scan exits as --json does, and --json carries the scan status as sent", async () => {
+      const text = await runCli(["check", "status-number", "--no-scan"]);
+      const json = await runCli(["check", "status-number", "--no-scan", "--json"]);
+
+      expect(json.status).toBe(0);
+      expect(text.status).toBe(json.status);
+      expect(JSON.parse(json.stdout).scanStatus).toBe(5);
+    });
+
+    it("check --no-scan prints - for a trust level that is not a whole number", async () => {
+      const { stdout, stderr, status } = await runCli(["check", "level-tab", "--no-scan"]);
+
+      expect(stderr).not.toContain("Error");
+      expect(status).toBe(0);
+      expect(stdout).toMatch(
+        /^ {2}Level {5}- \(the registry's trust level is not a whole number\)$/m,
+      );
+      expect(stdout).not.toContain("undefined");
+    });
+
+    it("batch and audit print - for the level, and exit 2 as they do with --json", async () => {
+      const manifest = writeManifest("level-tab", { "level-tab": "1.0.0" });
+      for (const args of [["batch", "level-tab"], ["audit", manifest]]) {
+        const { stdout, stderr, status } = await runCli(args);
+        const json = await runCli([...args, "--json"]);
+
+        expect(stderr, args.join(" ")).not.toContain("Error");
+        expect(json.status, args.join(" ")).toBe(2);
+        expect(status, args.join(" ")).toBe(json.status);
+        expect(JSON.parse(json.stdout).results[0].trustLevel, args.join(" ")).toBe("\t1");
+        // Table row, then the below-threshold summary line.
+        expect(stdout, args.join(" ")).toMatch(
+          /^ {2}level-tab\s+mcp_server\s+LISTED\s+- {11}\S.*\swarnings\s*$/m,
+        );
+        expect(stdout, args.join(" ")).toMatch(/^ {2}│ level-tab {2}\S.* {2}level unavailable$/m);
+        expect(stdout, args.join(" ")).not.toContain("undefined");
+      }
+    });
+
+    it("batch and audit print - for a fractional trust level and for a scan status that is a number", async () => {
+      const manifest = writeManifest("fraction-number", {
+        "level-fraction": "1.0.0",
+        "status-number": "1.0.0",
+      });
+      for (const args of [["batch", "level-fraction", "status-number"], ["audit", manifest]]) {
+        const { stdout, stderr, status } = await runCli(args);
+
+        expect(stderr, args.join(" ")).not.toContain("Error");
+        // 1.5 is below the default minimum trust level 2.
+        expect(status, args.join(" ")).toBe(2);
+        expect(stdout, args.join(" ")).toMatch(
+          /^ {2}level-fraction\s+mcp_server\s+LISTED\s+- {11}\S.*\swarnings\s*$/m,
+        );
+        // SCORE is "--", after an empty meter or with none.
+        expect(stdout, args.join(" ")).toMatch(
+          /^ {2}status-number\s+mcp_server\s+LISTED\s+Listed\s+(?:━{8} )?-- +-\s*$/m,
+        );
       }
     });
   });
