@@ -19,7 +19,7 @@ import { basename, dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { recordEarlierNo } from "../telemetry/opt-in.js";
-import { maskSecrets } from "./mask-secrets.js";
+import { maskSecrets, maskSecretsIn } from "./mask-secrets.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -487,11 +487,13 @@ async function withScannerEnv<T>(fn: (env: NodeJS.ProcessEnv) => Promise<T>): Pr
 
 /**
  * The error runHmaScan throws when a scanner run gives no report ai-trust
- * can read. Its message is "HMA scan failed: " followed by the run's error.
+ * can read. Its message is "HMA scan failed: " followed by the run's error,
+ * with the scanner's standard error in it, which can quote the scanned files:
+ * a key in it is masked.
  */
 export class HmaScanError extends Error {
   constructor(message: string) {
-    super(`HMA scan failed: ${message}`);
+    super(`HMA scan failed: ${maskSecrets(message)}`);
     this.name = "HmaScanError";
   }
 }
@@ -679,18 +681,19 @@ function parseHmaOutput(stdout: string): HmaScanResult {
     maxScore: raw.maxScore ?? 100,
     checksEvaluated,
     staticChecksEvaluated,
+    // The text of a finding can quote the scanned files, a key in them
+    // included.
     findings: (raw.findings ?? []).map((f: Record<string, unknown>) => ({
       checkId: f.checkId ?? "",
-      name: f.name ?? "",
-      description: f.description ?? "",
+      name: maskSecretsIn(f.name ?? ""),
+      description: maskSecretsIn(f.description ?? ""),
       category: f.category ?? "",
       severity: f.severity ?? "low",
       passed: f.passed ?? true,
-      // A message can quote the scanned files, a key in them included.
       message: maskSecrets(String(f.message ?? "")),
       file: f.file,
       line: f.line,
-      fix: f.fix,
+      fix: maskSecretsIn(f.fix),
       attackClass: f.attackClass as string | undefined,
     })),
     projectType: raw.projectType ?? "unknown",
@@ -725,12 +728,13 @@ function parseHmaOutput(stdout: string): HmaScanResult {
     );
   }
 
-  // Parse analyst findings when present (from --analyze mode)
+  // Parse analyst findings when present (from --analyze mode). Their result
+  // can quote the scanned files as a finding does.
   if (Array.isArray(raw.analystFindings) && raw.analystFindings.length > 0) {
     result.analystFindings = raw.analystFindings.map(
       (af: Record<string, unknown>) => ({
         taskType: (af.taskType as string) ?? "unknown",
-        result: (af.result as Record<string, unknown>) ?? {},
+        result: maskSecretsIn((af.result as Record<string, unknown>) ?? {}),
         confidence: typeof af.confidence === "number" ? af.confidence : 0,
         modelVersion: (af.modelVersion as string) ?? "unknown",
         durationMs: typeof af.durationMs === "number" ? af.durationMs : 0,
