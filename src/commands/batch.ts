@@ -7,6 +7,7 @@ import type { PackageQuery } from "@opena2a/registry-client";
 import { createRegistryClient } from "../utils/registry-client.js";
 import { formatBatchResults, formatJson } from "../output/formatter.js";
 import { stripControlCharacters } from "../output/sanitize.js";
+import { trustGate } from "../output/trust-gate.js";
 import { resolveAndLog } from "../utils/resolve.js";
 import { createRequire } from "node:module";
 
@@ -95,12 +96,9 @@ export function registerBatchCommand(program: Command): void {
           }
 
           // Exit code 2 for policy violation (below threshold or unknown packages).
-          // Exit code 1 is reserved for actual errors (network, server).
-          const belowThreshold = response.results.some(
-            (r) => r.found && r.trustLevel < minTrust
-          );
-          const hasNotFound = response.results.some((r) => !r.found);
-          if (belowThreshold || hasNotFound) {
+          // Exit code 1 is reserved for actual errors (network, server). The
+          // text's Summary reads the same gate.
+          if (!trustGate(response.results, minTrust).passed) {
             process.exitCode = 2;
           }
         } catch (err) {

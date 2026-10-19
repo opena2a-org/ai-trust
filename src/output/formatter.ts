@@ -40,6 +40,7 @@ import {
 } from "./security-profile.js";
 import { capLength, sanitizeRegistryValue, stripControlCharacters } from "./sanitize.js";
 import { citeCommandsInText } from "./registry-command.js";
+import { trustGate, type TrustGate } from "./trust-gate.js";
 import { mapScanStatusForMeter } from "@opena2a/check-core";
 import { classify, tierLabel } from "@opena2a/ai-classifier";
 import type { Tier } from "@opena2a/ai-classifier";
@@ -590,15 +591,75 @@ export function formatNotFound(input: NotFoundBlockInput): string {
   return out.join("\n");
 }
 
+/** What `audit` tells formatBatchResults about the file it read. `batch` passes none. */
+export interface BatchResultsOptions {
+  /**
+   * The dependency file `audit` read. The next step for a dependency the
+   * registry does not have is then `ai-trust audit <file> --scan-missing`;
+   * without a file it is `ai-trust check <name>` for the first one.
+   */
+  file?: string;
+  /** The ecosystem the names were looked up in: a PyPI name is checked as `pip:<name>`. */
+  ecosystem?: "npm" | "pypi";
+}
+
+/**
+ * The Summary of a batch that fails the trust gate: its divider, the line
+ * that says what makes audit or batch exit 2, naming every dependency, and
+ * the command to run next. None when the gate passes.
+ */
+function gateFailureLines(
+  gate: TrustGate,
+  minTrust: number,
+  opts: BatchResultsOptions
+): string[] {
+  if (gate.passed) return [];
+  const notFound = gate.notFound.map((r) => String(r.name));
+  const below = gate.belowThreshold.map((r) => String(r.name));
+  const reasons: string[] = [];
+  if (notFound.length > 0) {
+    const one = notFound.length === 1;
+    reasons.push(
+      `${notFound.length} ${one ? "dependency is" : "dependencies are"} not in the registry and ${
+        one ? "was" : "were"
+      } not scanned: ${notFound.join(", ")}`
+    );
+  }
+  if (below.length > 0) {
+    const count =
+      reasons.length > 0
+        ? `${below.length}`
+        : `${below.length} ${below.length === 1 ? "dependency is" : "dependencies are"}`;
+    reasons.push(`${count} below minimum trust level ${minTrust}: ${below.join(", ")}`);
+  }
+  let next: string;
+  if (notFound.length > 0 && opts.file !== undefined) {
+    next = `ai-trust audit ${shellArg(opts.file)} --scan-missing`;
+  } else {
+    const name = notFound[0] ?? below[0];
+    next = `ai-trust check ${shellArg(opts.ecosystem === "pypi" ? `pip:${name}` : name)}`;
+  }
+  return [
+    divider("Summary"),
+    chalk.red.bold(`  Audit failed: ${reasons.join("; ")}`),
+    `  ${chalk.cyan("Next:")} ${next}`,
+  ];
+}
+
 export function formatBatchResults(
   response: BatchResponse,
-  minTrust: number
+  minTrust: number,
+  opts: BatchResultsOptions = {}
 ): string {
   const lines: string[] = [];
   // Registry strings are remote data: control characters are removed first.
   const { native, unrelated, unknown } = partitionByTier(
     sanitizeRegistryValue(response.results),
   );
+  // audit and batch set their exit code from the same gate on the same
+  // answers, so the Summary says the gate failed exactly when they exit 2.
+  const gate = trustGate(response.results, minTrust);
+  const gateFailure = gateFailureLines(gate, minTrust, opts);
 
   // Header: summarize the scope split before anything else so the user knows
   // how many of their dependencies are actually in ai-trust's scope.
@@ -623,6 +684,7 @@ export function formatBatchResults(
         `  For general security scanning of libraries, use HackMyAgent.`
       )
     );
+    lines.push(...gateFailure);
     lines.push(divider("Out of scope (libraries)"));
     lines.push(outOfScopeNamesLine(unrelated));
     lines.push(...notFoundLibrariesLines(unrelated));
@@ -659,6 +721,7 @@ export function formatBatchResults(
   // unknown list with a "check to classify" CTA.
   if (native.length === 0) {
     if (unknown.length > 0) {
+      lines.push(...gateFailure);
       lines.push(divider("Unclassified packages"));
       lines.push(
         chalk.dim(
@@ -764,8 +827,8 @@ export function formatBatchResults(
     );
   }
 
-  // Summary — only consider AI-native packages. Unrelated libraries are out
-  // of ai-trust's scope; they don't affect the verdict or trust level checks.
+  // Summary. The gate covers every dependency; the lists below it give the
+  // detail for the AI packages in the table.
   const belowThreshold = native.filter(
     (r) => r.found && r.trustLevel < minTrust
   );
@@ -774,7 +837,12 @@ export function formatBatchResults(
     (r) => r.found && isScanErrorStatus(r.scanStatus)
   );
 
-  if (belowThreshold.length > 0 || notFound.length > 0 || errorScans.length > 0) {
+  if (gateFailure.length > 0) {
+    lines.push(...gateFailure);
+    if (belowThreshold.length > 0 || notFound.length > 0 || errorScans.length > 0) {
+      lines.push("");
+    }
+  } else if (errorScans.length > 0) {
     lines.push(divider("Summary"));
   } else {
     lines.push("");
@@ -832,7 +900,7 @@ export function formatBatchResults(
   }
 
   const foundNative = native.filter((r) => r.found).length;
-  if (belowThreshold.length === 0 && notFound.length === 0 && errorScans.length === 0 && foundNative > 0) {
+  if (gate.passed && errorScans.length === 0 && foundNative > 0) {
     lines.push(
       chalk.green.bold(
         foundNative === 1
