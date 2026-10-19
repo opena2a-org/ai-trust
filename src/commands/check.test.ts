@@ -2897,25 +2897,24 @@ describe("documented exit codes match check outcomes", () => {
     expect(process.exitCode ?? 0).toBe(0);
   });
 
-  it('Exit-code table row "Local scan could not run" gives the code check --scan-path exits with', async () => {
+  it('Exit-code table row "Local scan could not run" gives the code check --scan-path sets', async () => {
     vi.mocked(isHmaAvailable).mockResolvedValue(true);
     vi.mocked(scanLocalPath).mockRejectedValue(new Error("ENOENT: no such file or directory"));
-    let exitCode: number | undefined;
+    // The code is set as process.exitCode, not passed to process.exit(), so
+    // the process exits once its output has drained (#234); a call fails
+    // the run.
     const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
-      exitCode = code;
-      throw new Error("process.exit");
+      throw new Error(`process.exit(${code})`);
     }) as never);
     try {
-      await createProgram()
-        .parseAsync(["node", "test", "check", "fixture", "--scan-path", "/nonexistent"])
-        .catch(() => {});
+      await createProgram().parseAsync(["node", "test", "check", "fixture", "--scan-path", "/nonexistent"]);
     } finally {
       exit.mockRestore();
     }
 
     const documented = documentedExitCodes().get("Local scan could not run");
     expect(documented, 'docs/commands.md exit-code table has no "Local scan could not run" row').toBeDefined();
-    expect(exitCode).toBe(documented);
+    expect(process.exitCode).toBe(documented);
   });
 
   it("release checklist and changelog do not contradict the exit-code table", () => {
@@ -2940,19 +2939,22 @@ describe("check --scan-path --json prints a failed scan as JSON on stdout", () =
   const SCANNER_FAILED =
     "HMA scan failed: Command failed: hackmyagent secure --format json --no-contribute --static-only /tmp/fixture\nscanner crashed\n";
 
-  /** Run `check` with process.exit stubbed; returns the code it exited with. */
+  /**
+   * Run `check`; returns the exit code it set. The code is set as
+   * process.exitCode, not passed to process.exit(), so the process exits
+   * once its output has drained (#234); a call to process.exit() fails the
+   * run.
+   */
   async function runCheck(args: string[]): Promise<number | undefined> {
-    let exitCode: number | undefined;
     const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
-      exitCode = code;
-      throw new Error("process.exit");
+      throw new Error(`process.exit(${code})`);
     }) as never);
     try {
-      await createProgram().parseAsync(["node", "test", ...args]).catch(() => {});
+      await createProgram().parseAsync(["node", "test", ...args]);
     } finally {
       exit.mockRestore();
     }
-    return exitCode;
+    return process.exitCode;
   }
 
   beforeEach(() => {
@@ -3021,6 +3023,32 @@ describe("check --scan-path --json prints a failed scan as JSON on stdout", () =
     expect(stderr[0]).toBe(`error: ${SCANNER_FAILED}`);
     expect(exitCode).toBe(2);
   });
+
+  // #234: process.exit(2) right after the print ended the process before an
+  // error larger than the pipe buffer was written whole.
+  const WITH_AND_WITHOUT_JSON: [string, string[]][] = [
+    ["with --json", ["--json"]],
+    ["without --json", []],
+  ];
+  it.each(WITH_AND_WITHOUT_JSON)(
+    "sets the exit code without calling process.exit, so the output drains before the process ends, %s",
+    async (_label, flags) => {
+      vi.mocked(scanLocalPath).mockRejectedValue(new Error(SCANNER_FAILED));
+      const exit = vi.spyOn(process, "exit").mockImplementation((() => {
+        throw new Error("process.exit");
+      }) as never);
+      try {
+        await createProgram().parseAsync([
+          "node", "test", ...flags, "check", "fixture", "--scan-path", "/tmp/fixture", "--no-deep",
+        ]);
+        expect(exit).not.toHaveBeenCalled();
+      } finally {
+        exit.mockRestore();
+      }
+
+      expect(process.exitCode).toBe(2);
+    },
+  );
 });
 
 // #235: with --json, a check whose scanner could not be started printed the
@@ -3298,6 +3326,7 @@ describe("check --analm says whether the analyst layer ran", () => {
 describe("check --scan-path prints the fix for the failure it hit", () => {
   let consoleSpy: ReturnType<typeof vi.spyOn>;
   let consoleErrSpy: ReturnType<typeof vi.spyOn>;
+  let savedExitCode: number | undefined;
 
   const DIRECTORY_FIX = "Fix: pass --scan-path to a directory that exists and is readable.";
 
@@ -3307,33 +3336,37 @@ describe("check --scan-path prints the fix for the failure it hit", () => {
     );
   }
 
-  /** Run `check fixture --scan-path <dir> --no-deep`; returns the code it exits with. */
+  /**
+   * Run `check fixture --scan-path <dir> --no-deep`; returns the exit code
+   * it set. The code is set as process.exitCode, not passed to
+   * process.exit(), so the process exits once its output has drained
+   * (#234); a call to process.exit() fails the run.
+   */
   async function checkScanPath(dir: string): Promise<number | undefined> {
-    let exitCode: number | undefined;
     const exit = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
-      exitCode = code;
-      throw new Error("process.exit");
+      throw new Error(`process.exit(${code})`);
     }) as never);
     try {
-      await createProgram()
-        .parseAsync(["node", "test", "check", "fixture", "--scan-path", dir, "--no-deep"])
-        .catch(() => {});
+      await createProgram().parseAsync(["node", "test", "check", "fixture", "--scan-path", dir, "--no-deep"]);
     } finally {
       exit.mockRestore();
     }
-    return exitCode;
+    return process.exitCode;
   }
 
   beforeEach(() => {
     vi.clearAllMocks();
     consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     consoleErrSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    savedExitCode = process.exitCode;
+    process.exitCode = undefined;
     vi.mocked(isHmaAvailable).mockResolvedValue(true);
   });
 
   afterEach(() => {
     consoleSpy.mockRestore();
     consoleErrSpy.mockRestore();
+    process.exitCode = savedExitCode;
   });
 
   it("names the scanner and its reinstall, not the directory, when the scanner gives no report", async () => {
