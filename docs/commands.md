@@ -65,6 +65,8 @@ When the default `check` finds the package in the registry and the registry's tr
 
 Local scans run HMA with NanoMind semantic analysis enabled by default. Pass `--no-deep` for static-only.
 
+If the scanner cannot be started, `check` says why on stderr and exits 1, or 2 with `--scan-path`. With `--json`, the reason is the `"error"` of one object on stdout, with `"found": false`, as for a scan that fails; the object also names the package's `"ecosystem"`, except with `--scan-path`.
+
 Text output prints the first 10 findings, by severity, then a line that counts the rest and gives the command that prints them: `+ 15 more findings (show all: ai-trust check dvaa --scan-path ./dvaa --no-deep --all)`. `--all` prints every finding with its fix. `--json` output is not truncated.
 
 With `--scan-path`, a finding with a file and a line also prints the command that shows that line: `Verify: sed -n '13p' kitchen/SKILL.md` for `--scan-path ./kitchen`. The path is the `--scan-path` directory joined with the finding's file, so for a relative directory the command runs from the directory `check` ran in. `--json` gives the same command in the finding's `verify` field. A finding whose file is not in the directory names the file its fix would create: its location reads `package-lock.json (not present)`, the verdict names it as `Dependency Lock File (no package-lock.json)`, and it has no Verify line. A finding the scanner gives no fix for says so and names the command that describes the check: `Fix: none supplied by the scanner for DEP-001; background: npx hackmyagent explain DEP-001`. In `--json` such a finding has no `fix` field. A downloaded package's findings have no Verify line, because the downloaded copy is deleted after the scan.
@@ -153,5 +155,5 @@ ai-trust check server-filesystem --registry-url http://localhost:8080  # custom 
 | 2 | Warning or blocked: one or more packages have a warning or blocked verdict (except with `check --scan-path`) |
 | 2 | Below threshold: one or more packages fall below `--min-trust` (`audit`, `batch`) |
 | 2 | Not found: a package is not in the registry and was not scanned locally, or does not exist on npm or PyPI |
-| 2 | Local scan could not run: `check --scan-path` found no scanner, or the directory does not exist or could not be scanned. When the directory does not exist or could not be scanned, `--json` prints one object on stdout with `"found": false` and the message as `"error"` |
+| 2 | Local scan could not run: `check --scan-path` found no scanner, or the directory does not exist or could not be scanned. In each case `--json` prints one object on stdout with `"found": false` and the message as `"error"` |
 | 2 | Nothing to scan: `check --scan-path` read 0 files in the directory and found none it could not read, so there is no score or verdict. `--json` prints `"scored": false` and `"filesExamined": 0`. A directory whose files were found but could not be read keeps its score, findings and exit code 0 |
