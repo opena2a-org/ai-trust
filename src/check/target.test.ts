@@ -110,11 +110,23 @@ describe("classifyCheckTarget", () => {
     ["mcp: with nothing after", "mcp:", { kind: "invalid", reason: "no-package-name", prefix: "mcp:" }],
     ["skill: with spaces around", " skill: ", { kind: "invalid", reason: "no-package-name", prefix: "skill:" }],
     ["mcp: with spaces after", "mcp:   ", { kind: "invalid", reason: "no-package-name", prefix: "mcp:" }],
-    ["control characters", "\u001b[31mtable-tool", npm("\u001b[31mtable-tool")],
+    // A control character is refused before any lookup or download.
+    ["control characters", "\u001b[31mtable-tool", { kind: "invalid", reason: "control-characters" }],
+    ["a line break after the name", "table-tool\n", { kind: "invalid", reason: "control-characters" }],
+    ["skill: with a control character", "skill:x\u0007", { kind: "invalid", reason: "control-characters" }],
     ["upper case", "Table-Tool", npm("Table-Tool")],
     ["URL", "https://github.com/table-owner/table-repo", npm("https://github.com/table-owner/table-repo")],
     ["URL with a user", "https://user@example.com/x", npm("https://user@example.com/x")],
-    ["name ending in @", "table-tool@", npm("table-tool@")],
+    // `<name>@` gives no version: a usage error, not a lookup of a name
+    // ending in `@`. The name is kept as typed, shorthand and prefix included.
+    ["name ending in @", "table-tool@", { kind: "invalid", reason: "no-version", name: "table-tool" }],
+    [
+      "@scope/name ending in @",
+      "@modelcontextprotocol/server-filesystem@",
+      { kind: "invalid", reason: "no-version", name: "@modelcontextprotocol/server-filesystem" },
+    ],
+    ["shorthand ending in @", "server-filesystem@", { kind: "invalid", reason: "no-version", name: "server-filesystem" }],
+    ["pip:name ending in @", "pip:requests@", { kind: "invalid", reason: "no-version", name: "pip:requests" }],
     ["unknown prefix", "pypi:requests", npm("pypi:requests")],
   ];
 

@@ -9,12 +9,17 @@ import type {
   RegistryClient,
   TrustAnswer,
 } from "@opena2a/registry-client";
-import { createRegistryClient, registryFailureSentence } from "../utils/registry-client.js";
+import {
+  createRegistryClient,
+  registryErrorMessage,
+  registryFailureSentence,
+} from "../utils/registry-client.js";
 import { formatBatchResults, formatJson } from "../output/formatter.js";
 import type { BatchAnswer } from "../output/formatter.js";
 import { stripControlCharacters } from "../output/sanitize.js";
 import { trustGate } from "../output/trust-gate.js";
 import { packageTypeChoices, packageTypeProblem } from "../utils/package-type.js";
+import { parseMinTrust } from "../utils/min-trust.js";
 import { resolveAndLog } from "../utils/resolve.js";
 import { shellArg } from "../utils/shell-arg.js";
 import { createRequire } from "node:module";
@@ -93,11 +98,12 @@ export function registerBatchCommand(program: Command): void {
           process.exitCode = 1;
         };
 
-        const minTrust = parseInt(opts.minTrust, 10);
-        if (isNaN(minTrust) || minTrust < 0 || minTrust > 4) {
-          usageError("--min-trust must be a number between 0 and 4");
+        const parsedMinTrust = parseMinTrust(opts.minTrust);
+        if ("problem" in parsedMinTrust) {
+          usageError(parsedMinTrust.problem);
           return;
         }
+        const minTrust = parsedMinTrust.level;
 
         const typeProblem = packageTypeProblem(opts.type);
         if (typeProblem !== undefined) {
@@ -105,15 +111,20 @@ export function registerBatchCommand(program: Command): void {
           return;
         }
 
-        if (names.length > 100) {
+        // A name given twice, or given both as an MCP shorthand and in full
+        // (`server-filesystem`, `@modelcontextprotocol/server-filesystem`),
+        // is looked up once and gets one row.
+        const lookupNames = [...new Set([...new Set(names)].map(resolveAndLog))];
+
+        if (lookupNames.length > 100) {
           usageError(
-            `Too many packages (${names.length}). The batch API supports a maximum of 100 packages per request.`
+            `Too many packages (${lookupNames.length}). The batch API supports a maximum of 100 packages per request.`
           );
           return;
         }
 
-        const packages: PackageQuery[] = names.map((rawName) => ({
-          name: resolveAndLog(rawName),
+        const packages: PackageQuery[] = lookupNames.map((name) => ({
+          name,
           ...(opts.type ? { type: opts.type } : {}),
         }));
 
@@ -131,7 +142,12 @@ export function registerBatchCommand(program: Command): void {
           if (globalOpts.json) {
             console.log(formatJson(response));
           } else {
-            console.log(formatBatchResults(response, minTrust, { type: opts.type }));
+            console.log(
+              formatBatchResults(response, minTrust, {
+                type: opts.type,
+                terminalWidth: process.stdout.columns,
+              }),
+            );
           }
 
           // Exit code 2 for policy violation (below threshold or unknown
@@ -142,7 +158,7 @@ export function registerBatchCommand(program: Command): void {
             process.exitCode = 2;
           }
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
+          const message = registryErrorMessage(err);
           if (globalOpts.json) {
             console.log(formatJson({ error: message }));
           } else {

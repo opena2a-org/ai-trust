@@ -13,7 +13,12 @@ import { registerCheckCommand } from "./commands/check.js";
 import { registerAuditCommand } from "./commands/audit.js";
 import { registerBatchCommand } from "./commands/batch.js";
 import { registerConfigCommand } from "./commands/config.js";
-import { helpFooter, onKeptOffByVariable, withEnableSteps } from "./utils/help-footer.js";
+import {
+  helpFooter,
+  onKeptOffByVariable,
+  withEnableSteps,
+  withSharedScope,
+} from "./utils/help-footer.js";
 import { helpDocsLine } from "./utils/help-docs.js";
 import { telemetryJson, unknownTelemetryActionJson } from "./utils/telemetry-json.js";
 import { scanPingsSettled } from "./telemetry/contribute.js";
@@ -21,6 +26,10 @@ import { readContributeChoice } from "./telemetry/opt-in.js";
 import { DEFAULT_REGISTRY_URL, registryUrlProblem } from "./utils/registry-url.js";
 import { formatJson } from "./output/formatter.js";
 import { stripControlCharacters } from "./output/sanitize.js";
+import { applyNoColor } from "./utils/no-color.js";
+
+// Before anything is printed: NO_COLOR turns color off as --no-color does.
+applyNoColor();
 
 const require = createRequire(import.meta.url);
 const pkg = require("../package.json");
@@ -59,6 +68,32 @@ program
   )
   .option("--json", "output raw JSON", false)
   .option("--no-color", "disable colored output");
+
+/**
+ * True when the command line asks for JSON output. Read from the arguments
+ * as well as the parsed options: Commander can report a usage error before
+ * it has stored them.
+ */
+function jsonRequested(): boolean {
+  if ((program.opts() as { json?: boolean }).json === true) return true;
+  const args = process.argv.slice(2);
+  const end = args.indexOf("--");
+  return (end === -1 ? args : args.slice(0, end)).includes("--json");
+}
+
+// A usage error Commander reports (a missing argument, an unknown option or
+// command) is, with --json, the `error` of one object on stdout, as each
+// command's own usage errors are. Without --json it stays Commander's text
+// on stderr. Subcommands share this output configuration.
+program.configureOutput({
+  outputError: (str, write) => {
+    if (jsonRequested()) {
+      process.stdout.write(`${formatJson({ error: str.trim().replace(/^error: /, "") })}\n`);
+    } else {
+      write(str);
+    }
+  },
+});
 
 // The registry client throws a TypeError for a base URL that is not http(s),
 // which ended a command in a stack trace. The value is checked here, before
@@ -168,18 +203,23 @@ program.addHelpText("afterAll", ({ command }) => helpDocsLine(command));
       }
       // An unrecognized action prints "Unknown action …" but must also exit
       // non-zero so scripts and CI can detect the usage error (release-test P3).
+      // As text it is an error on stderr, worded as `config contribute`
+      // words its own.
       const knownActions = new Set(["on", "off", "status", "--help", "-h"]);
       const unknownAction =
         action !== undefined && !knownActions.has(action) ? action : undefined;
       const { json } = program.opts() as { json: boolean };
       if (json && unknownAction !== undefined) {
         console.log(JSON.stringify(unknownTelemetryActionJson(TELEMETRY_TOOL, unknownAction), null, 2));
+      } else if (unknownAction !== undefined) {
+        const { error } = unknownTelemetryActionJson(TELEMETRY_TOOL, unknownAction);
+        console.error(`Error: ${stripControlCharacters(error)}`);
       } else if (json && action !== "--help" && action !== "-h") {
         console.log(
           JSON.stringify(telemetryJson(TELEMETRY_TOOL, tele.status(), keptOffByVariable), null, 2),
         );
       } else {
-        console.log(withEnableSteps(output));
+        console.log(withEnableSteps(withSharedScope(output)));
       }
       if (unknownAction !== undefined) {
         process.exitCode = 1;

@@ -295,6 +295,42 @@ describe("scanPackage", () => {
     const result = await scanPackage("ships-a-dockerfile");
     expect(result.scan.findings.map((f) => f.checkId)).toEqual(["SANDBOX-001"]);
     expect(result.scan.score).toBe(100);
+    expect(result).not.toHaveProperty("notCounted");
+  });
+
+  it("names the failed checks it left out of the score, each once, in the scanner's order", async () => {
+    setupDownload("@modelcontextprotocol/server-filesystem");
+    const finding = (checkId: string, category: string, passed: boolean) => ({
+      checkId,
+      name: checkId,
+      description: "",
+      category,
+      severity: "medium" as const,
+      passed,
+      message: checkId,
+    });
+    vi.mocked(runHmaScan).mockResolvedValue({
+      score: 80,
+      maxScore: 100,
+      findings: [
+        finding("GIT-001", "git", false),
+        finding("DEP-001", "dependencies", false),
+        finding("GIT-001", "git", false),
+        finding("SANDBOX-001", "sandboxing", false),
+        // A pass in a local-only category is kept and not named.
+        finding("ENV-002", "environment", true),
+        // A real detection in a category DEP-001 shares is counted.
+        finding("DEP-900", "dependencies", false),
+      ],
+      projectType: "mcp",
+      timestamp: "2026-10-18T00:00:00Z",
+    });
+
+    const result = await scanPackage("@modelcontextprotocol/server-filesystem");
+    expect(result.notCounted).toEqual(["GIT-001", "DEP-001", "SANDBOX-001"]);
+    expect(result.scan.findings.map((f) => f.checkId)).toEqual(["ENV-002", "DEP-900"]);
+    // One medium left: round(100 * exp(-8 / 150)) = 95.
+    expect(result.scan.score).toBe(95);
   });
 
   it("cleans up even when scan fails", async () => {
@@ -643,5 +679,7 @@ describe("scanLocalPath", () => {
       "SANDBOX-001",
     ]);
     expect(result.scan.score).toBe(90);
+    // A local tree counts them, so none is named as left out.
+    expect(result).not.toHaveProperty("notCounted");
   });
 });

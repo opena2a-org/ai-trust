@@ -383,6 +383,45 @@ describe("batch command", () => {
     expect(process.exitCode).toBe(1);
   });
 
+  // parseInt read 2.5 as level 2.
+  it("rejects a --min-trust that is not a whole number", async () => {
+    await createProgram().parseAsync(["node", "test", "batch", "pkg-a", "--min-trust", "2.5"]);
+
+    expect(consoleErrSpy).toHaveBeenCalledWith(
+      "Error: --min-trust must be a whole number between 0 and 4, not 2.5"
+    );
+    expect(consoleSpy).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+    expect(RegistryClient).not.toHaveBeenCalled();
+  });
+
+  it("looks up a name given twice, or as a shorthand and in full, once", async () => {
+    const mockBatchQuery = vi.fn().mockResolvedValue({
+      results: [],
+      meta: { total: 0, found: 0, notFound: 0 },
+    });
+    vi.mocked(RegistryClient).mockImplementation(function () {
+      return { checkTrust: vi.fn(), batchQuery: mockBatchQuery } as any;
+    });
+
+    await createProgram().parseAsync([
+      "node", "test", "batch",
+      "server-filesystem", "nonexistent-xyz-999", "express", "server-filesystem",
+      "@modelcontextprotocol/server-filesystem", "express",
+    ]);
+
+    expect(mockBatchQuery).toHaveBeenCalledWith([
+      { name: "@modelcontextprotocol/server-filesystem" },
+      { name: "nonexistent-xyz-999" },
+      { name: "express" },
+    ]);
+    // The shorthand is noted once, not once for each time it was given.
+    const resolved = consoleErrSpy.mock.calls.filter((c) => String(c[0]).startsWith("Resolved:"));
+    expect(resolved).toEqual([
+      ["Resolved: server-filesystem -> @modelcontextprotocol/server-filesystem"],
+    ]);
+  });
+
   it("prints a --min-trust usage error as text on stderr without --json", async () => {
     await createProgram().parseAsync(["node", "test", "batch", "pkg-a", "--min-trust", "9"]);
 

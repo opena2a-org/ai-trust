@@ -362,6 +362,45 @@ describe("check command", () => {
       );
     });
 
+    // A failed lookup printed "found": false, which a script reads as a
+    // registry miss (#230). Exit 1 stays the signal that the lookup failed.
+    it("a failed lookup with --json carries the error and no found field", async () => {
+      vi.mocked(RegistryClient).mockImplementation(function () {
+        return {
+          checkTrust: vi.fn().mockRejectedValue(new Error("Registry network error: fetch failed")),
+          batchQuery: vi.fn(),
+          publishScan: vi.fn(),
+        } as any;
+      });
+
+      await createProgram().parseAsync(["node", "test", "check", "any-pkg", "--no-scan", "--json"]);
+
+      expect(consoleSpy.mock.calls).toHaveLength(1);
+      expect(JSON.parse(String(consoleSpy.mock.calls[0][0]))).toEqual({
+        name: "any-pkg",
+        ecosystem: "npm",
+        error: "Registry network error: fetch failed",
+      });
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("a registry client refusal is printed without the client's class name", async () => {
+      vi.mocked(RegistryClient).mockImplementation(function () {
+        return {
+          checkTrust: vi
+            .fn()
+            .mockRejectedValue(new TypeError("RegistryClient: type contains control characters")),
+          batchQuery: vi.fn(),
+          publishScan: vi.fn(),
+        } as any;
+      });
+
+      await createProgram().parseAsync(["node", "test", "check", "any-pkg", "--no-scan"]);
+
+      expect(consoleErrSpy).toHaveBeenCalledWith("Error: Type contains control characters");
+      expect(process.exitCode).toBe(1);
+    });
+
     it("shows not-found message with actionable next steps", async () => {
       const mockCheckTrust = vi
         .fn()
@@ -494,12 +533,21 @@ describe("check command", () => {
         expect(process.exitCode).toBe(1);
       });
 
-      it("gives the same lines for a request that timed out", async () => {
+      it("gives the same lines for a request that timed out twice, after the time both attempts took", async () => {
         registryFails(new RegistryApiError("Registry request timed out after 15000ms", "timeout"));
         await createProgram().parseAsync(["node", "test", "check", "my-pkg", "--no-scan"]);
 
-        expect(stderrLines()).toEqual([
-          "Error: Registry request timed out after 15000ms",
+        // A line said before the second attempt that the first timed out, and
+        // the error gives the time both took, not the limit of one (#230).
+        const lines = stderrLines();
+        expect(lines).toHaveLength(4);
+        expect(lines[0]).toBe(
+          "  The registry at https://api.test.com did not answer within 15000 ms; trying once more."
+        );
+        expect(lines[1]).toMatch(
+          /^Error: Registry request timed out: the registry at https:\/\/api\.test\.com did not answer in \d+(\.\d)? s \(2 attempts of up to 15000 ms each\)$/
+        );
+        expect(lines.slice(2)).toEqual([
           "  The registry at https://api.test.com did not answer.",
           "  Next: ai-trust check my-pkg",
         ]);
@@ -582,17 +630,18 @@ describe("check command", () => {
         expect(process.exitCode).toBe(1);
       });
 
-      it("leaves the --json output as it was: one object on stdout, nothing on stderr", async () => {
+      it("with --json prints one object on stdout, without found, and nothing on stderr", async () => {
         registryFails(networkError());
         await createProgram().parseAsync([
           "node", "test", "--json", "check", "@modelcontextprotocol/server-filesystem", "--no-scan",
           "--registry-url", "http://127.0.0.1:9",
         ]);
 
+        // Whether the registry has the package is not known, so the object
+        // carries no `found: false`, which reads as a miss (#230).
         expect(consoleSpy).toHaveBeenCalledTimes(1);
         expect(JSON.parse(consoleSpy.mock.calls[0][0] as string)).toEqual({
           name: "@modelcontextprotocol/server-filesystem",
-          found: false,
           error: "Registry network error: fetch failed",
           ecosystem: "npm",
         });
@@ -637,6 +686,46 @@ describe("check command", () => {
       );
       expect(formatCheckResult).toHaveBeenCalled();
       expect(process.exitCode).toBeUndefined();
+    });
+
+    // The Next Steps scan lost the version, and the JSON had no field for the
+    // stderr note (#230).
+    it("--no-scan hands the version to the text output and marks the JSON answer as the package's", async () => {
+      vi.mocked(RegistryClient).mockImplementation(function () {
+        return {
+          checkTrust: vi.fn().mockResolvedValue({
+            name: "my-pkg",
+            found: true,
+            verdict: "passed",
+            trustLevel: 3,
+            packageType: "mcp_server",
+          }),
+          batchQuery: vi.fn(),
+          publishScan: vi.fn(),
+        } as any;
+      });
+
+      await createProgram().parseAsync(["node", "test", "check", "my-pkg@1.2.3", "--no-scan"]);
+      expect(formatCheckResult).toHaveBeenCalledWith(
+        expect.objectContaining({ name: "my-pkg" }),
+        "npm",
+        { version: "1.2.3" },
+      );
+
+      await createProgram().parseAsync(["node", "test", "check", "my-pkg@1.2.3", "--no-scan", "--json"]);
+      const json = JSON.parse(String(consoleSpy.mock.calls.at(-1)![0]));
+      expect(json).toMatchObject({
+        name: "my-pkg",
+        requestedVersion: "1.2.3",
+        answerScope: "package",
+        source: "registry",
+        found: true,
+      });
+
+      await createProgram().parseAsync(["node", "test", "check", "my-pkg", "--no-scan", "--json"]);
+      const unversioned = JSON.parse(String(consoleSpy.mock.calls.at(-1)![0]));
+      expect(unversioned).not.toHaveProperty("requestedVersion");
+      expect(unversioned).not.toHaveProperty("answerScope");
     });
 
     it("the default check asks about the package, and a registry library is not scanned", async () => {
@@ -763,7 +852,7 @@ describe("check command", () => {
         expect(stderrText()).not.toContain("Note:");
       });
 
-      it("prints no note with --json, whose scan document carries no registry answer", async () => {
+      it("prints no note with --json, whose scan document marks the registry answer as the package's", async () => {
         registryScores(0.2);
         scanScores100("my-pkg@1.0.0");
 
@@ -771,6 +860,35 @@ describe("check command", () => {
 
         expect(formatScanResult).not.toHaveBeenCalled();
         expect(stderrText()).not.toContain("Note:");
+        // The registry's answer the text sets beside the scan's score (#230).
+        const json = JSON.parse(String(consoleSpy.mock.calls.at(-1)![0]));
+        expect(json.registry).toEqual({
+          verdict: "warning",
+          trustLevel: 1,
+          trustScore: 0.2,
+          scanStatus: "completed",
+          answerScope: "package",
+        });
+        expect(json).not.toHaveProperty("registryError");
+      });
+
+      it("--json names a failed registry lookup as registryError beside the scan (#230)", async () => {
+        vi.mocked(RegistryClient).mockImplementation(function () {
+          return {
+            checkTrust: vi.fn().mockRejectedValue(new Error("Registry API returned 500")),
+            publishScan: vi.fn(),
+          } as any;
+        });
+        scanScores100("my-pkg");
+
+        await createProgram().parseAsync(["node", "test", "--json", "check", "my-pkg", "--no-deep"]);
+
+        const json = JSON.parse(String(consoleSpy.mock.calls.at(-1)![0]));
+        expect(json).toMatchObject({ source: "scan", registryError: "Registry API returned 500" });
+        expect(json).not.toHaveProperty("registry");
+        expect(stderrText()).toContain(
+          "Registry lookup failed (Registry API returned 500); proceeding with local scan.",
+        );
       });
 
       it("prints no note for a target without a version", async () => {
@@ -2449,6 +2567,128 @@ describe("check command", () => {
 
       expect(doc).toContain(`Flags: ${typeFlag}, \`--contribute\``);
       expect(doc).toContain(`Flags: ${typeFlag}, \`--min-trust\``);
+    });
+  });
+
+  // `<name>@` was looked up as a package named with the `@` and reported not
+  // found (exit 2); a name with a control character reached the registry
+  // client, whose refusal named its class. Both are usage errors now.
+  describe("a target with no version after its @, or with a control character (#230)", () => {
+    for (const [target, error] of [
+      [
+        "@modelcontextprotocol/server-filesystem@",
+        'No version after "@modelcontextprotocol/server-filesystem@". Usage: ai-trust check @modelcontextprotocol/server-filesystem@<version>, or ai-trust check @modelcontextprotocol/server-filesystem without the "@"',
+      ],
+      [
+        "pip:requests@",
+        'No version after "pip:requests@". Usage: ai-trust check pip:requests@<version>, or ai-trust check pip:requests without the "@"',
+      ],
+      ["evil\u001b[31m", "The package name contains control characters. Usage: ai-trust check <package>"],
+    ] as const) {
+      for (const flags of [[], ["--no-scan"]]) {
+        it(`check ${JSON.stringify(target)} ${flags.join(" ") || "with no flag"}: a usage error before any lookup or scan`, async () => {
+          await createProgram().parseAsync(["node", "test", "check", target, ...flags]);
+
+          expect(consoleErrSpy.mock.calls.map((c) => c.join(" "))).toEqual([`Error: ${error}`]);
+          expect(consoleSpy).not.toHaveBeenCalled();
+          expect(process.exitCode).toBe(1);
+          expect(RegistryClient).not.toHaveBeenCalled();
+          expect(isHmaAvailable).not.toHaveBeenCalled();
+          expect(scanPackage).not.toHaveBeenCalled();
+        });
+      }
+      it(`check ${JSON.stringify(target)} --no-scan --json: {"error"} on stdout, exit 1`, async () => {
+        await createProgram().parseAsync(["node", "test", "check", target, "--no-scan", "--json"]);
+
+        expect(consoleSpy.mock.calls).toHaveLength(1);
+        expect(JSON.parse(String(consoleSpy.mock.calls[0][0]))).toEqual({ error });
+        expect(consoleErrSpy).not.toHaveBeenCalled();
+        expect(process.exitCode).toBe(1);
+        expect(RegistryClient).not.toHaveBeenCalled();
+      });
+    }
+  });
+
+  describe("flags that change nothing say so (#230)", () => {
+    function stderrLines(): string[] {
+      return consoleErrSpy.mock.calls.map((args) => args.join(" ").replace(/\x1b\[[0-9;]*m/g, ""));
+    }
+
+    function scannedDirectory(): void {
+      vi.mocked(isHmaAvailable).mockResolvedValueOnce(true);
+      vi.mocked(scanLocalPath).mockResolvedValueOnce({
+        packageName: "/tmp/dir",
+        scan: {
+          score: 100,
+          maxScore: 100,
+          findings: [],
+          projectType: "library",
+          timestamp: "2026-10-18T00:00:00Z",
+          filesExamined: 3,
+        },
+        trustScore: 1,
+        trustLevel: 3,
+        verdict: "safe",
+      } as ScanResult);
+    }
+
+    it("--scan-path with --no-scan scans the directory and notes that --no-scan was ignored", async () => {
+      scannedDirectory();
+      await createProgram().parseAsync([
+        "node", "test", "check", "x", "--scan-path", "/tmp/dir", "--no-scan",
+      ]);
+
+      expect(scanLocalPath).toHaveBeenCalled();
+      expect(stderrLines()).toContain(
+        "  Note: --no-scan is ignored with --scan-path: the directory is scanned, and the registry is not asked.",
+      );
+      expect(RegistryClient).not.toHaveBeenCalled();
+    });
+
+    it("--scan-path with --contribute notes that a directory scan is not shared", async () => {
+      scannedDirectory();
+      await createProgram().parseAsync([
+        "node", "test", "check", "x", "--scan-path", "/tmp/dir", "--contribute",
+      ]);
+
+      expect(stderrLines()).toContain(
+        "  Note: --contribute is ignored with --scan-path: a directory scan is not shared with the registry.",
+      );
+    });
+
+    it("--scan-path alone prints no note", async () => {
+      scannedDirectory();
+      await createProgram().parseAsync(["node", "test", "check", "x", "--scan-path", "/tmp/dir"]);
+
+      expect(stderrLines().filter((l) => l.includes("Note:"))).toEqual([]);
+    });
+
+    it("--scan-if-missing notes that it is deprecated, as --rescan does, on both paths", async () => {
+      scannedDirectory();
+      await createProgram().parseAsync([
+        "node", "test", "check", "x", "--scan-path", "/tmp/dir", "--scan-if-missing", "--rescan",
+      ]);
+
+      expect(stderrLines()).toEqual(
+        expect.arrayContaining([
+          "  Note: --scan-if-missing is deprecated. Every package is scanned by default.",
+          "  Note: --rescan is deprecated. Local scan is now the default.",
+        ]),
+      );
+
+      consoleErrSpy.mockClear();
+      vi.mocked(RegistryClient).mockImplementation(function () {
+        return {
+          checkTrust: vi.fn().mockRejectedValue(new PackageNotFoundError("my-pkg")),
+          batchQuery: vi.fn(),
+          publishScan: vi.fn(),
+        } as any;
+      });
+      await createProgram().parseAsync(["node", "test", "check", "my-pkg", "--no-scan", "--scan-if-missing"]);
+
+      expect(stderrLines()).toContain(
+        "  Note: --scan-if-missing is deprecated. Every package is scanned by default.",
+      );
     });
   });
 });

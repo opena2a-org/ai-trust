@@ -8,6 +8,7 @@
  */
 
 import type { Command } from "commander";
+import { stripControlCharacters } from "../output/sanitize.js";
 import {
   hasUnmarkedOff,
   readContributeChoice,
@@ -47,8 +48,15 @@ export function registerConfigCommand(program: Command): void {
       const globalOpts = program.opts() as { json?: boolean };
       const requested = (action ?? "status").toLowerCase();
 
+      // Worded as `telemetry` words its own; with --json the `error` of one
+      // object on stdout, as for the other usage errors.
       if (!isContributeAction(requested)) {
-        console.error(`Unknown action "${action}". Use: ai-trust config contribute on | off | status`);
+        const problem = `Unknown action '${action}'. Use: ai-trust config contribute on | off | status`;
+        if (globalOpts.json) {
+          console.log(JSON.stringify({ error: problem }, null, 2));
+        } else {
+          console.error(`Error: ${stripControlCharacters(problem)}`);
+        }
         process.exitCode = 1;
         return;
       }

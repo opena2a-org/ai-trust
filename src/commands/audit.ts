@@ -9,10 +9,12 @@ import type { TrustAnswer } from "@opena2a/registry-client";
 import {
   createRegistryClient,
   isTransientRegistryError,
+  registryErrorMessage,
   registryFailure,
 } from "../utils/registry-client.js";
 import { parseDependencyFile, detectEcosystem } from "../utils/parser.js";
 import { findAuditFile } from "../utils/audit-file.js";
+import { parseMinTrust } from "../utils/min-trust.js";
 import { shellArg } from "../utils/shell-arg.js";
 import { capLength, stripControlCharacters } from "../output/sanitize.js";
 import {
@@ -81,9 +83,9 @@ export function registerAuditCommand(program: Command): void {
 
       // With --json a usage error is the `error` of one object on stdout, as
       // for a --registry-url usage error.
-      const minTrust = parseInt(opts.minTrust, 10);
-      if (isNaN(minTrust) || minTrust < 0 || minTrust > 4) {
-        const problem = "--min-trust must be a number between 0 and 4";
+      const parsedMinTrust = parseMinTrust(opts.minTrust);
+      if ("problem" in parsedMinTrust) {
+        const { problem } = parsedMinTrust;
         if (globalOpts.json) {
           console.log(formatJson({ error: problem }));
         } else {
@@ -92,6 +94,7 @@ export function registerAuditCommand(program: Command): void {
         process.exitCode = 1;
         return;
       }
+      const minTrust = parsedMinTrust.level;
 
       // Refused before it is read: each line of another file would be
       // looked up as a package name.
@@ -199,9 +202,11 @@ export function registerAuditCommand(program: Command): void {
         } else {
           console.log(
             formatBatchResults(response, minTrust, {
-              file: scannedMissing ? undefined : file,
+              file,
+              scannedMissing,
               ecosystem,
-            })
+              terminalWidth: process.stdout.columns,
+            }),
           );
         }
 
@@ -224,9 +229,7 @@ export function registerAuditCommand(program: Command): void {
             ? `${file} is a directory, not a dependency file`
             : nameTooLong
               ? nameTooLongMessage(file)
-              : err instanceof Error
-                ? err.message
-                : String(err);
+              : registryErrorMessage(err);
 
         if (globalOpts.json) {
           console.log(formatJson({ file, error: message }));

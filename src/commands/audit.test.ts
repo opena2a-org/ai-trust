@@ -149,6 +149,21 @@ describe("audit command", () => {
     expect(process.exitCode).toBe(1);
   });
 
+  // parseInt read 2.5 as level 2 and the audit passed at that level.
+  it("rejects a --min-trust that is not a whole number before reading the file", async () => {
+    await createProgram().parseAsync([
+      "node", "test", "audit", "package.json", "--min-trust", "2.5",
+    ]);
+
+    expect(consoleErrSpy).toHaveBeenCalledWith(
+      "Error: --min-trust must be a whole number between 0 and 4, not 2.5"
+    );
+    expect(consoleSpy).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+    expect(parseDependencyFile).not.toHaveBeenCalled();
+    expect(RegistryClient).not.toHaveBeenCalled();
+  });
+
   it("rejects more than 100 dependencies", async () => {
     const manyDeps = Array.from({ length: 101 }, (_, i) => ({
       name: `pkg-${i}`,
@@ -317,6 +332,38 @@ describe("audit command", () => {
       );
       expect(lines).toContain("  Next: ai-trust check novel-random-pkg");
       expect(lines.join("\n")).not.toContain("Next: ai-trust audit");
+    });
+
+    it("after --scan-missing could not scan an AI package, the Next Steps check it and offer no scan again", async () => {
+      vi.mocked(isHmaAvailable).mockResolvedValueOnce(true);
+      vi.mocked(scanPackage).mockRejectedValueOnce(new Error("not found on npm"));
+      const lines = await auditLines(
+        [
+          aiPackage,
+          { name: "missing-mcp", found: false, packageType: "mcp_server", trustLevel: 0, verdict: "unknown" },
+        ],
+        ["package.json", "--scan-missing", "--no-contribute"]
+      );
+
+      expect(process.exitCode).toBe(2);
+      expect(lines).toContain("  Next: ai-trust check missing-mcp");
+      expect(lines).toContain("  Check individual:  ai-trust check missing-mcp");
+      expect(lines.join("\n")).not.toContain("Scan missing:");
+      expect(lines.join("\n")).not.toContain("<file>");
+    });
+
+    it("names the file it read in the Next Steps scan of a missing AI package", async () => {
+      const lines = await auditLines(
+        [
+          aiPackage,
+          { name: "missing-mcp", found: false, packageType: "mcp_server", trustLevel: 0, verdict: "unknown" },
+        ],
+        ["package.json"]
+      );
+
+      expect(process.exitCode).toBe(2);
+      expect(lines).toContain("  Scan missing:      ai-trust audit package.json --scan-missing");
+      expect(lines).toContain("  Check individual:  ai-trust check missing-mcp");
     });
 
     it("after yes at the scan prompt on a terminal could not scan a package, gives the check command for it", async () => {
@@ -839,7 +886,16 @@ describe("audit command", () => {
       registryFails("Registry request timed out after 15000ms", "timeout");
       await createProgram().parseAsync(["node", "test", "audit", "package.json"]);
 
-      expect(stderrLines()[1]).toBe(
+      // Both attempts timed out: a line said so before the second one, and
+      // the error gives the time both took, not the limit of one (#230).
+      const lines = stderrLines();
+      expect(lines[0]).toBe(
+        "  The registry at https://api.test.com did not answer within 15000 ms; trying once more."
+      );
+      expect(lines[1]).toMatch(
+        /^Error: Registry request timed out: the registry at https:\/\/api\.test\.com did not answer in \d+(\.\d)? s \(2 attempts of up to 15000 ms each\)$/
+      );
+      expect(lines[2]).toBe(
         "  No dependencies were checked: the registry at https://api.test.com did not answer."
       );
       expect(process.exitCode).toBe(1);

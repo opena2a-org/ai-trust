@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { PackageNotFoundError } from "@opena2a/registry-client";
 import {
   createRegistryClient,
+  registryErrorMessage,
   REGISTRY_TIMEOUT_MS,
   REGISTRY_RETRY_BACKOFF_MS,
 } from "./registry-client.js";
@@ -348,5 +349,113 @@ describe("a client created with an ecosystem adds it to the trust query (#131)",
     expect(String(fetchMock.mock.calls[1][0])).toBe(`${BASE_URL}/api/v1/trust/publish`);
     const publishInit = fetchMock.mock.calls[1][1] as RequestInit;
     expect(JSON.parse(String(publishInit.body))).toEqual(submission);
+  });
+});
+
+// A registry that never answered printed "timed out after 15000ms" after
+// both attempts, about 30 s, and nothing while it waited (#230).
+describe("a registry that does not answer", () => {
+  /** A fetch that answers only by rejecting once the client aborts it. */
+  function neverAnswers(): ReturnType<typeof vi.fn> {
+    return vi.fn().mockImplementation(
+      (_url: unknown, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(abortError()));
+        }),
+    );
+  }
+
+  it("says so before the second attempt, and the error gives the URL and the time both attempts took", async () => {
+    const fetchMock = neverAnswers();
+    const notice = vi.fn();
+    const client = createRegistryClient({
+      baseUrl: "http://127.0.0.1:9/registry/",
+      userAgent: USER_AGENT,
+      fetch: fetchMock as unknown as typeof fetch,
+      retryBackoffMs: 0,
+      timeoutMs: 40,
+      notice,
+    });
+
+    let caught: unknown;
+    const startedAt = Date.now();
+    try {
+      await client.checkTrust("slow-mcp");
+    } catch (err) {
+      caught = err;
+    }
+    const elapsedMs = Date.now() - startedAt;
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // One line, before the second attempt.
+    expect(notice.mock.calls).toEqual([
+      ["  The registry at http://127.0.0.1:9/registry did not answer within 40 ms; trying once more."],
+    ]);
+    expect(notice.mock.invocationCallOrder[0]).toBeLessThan(fetchMock.mock.invocationCallOrder[1]);
+    expect(caught).toBeInstanceOf(Error);
+    // Still a transient failure to the callers that read the code.
+    expect((caught as Error & { code?: string }).code).toBe("timeout");
+    const message = (caught as Error).message;
+    expect(message).toMatch(
+      /^Registry request timed out: the registry at http:\/\/127\.0\.0\.1:9\/registry did not answer in (\d+(?:\.\d)?) s \(2 attempts of up to 40 ms each\)$/,
+    );
+    // The time named is the time both attempts took.
+    const namedMs = Number(/in (\d+(?:\.\d)?) s/.exec(message)![1]) * 1000;
+    expect(namedMs).toBeGreaterThanOrEqual(80 - 50);
+    expect(namedMs).toBeLessThanOrEqual(elapsedMs + 50);
+  });
+
+  it("prints no line for a refused connection, which fails at once", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => {
+      throw new TypeError("fetch failed");
+    });
+    const notice = vi.fn();
+    const client = createRegistryClient({
+      baseUrl: BASE_URL,
+      userAgent: USER_AGENT,
+      fetch: fetchMock as unknown as typeof fetch,
+      retryBackoffMs: 0,
+      notice,
+    });
+
+    await expect(client.checkTrust("refused-mcp")).rejects.toThrow(
+      "Registry network error: fetch failed",
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(notice).not.toHaveBeenCalled();
+  });
+
+  it("prints the line and returns the answer when the second attempt answers", async () => {
+    const answer = trustAnswerBody("slow-then-fast-mcp");
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        throw abortError();
+      })
+      .mockImplementationOnce(async () => jsonResponse(answer));
+    const notice = vi.fn();
+    const client = createRegistryClient({
+      baseUrl: BASE_URL,
+      userAgent: USER_AGENT,
+      fetch: fetchMock as unknown as typeof fetch,
+      retryBackoffMs: 0,
+      notice,
+    });
+
+    await expect(client.checkTrust("slow-then-fast-mcp")).resolves.toMatchObject({ found: true });
+    expect(notice).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("registryErrorMessage", () => {
+  it("leaves out the class name the client starts its own refusals with", () => {
+    expect(
+      registryErrorMessage(new TypeError("RegistryClient: package name contains control characters")),
+    ).toBe("Package name contains control characters");
+  });
+
+  it("passes any other message through", () => {
+    expect(registryErrorMessage(new Error("Registry API returned 500"))).toBe("Registry API returned 500");
+    expect(registryErrorMessage("plain text")).toBe("plain text");
   });
 });

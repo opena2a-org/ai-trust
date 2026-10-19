@@ -14,6 +14,12 @@ const GIT_STYLE_NAME = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 /** `<name>@<version>` or `@<scope>/<name>@<version>`, the version holding no `/`. */
 const NAME_AT_VERSION = /^(@?[^@]+)@([^@/]+)$/;
 
+/** `<name>@` or `@<scope>/<name>@`: a name, then an `@` with no version after it. */
+const NAME_AT_NOTHING = /^(@?[^@]+)@$/;
+
+/** C0 control characters and DEL, which no package name holds. */
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
+
 /** An npm package. */
 export interface NpmTarget {
   kind: "npm";
@@ -63,6 +69,18 @@ export type InvalidTarget =
       /** `pip:`, `npm:`, `skill:` or `mcp:` with nothing after it. */
       reason: "no-package-name";
       prefix: "pip:" | "npm:" | "skill:" | "mcp:";
+    }
+  | {
+      kind: "invalid";
+      /** `<name>@` with no version after the `@`. */
+      reason: "no-version";
+      /** The name before the `@`, as typed, with a `pip:` prefix kept. */
+      name: string;
+    }
+  | {
+      kind: "invalid";
+      /** A control character in the target, which no package name holds. */
+      reason: "control-characters";
     };
 
 export type PackageTarget = NpmTarget | GitTarget | PypiTarget;
@@ -90,6 +108,11 @@ export function classifyCheckTarget(raw: string): CheckTarget {
   // A bare `skill:` or `mcp:` names nothing to look up, as a bare `pip:` does.
   const richPrefix = bareRichPrefix(raw);
   if (richPrefix) return { kind: "invalid", reason: "no-package-name", prefix: richPrefix };
+  // Refused before any lookup: the registry client refuses such a name too,
+  // and the download would print it with its escape sequences.
+  if (raw.trim() !== "" && CONTROL_CHARACTERS.test(raw)) {
+    return { kind: "invalid", reason: "control-characters" };
+  }
   const rich = parseRichTarget(raw);
   if (rich) {
     return { kind: rich.artifactType, name: rich.name, fallback: classifyPackageTarget(rich.name) };
@@ -104,6 +127,13 @@ function classifyPackageTarget(raw: string): PackageTarget | InvalidTarget {
   if (prefix) return { kind: "invalid", reason: "no-package-name", prefix };
 
   const { name: typed, ecosystem } = parsePackageTarget(raw);
+  // `<name>@` asks for a version and gives none: a usage error, not a lookup
+  // of a package whose name ends in `@`.
+  const noVersion = NAME_AT_NOTHING.exec(typed);
+  if (noVersion) {
+    const name = ecosystem === "pypi" ? `pip:${noVersion[1]}` : noVersion[1];
+    return { kind: "invalid", reason: "no-version", name };
+  }
   // MCP shorthand (`server-*` -> `@modelcontextprotocol/server-*`) names npm
   // packages; a pip: target is used as given.
   if (ecosystem === "pypi") {
