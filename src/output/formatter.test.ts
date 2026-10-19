@@ -1163,7 +1163,10 @@ describe("formatBatchResults", () => {
           makeTrustAnswer({ name, packageType: "library", trustLevel: 2, verdict: "listed" })
         ),
       ]);
-      const output = formatBatchResults(response, 3);
+      // At level 2 every dependency meets the threshold, so the footer is the
+      // only place that names the libraries. At 3 the listed libraries are
+      // below it, and the Summary names each one.
+      const output = formatBatchResults(response, 2);
 
       expect(output).toContain("my-mcp");
       expect(outOfScopeLine(output).trim()).toBe(
@@ -1173,16 +1176,19 @@ describe("formatBatchResults", () => {
       expect(output).not.toContain("underscore");
     });
 
-    it("library verdicts do not affect the AI package trust threshold check", () => {
-      // A blocked library should NOT make the audit fail because it's out of
-      // ai-trust's scope — we don't adjudicate general libraries.
+    it("names a blocked library in the Summary, since audit exits 2 for it", () => {
+      // A library gets no row in the trust table, but a library the registry
+      // blocks is below --min-trust, which makes audit and batch exit 2 (and
+      // check exits 2 for it). The text says why instead of saying that the
+      // AI package meets the level.
       const response = makeBatchResponse([
         makeTrustAnswer({ name: "my-mcp", packageType: "mcp_server", trustLevel: 3, verdict: "safe" }),
         makeTrustAnswer({ name: "bad-lib", packageType: "library", trustLevel: 0, verdict: "blocked" }),
       ]);
       const output = formatBatchResults(response, 3);
 
-      expect(output).toContain("The AI package meets minimum trust level 3");
+      expect(output).toContain("Audit failed: 1 dependency is below minimum trust level 3: bad-lib");
+      expect(output).not.toContain("meets minimum trust level");
     });
 
     it("groups unclassified packages into an Unclassified section", () => {
@@ -1358,6 +1364,176 @@ describe("formatBatchResults", () => {
     const output = formatBatchResults(response, 3);
 
     expect(output).toContain("SAFE");
+  });
+
+  // audit and batch exit 2 when a dependency is not in the registry or is
+  // below --min-trust. The Summary says so, names each one and gives the
+  // command to run next, before the other sections.
+  describe("the Summary of a batch that exits 2", () => {
+    function plain(output: string): string[] {
+      return output.replace(/\x1b\[[0-9;]*m/g, "").split("\n");
+    }
+
+    const aiPackage = makeTrustAnswer({ name: "my-mcp", packageType: "mcp_server", trustLevel: 3 });
+    const unknownMissing = makeTrustAnswer({
+      name: "novel-random-pkg",
+      found: false,
+      packageType: undefined,
+    });
+
+    it("says the audit failed and names an unclassified name the registry does not have", () => {
+      const lines = plain(formatBatchResults(makeBatchResponse([aiPackage, unknownMissing]), 2));
+
+      expect(lines.find((l) => l.includes("Audit failed"))).toBe(
+        "  Audit failed: 1 dependency is not in the registry and was not scanned: novel-random-pkg"
+      );
+      expect(lines.join("\n")).not.toContain("meets minimum trust level");
+    });
+
+    it("gives audit's --scan-missing command for the file it read", () => {
+      const lines = plain(
+        formatBatchResults(makeBatchResponse([aiPackage, unknownMissing]), 2, { file: "package.json" })
+      );
+
+      expect(lines).toContain("  Next: ai-trust audit package.json --scan-missing");
+    });
+
+    it("names every missing dependency of the new-user test's package.json, before the sections", () => {
+      const response = makeBatchResponse([
+        makeTrustAnswer({
+          name: "@modelcontextprotocol/server-filesystem",
+          packageType: "mcp_server",
+          trustLevel: 3,
+        }),
+        makeTrustAnswer({ name: "left-pad", packageType: "library", trustLevel: 2, verdict: "listed" }),
+        makeTrustAnswer({ name: "@anthropic-ai/claude-code", found: false, packageType: undefined }),
+        makeTrustAnswer({ name: "nonexistent-mcp-xyz-999", found: false, packageType: undefined }),
+      ]);
+      const lines = plain(formatBatchResults(response, 2, { file: "package.json" }));
+
+      const summary = lines.findIndex((l) => l.includes("── Summary"));
+      expect(summary).toBeGreaterThan(-1);
+      expect(lines.slice(summary + 1, summary + 3)).toEqual([
+        "  Audit failed: 2 dependencies are not in the registry and were not scanned: @anthropic-ai/claude-code, nonexistent-mcp-xyz-999",
+        "  Next: ai-trust audit package.json --scan-missing",
+      ]);
+      expect(summary).toBeLessThan(lines.findIndex((l) => l.includes("Out of scope (libraries)")));
+      expect(summary).toBeLessThan(lines.findIndex((l) => l.includes("── Unclassified")));
+      expect(lines.join("\n")).not.toContain("meets minimum trust level");
+    });
+
+    it("names a dependency below the minimum trust level after the missing ones", () => {
+      const response = makeBatchResponse([
+        aiPackage,
+        makeTrustAnswer({ name: "missing-mcp", found: false }),
+        makeTrustAnswer({ name: "risky-mcp", trustLevel: 1, verdict: "warning" }),
+      ]);
+      const lines = plain(formatBatchResults(response, 2, { file: "package.json" }));
+
+      expect(lines).toContain(
+        "  Audit failed: 1 dependency is not in the registry and was not scanned: missing-mcp; 1 below minimum trust level 2: risky-mcp"
+      );
+      expect(lines).toContain("  Next: ai-trust audit package.json --scan-missing");
+    });
+
+    it("gives the check command for the first package below the level when none is missing", () => {
+      const response = makeBatchResponse([
+        aiPackage,
+        makeTrustAnswer({ name: "risky-mcp", trustLevel: 1, verdict: "warning" }),
+        makeTrustAnswer({ name: "other-risky-mcp", trustLevel: 0, verdict: "blocked" }),
+      ]);
+      const lines = plain(formatBatchResults(response, 2, { file: "package.json" }));
+
+      expect(lines).toContain(
+        "  Audit failed: 2 dependencies are below minimum trust level 2: risky-mcp, other-risky-mcp"
+      );
+      expect(lines).toContain("  Next: ai-trust check risky-mcp");
+      expect(lines.join("\n")).not.toContain("meets minimum trust level");
+    });
+
+    it("checks a requirements.txt dependency as pip:<name>", () => {
+      const response = makeBatchResponse([
+        makeTrustAnswer({ name: "risky-mcp", trustLevel: 1, verdict: "warning" }),
+      ]);
+      const lines = plain(
+        formatBatchResults(response, 2, { file: "requirements.txt", ecosystem: "pypi" })
+      );
+
+      expect(lines).toContain("  Next: ai-trust check pip:risky-mcp");
+    });
+
+    it("gives batch, which reads no file, the check command for the first missing name", () => {
+      const response = makeBatchResponse([
+        aiPackage,
+        unknownMissing,
+        makeTrustAnswer({ name: "second-missing", found: false, packageType: undefined }),
+      ]);
+      const lines = plain(formatBatchResults(response, 2));
+
+      expect(lines).toContain("  Next: ai-trust check novel-random-pkg");
+      expect(lines.join("\n")).not.toContain("Next: ai-trust audit");
+    });
+
+    it("quotes a file name and a registry name that the shell would split", () => {
+      const spaced = plain(
+        formatBatchResults(makeBatchResponse([aiPackage, unknownMissing]), 2, {
+          file: "my project/package.json",
+        })
+      );
+      expect(spaced).toContain("  Next: ai-trust audit 'my project/package.json' --scan-missing");
+
+      const shellName = plain(
+        formatBatchResults(
+          makeBatchResponse([
+            makeTrustAnswer({ name: "shell-lib; echo injected", found: false, packageType: undefined }),
+          ]),
+          2
+        )
+      );
+      expect(shellName).toContain("  Next: ai-trust check 'shell-lib; echo injected'");
+    });
+
+    it("says the audit failed before the library list when no AI package is present", () => {
+      const response = makeBatchResponse([
+        makeTrustAnswer({ name: "express", packageType: "library", trustLevel: 2, verdict: "listed" }),
+        makeTrustAnswer({ name: "child_process", found: false, packageType: undefined }),
+      ]);
+      const lines = plain(formatBatchResults(response, 2, { file: "package.json" }));
+
+      const failed = lines.indexOf(
+        "  Audit failed: 1 dependency is not in the registry and was not scanned: child_process"
+      );
+      expect(failed).toBeGreaterThan(-1);
+      expect(lines[failed + 1]).toBe("  Next: ai-trust audit package.json --scan-missing");
+      expect(failed).toBeLessThan(lines.findIndex((l) => l.includes("Out of scope (libraries)")));
+    });
+
+    it("says the audit failed before the list when every name is unclassified", () => {
+      const response = makeBatchResponse([
+        unknownMissing,
+        makeTrustAnswer({ name: "second-missing", found: false, packageType: undefined }),
+      ]);
+      const lines = plain(formatBatchResults(response, 2, { file: "package.json" }));
+
+      const failed = lines.indexOf(
+        "  Audit failed: 2 dependencies are not in the registry and were not scanned: novel-random-pkg, second-missing"
+      );
+      expect(failed).toBeGreaterThan(-1);
+      expect(lines[failed + 1]).toBe("  Next: ai-trust audit package.json --scan-missing");
+      expect(failed).toBeLessThan(lines.findIndex((l) => l.includes("Unclassified packages")));
+    });
+
+    it("prints the meets line and no failure when every dependency passes", () => {
+      const response = makeBatchResponse([
+        aiPackage,
+        makeTrustAnswer({ name: "left-pad", packageType: "library", trustLevel: 2, verdict: "listed" }),
+      ]);
+      const output = formatBatchResults(response, 2, { file: "package.json" });
+
+      expect(output).toContain("The AI package meets minimum trust level 2.");
+      expect(output).not.toContain("Audit failed");
+      expect(output).not.toContain("Next: ai-trust");
+    });
   });
 });
 

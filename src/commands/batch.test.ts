@@ -28,7 +28,7 @@ vi.mock("../output/formatter.js", () => ({
 }));
 
 import { RegistryClient } from "@opena2a/registry-client";
-import { formatJson } from "../output/formatter.js";
+import { formatBatchResults, formatJson } from "../output/formatter.js";
 
 function createProgram(): Command {
   const program = new Command();
@@ -237,6 +237,37 @@ describe("batch command", () => {
     ]);
 
     expect(process.exitCode).toBeUndefined();
+  });
+
+  it("exits 2 for a name the registry does not have, and the text says so with the check command for it", async () => {
+    // The real formatter, so the exit code and the line that gives its
+    // reason come from one run.
+    const actualFormatter = await vi.importActual<
+      typeof import("../output/formatter.js")
+    >("../output/formatter.js");
+    vi.mocked(formatBatchResults).mockImplementationOnce(actualFormatter.formatBatchResults);
+    const mockBatchQuery = vi.fn().mockResolvedValue({
+      results: [
+        { name: "my-mcp", found: true, packageType: "mcp_server", trustLevel: 3, verdict: "safe" },
+        { name: "nonexistent-xyz-999", found: false, trustLevel: 0, verdict: "unknown" },
+      ],
+      meta: { total: 2, found: 1, notFound: 1 },
+    });
+    vi.mocked(RegistryClient).mockImplementation(
+      function () {
+        return { checkTrust: vi.fn(), batchQuery: mockBatchQuery } as any;
+      }
+    );
+
+    await createProgram().parseAsync(["node", "test", "batch", "my-mcp", "nonexistent-xyz-999"]);
+
+    expect(process.exitCode).toBe(2);
+    const lines = String(consoleSpy.mock.calls[0][0]).replace(/\x1b\[[0-9;]*m/g, "").split("\n");
+    expect(lines).toContain(
+      "  Audit failed: 1 dependency is not in the registry and was not scanned: nonexistent-xyz-999"
+    );
+    expect(lines).toContain("  Next: ai-trust check nonexistent-xyz-999");
+    expect(lines.join("\n")).not.toContain("meets minimum trust level");
   });
 
   it("sets exit code 1 on API error", async () => {

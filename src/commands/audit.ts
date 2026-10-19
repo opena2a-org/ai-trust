@@ -15,6 +15,7 @@ import {
   formatBatchResults,
   formatJson,
 } from "../output/formatter.js";
+import { trustGate } from "../output/trust-gate.js";
 import {
   isHmaAvailable,
   reinstallCommand,
@@ -142,7 +143,11 @@ export function registerAuditCommand(program: Command): void {
           ecosystem,
           manifestNames: packages.map((p) => p.name),
         };
+        // After a scan of the missing packages, the next step for one that
+        // is still missing is to check it, not to run the same scan again.
+        let scannedMissing = false;
         if (notFound.length > 0 && opts.scanMissing) {
+          scannedMissing = true;
           await scanMissingPackages(
             notFound,
             response.results,
@@ -161,6 +166,7 @@ export function registerAuditCommand(program: Command): void {
             true
           );
           if (shouldScan) {
+            scannedMissing = true;
             if (!(await isHmaAvailable())) {
               reportHmaUnavailable();
             } else {
@@ -187,14 +193,17 @@ export function registerAuditCommand(program: Command): void {
             })
           );
         } else {
-          console.log(formatBatchResults(response, minTrust));
+          console.log(
+            formatBatchResults(response, minTrust, {
+              file: scannedMissing ? undefined : file,
+              ecosystem,
+            })
+          );
         }
 
-        const belowThreshold = response.results.some(
-          (r) => r.found && r.trustLevel < minTrust
-        );
-        const hasNotFound = response.results.some((r) => !r.found);
-        if (belowThreshold || hasNotFound) {
+        // The text's Summary reads the same gate, so it says the audit
+        // failed exactly when the exit code is 2.
+        if (!trustGate(response.results, minTrust).passed) {
           process.exitCode = 2;
         }
       } catch (err: unknown) {

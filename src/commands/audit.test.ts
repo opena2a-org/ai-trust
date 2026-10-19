@@ -223,6 +223,137 @@ describe("audit command", () => {
     expect(process.exitCode).toBe(2);
   });
 
+  // The text comes from the real formatter here, so the exit code and the
+  // line that gives its reason are read from the same run.
+  describe("the Summary line that says why audit exits 2", () => {
+    async function auditLines(
+      results: Array<{ name: string; found: boolean } & Record<string, unknown>>,
+      args: string[]
+    ): Promise<string[]> {
+      const actualFormatter = await vi.importActual<
+        typeof import("../output/formatter.js")
+      >("../output/formatter.js");
+      vi.mocked(formatBatchResults).mockImplementationOnce(actualFormatter.formatBatchResults);
+      vi.mocked(parseDependencyFile).mockResolvedValue(results.map((r) => ({ name: r.name })));
+      const found = results.filter((r) => r.found).length;
+      const mockBatchQuery = vi.fn().mockResolvedValue({
+        results,
+        meta: { total: results.length, found, notFound: results.length - found },
+      });
+      vi.mocked(RegistryClient).mockImplementation(function () {
+        return { checkTrust: vi.fn(), batchQuery: mockBatchQuery } as any;
+      });
+
+      await createProgram().parseAsync(["node", "test", "audit", ...args]);
+
+      return consoleSpy.mock.calls
+        .map((call) => String(call[0]))
+        .join("\n")
+        .replace(/\x1b\[[0-9;]*m/g, "")
+        .split("\n");
+    }
+
+    const aiPackage = {
+      name: "my-mcp",
+      found: true,
+      packageType: "mcp_server",
+      trustLevel: 3,
+      trustScore: 0.85,
+      verdict: "safe",
+      scanStatus: "complete",
+    };
+
+    it("exits 2 and names an unclassified name the registry does not have, with --scan-missing for the file", async () => {
+      const lines = await auditLines(
+        [aiPackage, { name: "novel-random-pkg", found: false, trustLevel: 0, verdict: "unknown" }],
+        ["package.json"]
+      );
+
+      expect(process.exitCode).toBe(2);
+      expect(lines).toContain(
+        "  Audit failed: 1 dependency is not in the registry and was not scanned: novel-random-pkg"
+      );
+      expect(lines).toContain("  Next: ai-trust audit package.json --scan-missing");
+      expect(lines.join("\n")).not.toContain("meets minimum trust level");
+    });
+
+    it("exits 2 for a library the registry blocks, and names it", async () => {
+      const lines = await auditLines(
+        [
+          aiPackage,
+          { name: "bad-lib", found: true, packageType: "library", trustLevel: 0, verdict: "blocked" },
+        ],
+        ["package.json"]
+      );
+
+      expect(process.exitCode).toBe(2);
+      expect(lines).toContain("  Audit failed: 1 dependency is below minimum trust level 2: bad-lib");
+      expect(lines).toContain("  Next: ai-trust check bad-lib");
+      expect(lines.join("\n")).not.toContain("meets minimum trust level");
+    });
+
+    it("checks a requirements.txt dependency below the level as pip:<name>", async () => {
+      vi.mocked(detectEcosystem).mockReturnValueOnce("pypi");
+      const lines = await auditLines(
+        [{ name: "risky-pkg", found: true, packageType: "mcp_server", trustLevel: 1, verdict: "warning" }],
+        ["requirements.txt"]
+      );
+
+      expect(process.exitCode).toBe(2);
+      expect(lines).toContain("  Next: ai-trust check pip:risky-pkg");
+    });
+
+    it("after --scan-missing could not scan a package, gives the check command for it, not the same scan", async () => {
+      vi.mocked(isHmaAvailable).mockResolvedValueOnce(true);
+      vi.mocked(scanPackage).mockRejectedValueOnce(new Error("not found on npm"));
+      const lines = await auditLines(
+        [aiPackage, { name: "novel-random-pkg", found: false, trustLevel: 0, verdict: "unknown" }],
+        ["package.json", "--scan-missing", "--no-contribute"]
+      );
+
+      expect(process.exitCode).toBe(2);
+      expect(lines).toContain(
+        "  Audit failed: 1 dependency is not in the registry and was not scanned: novel-random-pkg"
+      );
+      expect(lines).toContain("  Next: ai-trust check novel-random-pkg");
+      expect(lines.join("\n")).not.toContain("Next: ai-trust audit");
+    });
+
+    it("after yes at the scan prompt on a terminal could not scan a package, gives the check command for it", async () => {
+      const savedIsTTY = process.stdin.isTTY;
+      Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+      try {
+        vi.mocked(confirm).mockResolvedValueOnce(true);
+        vi.mocked(isHmaAvailable).mockResolvedValueOnce(true).mockResolvedValueOnce(true);
+        vi.mocked(scanPackage).mockRejectedValueOnce(new Error("not found on npm"));
+        const lines = await auditLines(
+          [aiPackage, { name: "novel-random-pkg", found: false, trustLevel: 0, verdict: "unknown" }],
+          ["package.json", "--no-contribute"]
+        );
+
+        expect(confirm).toHaveBeenCalled();
+        expect(process.exitCode).toBe(2);
+        expect(lines).toContain("  Next: ai-trust check novel-random-pkg");
+      } finally {
+        Object.defineProperty(process.stdin, "isTTY", { value: savedIsTTY, configurable: true });
+      }
+    });
+
+    it("exits 0 and prints the meets line when every dependency passes", async () => {
+      const lines = await auditLines(
+        [
+          aiPackage,
+          { name: "left-pad", found: true, packageType: "library", trustLevel: 2, verdict: "listed" },
+        ],
+        ["package.json"]
+      );
+
+      expect(process.exitCode).toBeUndefined();
+      expect(lines).toContain("  The AI package meets minimum trust level 2.");
+      expect(lines.join("\n")).not.toContain("Audit failed");
+    });
+  });
+
   it("tags every --json result with the ecosystem the file was queried under", async () => {
     vi.mocked(detectEcosystem).mockReturnValueOnce("pypi");
     vi.mocked(parseDependencyFile).mockResolvedValue([
