@@ -230,12 +230,18 @@ export function registerCheckCommand(program: Command): void {
           });
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
+          // The exit code is set and the handler returns, as handleScanFlow
+          // does, so the process exits once stdout and stderr have drained.
+          // A write to a pipe is asynchronous on macOS, and process.exit(2)
+          // right after the print ended the process with an error larger
+          // than the pipe buffer cut off (#234).
           // With --json the error is one object on stdout: the object
           // handleScanFlow prints for a scan that fails, without an
           // ecosystem, since --scan-path scans a directory, not a package.
           if (globalOpts.json) {
             console.log(formatJson(buildNotFoundOutput({ name: rawName, error: msg })));
-            process.exit(2);
+            finish("scan-not-run");
+            return;
           }
           console.error(chalk.red(`error: ${msg}`));
           // The directory hint is for a directory scanLocalPath refused. The
@@ -258,7 +264,8 @@ export function registerCheckCommand(program: Command): void {
               chalk.dim(`Or reinstall the hackmyagent copy ai-trust runs: ${reinstallCommand()}`),
             );
           }
-          process.exit(2);
+          finish("scan-not-run");
+          return;
         }
         // Override packageName with the user-supplied name so output is
         // labeled clearly when the same fixture is invoked under different
@@ -815,6 +822,9 @@ const EXIT_CODES = {
   "not-found": 2,
   // check --scan-path read 0 files: nothing was scored.
   "not-measured": 2,
+  // check --scan-path could not scan: the directory does not exist, or the
+  // scanner gave no report.
+  "scan-not-run": 2,
   // The target names no package.
   "usage-error": 1,
   // The registry lookup or the download failed, or the scanner cannot run.
