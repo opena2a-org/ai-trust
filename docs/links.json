@@ -13,10 +13,6 @@
       "probe": "https://pypi.org/pypi/pip/json",
       "reason": "PyPI JSON API base; the CLI requests <base>/<name>/json, checked here with the name pip."
     },
-    "https://pypi.org/pypi/": {
-      "probe": "https://pypi.org/pypi/pip/json",
-      "reason": "The start of the template https://pypi.org/pypi/<name>/json in the changelog, checked with the name pip."
-    },
     "https://discord.gg/uRZa3KXgEn": {
       "probe": "https://discord.com/api/v10/invites/uRZa3KXgEn",
       "reason": "An invite link with a made-up code answers 200 too. Discord's invite API answers 404 for one."
