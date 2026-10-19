@@ -8,7 +8,6 @@ import type { Command } from "commander";
 import type { TrustAnswer } from "@opena2a/registry-client";
 import {
   createRegistryClient,
-  isTransientRegistryError,
   registryErrorMessage,
   registryFailure,
 } from "../utils/registry-client.js";
@@ -236,6 +235,10 @@ export function registerAuditCommand(program: Command): void {
         } else {
           // A registry error can quote the registry's response body.
           console.error(`Error: ${stripControlCharacters(message)}`);
+          // Set for a request the registry did not answer and for an answer
+          // with an error status or a body that is not JSON, as in
+          // `check --no-scan` and `batch`.
+          const failure = registryFailure(err, globalOpts.registryUrl);
           if (fileMissing || isDirectory || nameTooLong) {
             console.error(
               "  No dependencies were checked. The audit command reads package.json or requirements.txt."
@@ -243,11 +246,9 @@ export function registerAuditCommand(program: Command): void {
             console.error(
               `  Next: ${isDirectory ? directoryNextCommand(file) : missingFileNextCommand(file)}`
             );
-          } else if (isTransientRegistryError(err)) {
-            console.error(
-              `  No dependencies were checked: ${registryFailure(err, globalOpts.registryUrl)}.`
-            );
-            // `check` scans the package when the registry does not answer.
+          } else if (failure) {
+            console.error(`  No dependencies were checked: ${failure}.`);
+            // `check` scans a package when its registry lookup fails.
             const target = detectEcosystem(file) === "pypi" ? "pip:<package>" : "<package>";
             console.error(
               `  Next: run the audit again when the registry answers, or scan one package locally with ai-trust check ${target}`
