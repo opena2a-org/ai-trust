@@ -220,7 +220,10 @@ describe("`telemetry on` reports the state in effect (#141)", { timeout: 60000 }
     try {
       const on = run(["telemetry", "on"], { configHome });
       expect(on.status).toBe(0);
-      expect(on.stdout.split("\n")[0]).toBe("Telemetry enabled for ai-trust.");
+      // The saved choice is shared, so the header names each tool reading it (#230).
+      expect(on.stdout.split("\n")[0]).toBe(
+        "Telemetry enabled for ai-trust and hackmyagent, which share the config file below.",
+      );
       expect(on.stdout).toMatch(/^ {2}state: +on$/m);
       expect(on.stdout).not.toContain(KEPT_OFF);
     } finally {

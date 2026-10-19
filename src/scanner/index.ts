@@ -56,6 +56,14 @@ export interface ScanResult {
   semanticFindings?: SemanticFinding[];
   /** AnaLM findings (present when --analm is used) */
   analystFindings?: AnalystFinding[];
+  /**
+   * Check ids of the failed findings a downloaded package's scan left out of
+   * its findings and score (LOCAL_ONLY_CATEGORIES and
+   * PACKAGE_ABSENT_ARTIFACT_CHECKS below), each once, in the scanner's
+   * order. Absent for local-path scans, which keep them, and when none were
+   * left out.
+   */
+  notCounted?: string[];
 }
 
 /**
@@ -124,14 +132,13 @@ export async function scanPackage(
     // Filter out local-dev-only findings that are meaningless for downloaded packages.
     // This matches HMA's filterLocalOnlyFindings() so scores are consistent.
     const originalCount = scan.findings.filter((f) => !f.passed).length;
-    scan.findings = scan.findings.filter(
-      (f) => f.passed || !LOCAL_ONLY_CATEGORIES.has(f.category)
-    );
     // Failing records only, so a package that ships a Dockerfile keeps its
     // SANDBOX-001 pass.
-    scan.findings = scan.findings.filter(
-      (f) => f.passed || !PACKAGE_ABSENT_ARTIFACT_CHECKS.has(f.checkId)
-    );
+    const notCounted = (f: { passed: boolean; category: string; checkId: string }): boolean =>
+      !f.passed &&
+      (LOCAL_ONLY_CATEGORIES.has(f.category) || PACKAGE_ABSENT_ARTIFACT_CHECKS.has(f.checkId));
+    const notCountedIds = [...new Set(scan.findings.filter(notCounted).map((f) => f.checkId))];
+    scan.findings = scan.findings.filter((f) => !notCounted(f));
     const filteredCount = scan.findings.filter((f) => !f.passed).length;
 
     // Recalculate score if findings were filtered
@@ -174,6 +181,10 @@ export async function scanPackage(
 
     if (version !== undefined) {
       result.requestedVersion = version;
+    }
+
+    if (notCountedIds.length > 0) {
+      result.notCounted = notCountedIds;
     }
 
     if (scan.semanticFindings && scan.semanticFindings.length > 0) {

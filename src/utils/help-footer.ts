@@ -39,6 +39,25 @@ export function withEnableSteps(telemetryOutput: string): string {
   return telemetryOutput.replace(RENDERER_ENABLE_HINT, ENABLE_STEPS);
 }
 
+// The headers the shared renderer prints for `telemetry on` and `telemetry
+// off`. They name ai-trust alone, but the choice is saved in one config file
+// that hackmyagent reads too.
+const SHARED_SCOPE_HEADERS: ReadonlyArray<[string, string]> = [
+  ["Telemetry enabled for ai-trust.", "Telemetry enabled for ai-trust and hackmyagent, which share the config file below."],
+  ["Telemetry disabled for ai-trust.", "Telemetry disabled for ai-trust and hackmyagent, which share the config file below."],
+];
+
+/**
+ * Output of `telemetry on` or `telemetry off` with the header naming every
+ * tool the saved choice applies to, as `config contribute` names its own.
+ * Other output is returned unchanged.
+ */
+export function withSharedScope(telemetryOutput: string): string {
+  let out = telemetryOutput;
+  for (const [header, scoped] of SHARED_SCOPE_HEADERS) out = out.replace(header, scoped);
+  return out;
+}
+
 /**
  * Output of `telemetry on` when OPENA2A_TELEMETRY still turns usage telemetry
  * off, built from the `telemetry status` output for that state: the header

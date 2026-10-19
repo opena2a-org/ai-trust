@@ -54,6 +54,22 @@ export interface ScannedDirectory {
   absentFiles: ReadonlySet<string>;
 }
 
+/** The registry's answer beside a local scan, each field as the registry sent it. */
+export interface CheckJsonRegistryAnswer {
+  verdict?: string;
+  trustLevel?: number;
+  /** Normalized trust score in 0.0–1.0. */
+  trustScore?: number;
+  scanStatus?: string;
+  /** ISO timestamp of the registry's last scan. */
+  lastScannedAt?: string;
+  /**
+   * "package" when the target gave a version: the registry's answer is the
+   * package's, not the scanned version's.
+   */
+  answerScope?: "package";
+}
+
 /** Stable, camelCase trust result for `ai-trust check --json`. */
 export interface CheckJsonResult {
   /** Package name as resolved by the check pipeline. */
@@ -99,6 +115,48 @@ export interface CheckJsonResult {
    * from the object.
    */
   securityProfile?: RegistrySecurityProfile;
+  /**
+   * Number of community scans the registry records (registry path only;
+   * omitted when the answer carries no count). Text output prints it as the
+   * Scans line when it is above 0.
+   */
+  communityScans?: number;
+  /**
+   * The version or tag a `<name>@<version>` target gave (registry path only).
+   * The registry is asked about the package by name, so `answerScope` is
+   * then "package": the answer is the package's, not this version's.
+   */
+  requestedVersion?: string;
+  answerScope?: "package";
+  /**
+   * The registry's answer for the package, when the scan path looked it up
+   * and the registry has it. Text output prints its score beside the scan's
+   * when the two differ by more than 20 points.
+   */
+  registry?: CheckJsonRegistryAnswer;
+  /**
+   * Why the scan path's registry lookup failed, when it did (scan path only).
+   * The scan went ahead without the registry's answer.
+   */
+  registryError?: string;
+  /**
+   * Static and semantic check counts, as the text Checks line prints them
+   * (scan path only). `semanticLayer` says whether the semantic layer ran
+   * ("ran"), was turned off with --no-deep ("not-run"), or ran on a scanner
+   * that does not report its count ("not-reported"); `semantic` is present
+   * only when it ran and reported a count.
+   */
+  checks?: {
+    static: number;
+    semantic?: number;
+    semanticLayer: "ran" | "not-run" | "not-reported";
+  };
+  /**
+   * Check ids of failed findings left out of a downloaded package's score
+   * (scan path only; omitted when none were). They describe a local setup
+   * rather than the package itself; `--scan-path` counts them.
+   */
+  notCounted?: string[];
   /** Raw HMA points scored (scan path only). */
   score?: number;
   /** Raw HMA maximum points (scan path only). */
@@ -154,10 +212,12 @@ function mapFinding(f: {
 export function buildCheckJsonFromAnswer(
   answer: TrustAnswer,
   ecosystem?: "npm" | "pypi",
+  requestedVersion?: string,
 ): CheckJsonResult {
   const out: CheckJsonResult = {
     name: answer.name,
     ...(ecosystem !== undefined ? { ecosystem } : {}),
+    ...(requestedVersion !== undefined ? { requestedVersion, answerScope: "package" as const } : {}),
     source: "registry",
     found: answer.found,
   };
@@ -167,6 +227,7 @@ export function buildCheckJsonFromAnswer(
   if (answer.trustScore !== undefined) out.trustScore = answer.trustScore;
   if (answer.scanStatus) out.scanStatus = answer.scanStatus;
   if (answer.lastScannedAt) out.lastScannedAt = answer.lastScannedAt;
+  if (typeof answer.communityScans === "number") out.communityScans = answer.communityScans;
   const profile = readSecurityProfile(answer);
   if (profile) out.securityProfile = profile;
   // The registry lookup does not return raw HMA score/maxScore or per-finding
@@ -174,16 +235,56 @@ export function buildCheckJsonFromAnswer(
   return out;
 }
 
+/** The registry's answer as the scan path's `registry` object. */
+function registryAnswerJson(
+  answer: TrustAnswer,
+  requestedVersion: string | undefined,
+): CheckJsonRegistryAnswer {
+  const out: CheckJsonRegistryAnswer = {};
+  if (answer.verdict !== undefined) out.verdict = answer.verdict;
+  if (answer.trustLevel !== undefined) out.trustLevel = answer.trustLevel;
+  if (answer.trustScore !== undefined) out.trustScore = answer.trustScore;
+  if (answer.scanStatus) out.scanStatus = answer.scanStatus;
+  if (answer.lastScannedAt) out.lastScannedAt = answer.lastScannedAt;
+  if (requestedVersion !== undefined) out.answerScope = "package";
+  return out;
+}
+
+/** The counts the text Checks line prints, read as formatScanResult reads them. */
+function checksJson(scan: ScanResult): NonNullable<CheckJsonResult["checks"]> {
+  const staticCount =
+    scan.scan.staticChecksEvaluated ?? scan.scan.checksEvaluated ?? (scan.scan.findings ?? []).length;
+  if (scan.scan.staticOnly) return { static: staticCount, semanticLayer: "not-run" };
+  const semantic = scan.scan.semanticCount;
+  if (semantic === undefined) return { static: staticCount, semanticLayer: "not-reported" };
+  return { static: staticCount, semantic, semanticLayer: "ran" };
+}
+
+/** What the scan path knows besides the scan: the registry's answer or its failure. */
+export interface ScanJsonContext {
+  registry?: TrustAnswer;
+  registryError?: string;
+  /** The version or tag the target gave. */
+  requestedVersion?: string;
+}
+
 /**
  * Build the JSON result from a local `ScanResult`. `scanned` is given for
  * `check --scan-path`, whose findings name files in a directory that is
- * still on disk.
+ * still on disk; `context` for a downloaded package, whose registry lookup
+ * ran beside the scan.
  */
 export function buildCheckJsonFromScan(
   scan: ScanResult,
   ecosystem?: "npm" | "pypi",
   scanned?: ScannedDirectory,
+  context: ScanJsonContext = {},
 ): CheckJsonResult {
+  const registryFields: Pick<CheckJsonResult, "registry" | "registryError"> = {};
+  if (context.registry?.found) {
+    registryFields.registry = registryAnswerJson(context.registry, context.requestedVersion);
+  }
+  if (context.registryError !== undefined) registryFields.registryError = context.registryError;
   // A scan that read 0 files and found none it could not read measured
   // nothing: the not-scored shape, as the out-of-scope answer uses, with the
   // count that makes it so. A scan whose files could not be read keeps its
@@ -199,6 +300,7 @@ export function buildCheckJsonFromScan(
       scored: false,
       notScoredReason: "nothing to scan: the scanner read 0 files",
       filesExamined: 0,
+      ...registryFields,
     };
   }
   const out: CheckJsonResult = {
@@ -218,19 +320,35 @@ export function buildCheckJsonFromScan(
   const failed = (scan.scan.findings ?? []).filter((f) => !f.passed);
   if (failed.length > 0) out.findings = failed.map((f) => mapFinding(f, scanned));
   if (scan.scan.filesExamined !== undefined) out.filesExamined = scan.scan.filesExamined;
+  out.checks = checksJson(scan);
+  if (scan.notCounted !== undefined && scan.notCounted.length > 0) out.notCounted = scan.notCounted;
+  Object.assign(out, registryFields);
   return out;
 }
 
 /** Convenience union builder. */
 export function buildCheckJson(
   input:
-    | { kind: "registry"; answer: TrustAnswer; ecosystem?: "npm" | "pypi" }
-    | ({ kind: "scan"; scan: ScanResult; ecosystem?: "npm" | "pypi" } & Partial<ScannedDirectory>),
+    | {
+        kind: "registry";
+        answer: TrustAnswer;
+        ecosystem?: "npm" | "pypi";
+        requestedVersion?: string;
+      }
+    | ({ kind: "scan"; scan: ScanResult; ecosystem?: "npm" | "pypi" } & Partial<ScannedDirectory> &
+        ScanJsonContext),
 ): CheckJsonResult {
-  if (input.kind === "registry") return buildCheckJsonFromAnswer(input.answer, input.ecosystem);
+  if (input.kind === "registry") {
+    return buildCheckJsonFromAnswer(input.answer, input.ecosystem, input.requestedVersion);
+  }
   const scanned =
     input.scanPath !== undefined
       ? { scanPath: input.scanPath, absentFiles: input.absentFiles ?? new Set<string>() }
       : undefined;
-  return buildCheckJsonFromScan(input.scan, input.ecosystem, scanned);
+  const { scan, ecosystem, registry, registryError, requestedVersion } = input;
+  return buildCheckJsonFromScan(scan, ecosystem, scanned, {
+    registry,
+    registryError,
+    requestedVersion,
+  });
 }

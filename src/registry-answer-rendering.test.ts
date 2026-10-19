@@ -487,7 +487,8 @@ describe("registry answers through the built CLI", () => {
       const { stdout, status } = await runCli(["batch", "running-mcp", "--min-trust", "3"]);
 
       expect(status).toBe(2);
-      expect(stdout).toMatch(/^ {2}running-mcp\s+mcp_server\s+LISTED\s+Listed\s+━{8} -- {2}running\s*$/m);
+      // "--" with no meter, which reads as a full one without color (#230).
+      expect(stdout).toMatch(/^ {2}running-mcp\s+mcp_server\s+LISTED\s+Listed\s+-- +running\s*$/m);
       expect(stdout).toMatch(/^ {2}│ running-mcp {2}not scanned {2}Listed \(2\/4\)$/m);
       expect(stdout).not.toContain("0/100");
     });
@@ -537,7 +538,7 @@ describe("registry answers through the built CLI", () => {
         expect(status, args.join(" ")).toBe(0);
         for (const name of OFF_SCALE) {
           expect(stdout, `${args.join(" ")}: ${name}`).toMatch(
-            new RegExp(`^ {2}${name}\\s+mcp_server\\s+SAFE\\s+Scanned\\s+━{8} -- {2}completed\\s*$`, "m"),
+            new RegExp(`^ {2}${name}\\s+mcp_server\\s+SAFE\\s+Scanned\\s+-- +completed\\s*$`, "m"),
           );
         }
         expect(stdout, args.join(" ")).not.toMatch(/5500|-50|NaN/);

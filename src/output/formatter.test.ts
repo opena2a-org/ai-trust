@@ -517,6 +517,45 @@ describe("registry scan date and recorded findings", () => {
     expect(output).not.toContain("scan date not recorded");
   });
 
+  // "scan date not recorded" over "Trust  not scanned" implied a scan that
+  // never happened (#230).
+  it("says not scanned in the header of a package whose scan status names no scan", () => {
+    for (const scanStatus of [undefined, "", "pending", "queued"]) {
+      const header = formatCheckResult(
+        makeTrustAnswer({ name: "mcp-server-kubernetes", trustLevel: 2, verdict: "listed", scanStatus }),
+      ).split("\n")[1];
+
+      expect(header, String(scanStatus)).toContain("mcp-server-kubernetes");
+      expect(header, String(scanStatus)).toContain("not scanned");
+      expect(header, String(scanStatus)).not.toContain("scan date not recorded");
+    }
+  });
+
+  it("keeps scan date not recorded for a failed scan without a date", () => {
+    const header = formatCheckResult(makeTrustAnswer({ scanStatus: "failed" })).split("\n")[1];
+
+    expect(header).toContain("scan date not recorded");
+  });
+
+  // The Next Steps scan dropped the version of a `<name>@<version>` target
+  // (#230).
+  it("cites the version a target gave in the Next Steps scan", () => {
+    const npmOutput = formatCheckResult(
+      makeTrustAnswer({ name: "@modelcontextprotocol/server-filesystem", trustLevel: 3 }),
+      "npm",
+      { version: "2026.7.10" },
+    );
+    expect(npmOutput).toContain("ai-trust check @modelcontextprotocol/server-filesystem@2026.7.10");
+
+    const pypiOutput = formatCheckResult(makeTrustAnswer({ name: "mcp-server-fetch" }), "pypi", {
+      version: "1.0.0",
+    });
+    expect(pypiOutput).toContain("ai-trust check pip:mcp-server-fetch@1.0.0");
+
+    const unversioned = formatCheckResult(makeTrustAnswer({ name: "plain-mcp", trustLevel: 3 }));
+    expect(unversioned).toMatch(/ai-trust check plain-mcp$/m);
+  });
+
   it("says a recorded high finding's details are not returned, and names the scan that re-measures it", () => {
     const output = formatCheckResult(openaiAnswer());
 
@@ -1012,7 +1051,9 @@ describe("formatBatchResults", () => {
       const lines = output.split("\n");
 
       const tableRow = lines.find((l) => l.includes("running-mcp") && l.includes("LISTED"));
-      expect(tableRow, scanStatus).toMatch(/━{8} --\s+\S/);
+      // "--" and no meter: an empty meter reads as a full one without color.
+      expect(tableRow, scanStatus).toMatch(/ --\s+\S/);
+      expect(tableRow, scanStatus).not.toContain("━");
       expect(tableRow, scanStatus).toContain(scanStatus);
       const summaryLine = lines.find((l) => l.includes("│") && l.includes("running-mcp"));
       expect(summaryLine, scanStatus).toContain("not scanned");
@@ -1070,7 +1111,8 @@ describe("formatBatchResults", () => {
     expect(output).toContain("missing-pkg");
     expect(output).toContain("NO DATA");
     expect(output).toContain("--scan-missing");
-    expect(output).toContain("ai-trust check <name>");
+    expect(output).toContain("ai-trust check missing-pkg");
+    expect(output).not.toContain("<name>");
   });
 
   it("shows all-clear message when everything passes", () => {
@@ -1082,14 +1124,28 @@ describe("formatBatchResults", () => {
     expect(output).toContain("The AI package meets minimum trust level 3");
   });
 
-  it("shows next steps after batch results", () => {
+  it("shows the library step after batch results that list libraries", () => {
     const response = makeBatchResponse([
       makeTrustAnswer({ name: "pkg-a", trustLevel: 3 }),
+      makeTrustAnswer({ name: "express", packageType: "library", trustLevel: 3 }),
     ]);
     const output = formatBatchResults(response, 3);
 
     expect(output).toContain("Next Steps");
     expect(output).toContain("npx hackmyagent secure");
+  });
+
+  // Every run ended with "Library security: npx hackmyagent secure .", a
+  // step for libraries it had not listed (#230).
+  it("prints no library step, and no Next Steps section, when there is nothing left to do", () => {
+    const response = makeBatchResponse([
+      makeTrustAnswer({ name: "pkg-a", trustLevel: 3 }),
+    ]);
+    const output = formatBatchResults(response, 3);
+
+    expect(output).toContain("The AI package meets minimum trust level 3");
+    expect(output).not.toContain("npx hackmyagent secure");
+    expect(output).not.toContain("Next Steps");
   });
 
   it("shows check suggestion when packages are below threshold", () => {
@@ -1098,7 +1154,7 @@ describe("formatBatchResults", () => {
     ]);
     const output = formatBatchResults(response, 3);
 
-    expect(output).toContain("ai-trust check <name>");
+    expect(output).toContain("ai-trust check risky-pkg");
   });
 
   it("shows trust level legend when non-Verified packages exist", () => {
@@ -1121,14 +1177,33 @@ describe("formatBatchResults", () => {
     expect(output).not.toContain("Blocked > Warning");
   });
 
-  it("truncates long package names", () => {
+  it("truncates long package names on a terminal", () => {
     const longName = "a".repeat(50);
     const response = makeBatchResponse([
       makeTrustAnswer({ name: longName }),
     ]);
-    const output = formatBatchResults(response, 3);
+    const output = formatBatchResults(response, 3, { terminalWidth: 120 });
 
     expect(output).toContain("...");
+  });
+
+  // Piped output cut each name longer than 34 characters to its first 31 and
+  // "..." (#230).
+  it("prints every name whole when stdout is not a terminal, and lines the columns up after the longest", () => {
+    const longName = "@modelcontextprotocol/server-filesystem-with-a-long-suffix";
+    const response = makeBatchResponse([
+      makeTrustAnswer({ name: longName, packageType: "mcp_server", trustLevel: 3, scanStatus: "warnings" }),
+      makeTrustAnswer({ name: "short-mcp", packageType: "mcp_server", trustLevel: 3, scanStatus: "warnings" }),
+    ]);
+    const lines = formatBatchResults(response, 3).split("\n");
+
+    expect(lines.join("\n")).not.toContain("...");
+    const header = lines.find((l) => l.includes("PACKAGE"))!;
+    const longRow = lines.find((l) => l.includes(longName))!;
+    const shortRow = lines.find((l) => l.includes("short-mcp"))!;
+    expect(header.indexOf("TYPE")).toBe(longRow.indexOf("mcp_server"));
+    expect(header.indexOf("TYPE")).toBe(shortRow.indexOf("mcp_server"));
+    expect(header.indexOf("TYPE")).toBeGreaterThan(2 + longName.length);
   });
 
   it("does not cut a surrogate pair in half when it shortens a name (#198)", () => {
@@ -1138,11 +1213,122 @@ describe("formatBatchResults", () => {
     const response = makeBatchResponse([
       makeTrustAnswer({ name: longName, packageType: "mcp_server" }),
     ]);
-    const output = formatBatchResults(response, 3);
+    const output = formatBatchResults(response, 3, { terminalWidth: 120 });
 
     expect(output).toContain(`mcp-server-${"a".repeat(19)}...`);
     // With the u flag, \p{Cs} matches only a surrogate that is not in a pair.
     expect(output).not.toMatch(/\p{Cs}/u);
+  });
+
+  describe("columns and Next Steps of the table (#230)", () => {
+    function stepLines(output: string): string[] {
+      const lines = output.split("\n");
+      const start = lines.findIndex((l) => l.includes("Next Steps"));
+      return start === -1 ? [] : lines.slice(start + 1).filter((l) => l.trim() !== "");
+    }
+
+    it("lines SCAN up under its header after a meter, after --, and for a status longer than the column", () => {
+      const response = makeBatchResponse([
+        makeTrustAnswer({ name: "scored-mcp", trustLevel: 3, trustScore: 0.79, scanStatus: "warnings" }),
+        makeTrustAnswer({ name: "full-mcp", trustLevel: 4, trustScore: 1, scanStatus: "passed" }),
+        makeTrustAnswer({ name: "unscanned-mcp", trustLevel: 2, verdict: "listed", scanStatus: "" }),
+        makeTrustAnswer({ name: "na-mcp", trustLevel: 2, verdict: "listed", scanStatus: "not_applicable" }),
+      ]);
+      const lines = formatBatchResults(response, 2).split("\n");
+      const header = lines.find((l) => l.includes("PACKAGE"))!;
+      const scanAt = header.indexOf("SCAN");
+      const rule = lines[lines.indexOf(header) + 1];
+
+      expect(lines.find((l) => l.includes("scored-mcp"))!.indexOf("warnings")).toBe(scanAt);
+      expect(lines.find((l) => l.includes("full-mcp"))!.indexOf("passed")).toBe(scanAt);
+      const unscanned = lines.find((l) => l.includes("unscanned-mcp"))!;
+      expect(unscanned.indexOf(" -", scanAt - 1) + 1).toBe(scanAt);
+      expect(unscanned).not.toContain("━");
+      const na = lines.find((l) => l.includes("na-mcp"))!;
+      expect(na.indexOf("not_applicable")).toBe(scanAt);
+      // The rule under the header reaches past the longest status.
+      expect(rule.trimEnd().length).toBeGreaterThanOrEqual(scanAt + "not_applicable".length);
+    });
+
+    it("names each flagged, unclassified and missing package, quoted for the shell", () => {
+      const response = makeBatchResponse([
+        makeTrustAnswer({ name: "@scope/flagged-mcp", trustLevel: 1, verdict: "warning" }),
+        makeTrustAnswer({ name: "flagged; echo injected", trustLevel: 1, verdict: "warning", packageType: "mcp_server" }),
+        makeTrustAnswer({ name: "missing-mcp", found: false, packageType: "mcp_server" }),
+        makeTrustAnswer({ name: "novel-random-pkg", found: false, packageType: undefined }),
+      ]);
+      const steps = stepLines(formatBatchResults(response, 3, { file: "package.json" }));
+
+      expect(steps).toEqual([
+        "  Scan missing:      ai-trust audit package.json --scan-missing",
+        "  Check individual:  ai-trust check missing-mcp",
+        "  Inspect flagged:   ai-trust check @scope/flagged-mcp",
+        "                     ai-trust check 'flagged; echo injected'",
+        "  Classify unknown:  ai-trust check novel-random-pkg",
+      ]);
+    });
+
+    it("cites a PyPI name with its pip: prefix and the file audit read", () => {
+      const response = makeBatchResponse([
+        makeTrustAnswer({ name: "mcp-server-fetch", trustLevel: 1, verdict: "warning" }),
+        makeTrustAnswer({ name: "missing-mcp", found: false }),
+      ]);
+      const steps = stepLines(
+        formatBatchResults(response, 3, { file: "dev requirements.txt", ecosystem: "pypi" }),
+      );
+
+      expect(steps).toEqual([
+        "  Scan missing:      ai-trust audit 'dev requirements.txt' --scan-missing",
+        "  Check individual:  ai-trust check pip:missing-mcp",
+        "  Inspect flagged:   ai-trust check pip:mcp-server-fetch",
+      ]);
+    });
+
+    it("keeps <file> for batch, which reads no file", () => {
+      const response = makeBatchResponse([makeTrustAnswer({ name: "missing-mcp", found: false })]);
+
+      expect(stepLines(formatBatchResults(response, 3))[0]).toBe(
+        "  Scan missing:      ai-trust audit <file> --scan-missing",
+      );
+    });
+
+    it("does not offer audit's scan again after audit scanned the missing packages", () => {
+      const response = makeBatchResponse([makeTrustAnswer({ name: "missing-mcp", found: false })]);
+      const output = formatBatchResults(response, 3, { file: "package.json", scannedMissing: true });
+
+      expect(stepLines(output)).toEqual(["  Check individual:  ai-trust check missing-mcp"]);
+      expect(output).toContain("  Next: ai-trust check missing-mcp");
+      expect(output).not.toContain("--scan-missing");
+    });
+
+    it("lists three commands and counts the rest, which the sections above name", () => {
+      const response = makeBatchResponse(
+        ["a", "b", "c", "d", "e"].map((x) =>
+          makeTrustAnswer({ name: `flagged-${x}-mcp`, trustLevel: 1, verdict: "warning" }),
+        ),
+      );
+      const steps = stepLines(formatBatchResults(response, 3));
+
+      expect(steps).toEqual([
+        "  Inspect flagged:   ai-trust check flagged-a-mcp",
+        "                     ai-trust check flagged-b-mcp",
+        "                     ai-trust check flagged-c-mcp",
+        "                     + 2 more, listed above",
+      ]);
+    });
+
+    it("names the unclassified packages of a run with no AI package", () => {
+      const response = makeBatchResponse([
+        makeTrustAnswer({ name: "express", packageType: "library" }),
+        makeTrustAnswer({ name: "novel-random-pkg", found: false, packageType: undefined }),
+      ]);
+      const steps = stepLines(formatBatchResults(response, 3));
+
+      expect(steps).toEqual([
+        "  General security scan:  npx hackmyagent secure .",
+        "  Check an AI package:    ai-trust check novel-random-pkg",
+      ]);
+    });
   });
 
   it("shows dimmed meter for unscanned packages (not a numeric score)", () => {
@@ -1644,6 +1830,42 @@ describe("formatScanResult", () => {
       ...overrides,
     };
   }
+
+  // A downloaded package scored 100/100 and the same files under --scan-path
+  // 88/100, with nothing saying why (#230).
+  it("names under the score the failed checks a downloaded package's score left out", () => {
+    const result = makeScanResult({
+      notCounted: ["GIT-001", "DEP-001", "SANDBOX-001"],
+      scan: { score: 100, maxScore: 100, findings: [], projectType: "mcp", timestamp: "2026-10-18T00:00:00Z", checksEvaluated: 50 },
+      trustScore: 1,
+    });
+    const lines = formatScanResult(result, { remote: true }).split("\n");
+    const security = lines.findIndex((l) => l.startsWith("  Security  "));
+
+    expect(lines[security + 1]).toBe(
+      "            Not counted: GIT-001, DEP-001, SANDBOX-001 (local-setup checks a downloaded package is not scored on; --scan-path counts them)",
+    );
+  });
+
+  it("counts the left-out checks past five", () => {
+    const result = makeScanResult({
+      notCounted: ["GIT-001", "GIT-002", "ENV-001", "PERM-001", "LOG-001", "DEP-001", "SANDBOX-001"],
+      scan: { score: 100, maxScore: 100, findings: [], projectType: "mcp", timestamp: "2026-10-18T00:00:00Z", checksEvaluated: 50 },
+    });
+
+    expect(formatScanResult(result, { remote: true })).toContain(
+      "Not counted: GIT-001, GIT-002, ENV-001, PERM-001, LOG-001 +2 more (",
+    );
+  });
+
+  it("prints no not-counted line when the scan left nothing out", () => {
+    const output = formatScanResult(
+      makeScanResult({ scan: { score: 100, maxScore: 100, findings: [], projectType: "mcp", timestamp: "2026-10-18T00:00:00Z", checksEvaluated: 50 } }),
+      { remote: true },
+    );
+
+    expect(output).not.toContain("Not counted");
+  });
 
   it("shows attack class when present on a finding", () => {
     const result = makeScanResult({

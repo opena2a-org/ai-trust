@@ -11,7 +11,11 @@ import type { Command } from "commander";
 import { classify } from "@opena2a/ai-classifier";
 import { PackageNotFoundError } from "@opena2a/registry-client";
 import type { RegistryClient, TrustAnswer } from "@opena2a/registry-client";
-import { createRegistryClient, registryFailureSentence } from "../utils/registry-client.js";
+import {
+  createRegistryClient,
+  registryErrorMessage,
+  registryFailureSentence,
+} from "../utils/registry-client.js";
 import {
   ecosystemSuffix,
   formatCheckResult,
@@ -180,11 +184,30 @@ export function registerCheckCommand(program: Command): void {
         ),
       };
 
+      // The deprecated flags are accepted and change nothing; each says so.
+      if (opts.scanIfMissing) {
+        console.error(chalk.dim("  Note: --scan-if-missing is deprecated. Every package is scanned by default."));
+      }
+      if (opts.rescan) {
+        console.error(chalk.dim("  Note: --rescan is deprecated. Local scan is now the default."));
+      }
+
       // --scan-path: scan a local directory directly. No registry lookup, no
       // download step, no contribution. Used for adversarial-corpus fixtures
       // and any on-disk target. The <name> argument is treated as a label
       // for the result (typically the fixture path).
       if (opts.scanPath) {
+        // Flags this path does not act on are named, not dropped silently.
+        if (opts.scan === false) {
+          console.error(
+            chalk.dim("  Note: --no-scan is ignored with --scan-path: the directory is scanned, and the registry is not asked."),
+          );
+        }
+        if (opts.contribute === true) {
+          console.error(
+            chalk.dim("  Note: --contribute is ignored with --scan-path: a directory scan is not shared with the registry."),
+          );
+        }
         if (!(await isHmaAvailable())) {
           const startProblem = scannerNodeVersionProblem() ?? scannerTempDirProblem();
           const msg = startProblem
@@ -318,15 +341,7 @@ export function registerCheckCommand(program: Command): void {
       // called "" or "pip:". With --json the message is the `error` of one
       // object on stdout, as for a --registry-url usage error.
       if (pkg.kind === "invalid") {
-        const placeholder =
-          pkg.reason === "no-package-name" && (pkg.prefix === "skill:" || pkg.prefix === "mcp:")
-            ? "<name>"
-            : "<package>";
-        const problem =
-          pkg.reason === "empty"
-            ? `No package name given. Usage: ${checkCitation()} <package>`
-            : `No package name after "${pkg.prefix}". Usage: ${checkCitation()} ${pkg.prefix}${placeholder}`;
-        usageError(problem, globalOpts.json);
+        usageError(invalidTargetProblem(pkg), globalOpts.json);
         return;
       }
 
@@ -343,11 +358,6 @@ export function registerCheckCommand(program: Command): void {
         userAgent: `ai-trust/${AI_TRUST_VERSION}`,
         ...(ecosystem === "pypi" ? { ecosystem } : {}),
       });
-
-      // --rescan is deprecated — local scan is now the default
-      if (opts.rescan) {
-        console.error(chalk.dim("  Note: --rescan is deprecated. Local scan is now the default."));
-      }
 
       // --no-scan: registry lookup only (fast mode)
       if (opts.scan === false) {
@@ -375,10 +385,17 @@ export function registerCheckCommand(program: Command): void {
             finish(verdictOutcome(result.verdict));
             return;
           }
+          // A `<name>@<version>` target keeps its version in the JSON, which
+          // marks the answer as the package's, and in the Next Steps scan.
+          const version = targetVersion(pkg);
           if (globalOpts.json) {
-            console.log(formatJson(buildCheckJson({ kind: "registry", answer: result, ecosystem })));
+            console.log(
+              formatJson(
+                buildCheckJson({ kind: "registry", answer: result, ecosystem, requestedVersion: version }),
+              ),
+            );
           } else {
-            console.log(formatCheckResult(result, ecosystem));
+            console.log(formatCheckResult(result, ecosystem, { version }));
           }
           finish(verdictOutcome(result.verdict));
         } catch (err) {
@@ -396,13 +413,12 @@ export function registerCheckCommand(program: Command): void {
             }
             handleNoScanNotFound(pkg, globalOpts, opts.type);
           } else {
-            const message = err instanceof Error ? err.message : String(err);
+            const message = registryErrorMessage(err);
             if (globalOpts.json) {
-              console.log(formatJson(buildNotFoundOutput({
-                name,
-                ecosystem,
-                error: message,
-              })));
+              // The lookup failed, so whether the registry has the package is
+              // not known: the object carries no `found`, since `found: false`
+              // would read as a miss.
+              console.log(formatJson({ name, ecosystem, error: message }));
             } else {
               // A registry error can quote the registry's response body.
               console.error(`Error: ${stripControlCharacters(message)}`);
@@ -432,6 +448,7 @@ export function registerCheckCommand(program: Command): void {
       // The registry's answer for a package it has is kept for the scan
       // output, which prints its score beside this scan's when they differ.
       let registryAnswer: TrustAnswer | undefined;
+      let registryError: string | undefined;
       try {
         const registryResult = await client.checkTrust(pkg.name, opts.type);
         const tier = classify({ name, packageType: registryResult.packageType }).tier;
@@ -449,11 +466,12 @@ export function registerCheckCommand(program: Command): void {
         if (!(err instanceof PackageNotFoundError)) {
           // Unexpected registry error — don't fail the scan, just log and continue.
           // The user asked for trust info; let the scan produce something useful.
-          // A registry error can quote the registry's response body.
-          const message = stripControlCharacters(
-            err instanceof Error ? err.message : String(err),
+          // A registry error can quote the registry's response body. The
+          // `--json` document carries it as `registryError`.
+          registryError = registryErrorMessage(err);
+          console.error(
+            chalk.dim(`  Registry lookup failed (${stripControlCharacters(registryError)}); proceeding with local scan.`),
           );
-          console.error(chalk.dim(`  Registry lookup failed (${message}); proceeding with local scan.`));
         }
         // PackageNotFoundError: registry doesn't know this package — scan it.
         // We deliberately do NOT consult the name allowlist here; a novel
@@ -468,7 +486,7 @@ export function registerCheckCommand(program: Command): void {
         opts,
         `Scanning ${name}...`,
         textOpts,
-        registryAnswer
+        { answer: registryAnswer, error: registryError }
       );
     });
 
@@ -565,6 +583,23 @@ async function handleNotFound(
   await handleScanFlow(target, client, globalOpts, opts, "Scanning...");
 }
 
+/** The usage error for a target that names no package. */
+function invalidTargetProblem(target: InvalidTarget): string {
+  switch (target.reason) {
+    case "empty":
+      return `No package name given. Usage: ${checkCitation()} <package>`;
+    case "no-package-name": {
+      const placeholder =
+        target.prefix === "skill:" || target.prefix === "mcp:" ? "<name>" : "<package>";
+      return `No package name after "${target.prefix}". Usage: ${checkCitation()} ${target.prefix}${placeholder}`;
+    }
+    case "no-version":
+      return `No version after "${target.name}@". Usage: ${checkCitation()} ${target.name}@<version>, or ${checkCitation()} ${target.name} without the "@"`;
+    case "control-characters":
+      return `The package name contains control characters. Usage: ${checkCitation()} <package>`;
+  }
+}
+
 /** The downloader's refusal of a name that is not an npm registry package name. */
 const NPM_NAME_REFUSAL = /is not a valid npm package name/;
 
@@ -597,9 +632,15 @@ async function handleScanFlow(
   opts: CheckOptions,
   statusMessage: string,
   textOpts: Pick<FormatScanResultOptions, "all" | "rerunCommand"> = {},
-  registryAnswer?: TrustAnswer
+  registry: {
+    /** The registry's answer, when it has the package. */
+    answer?: TrustAnswer;
+    /** Why the registry lookup failed, when it did. */
+    error?: string;
+  } = {}
 ): Promise<void> {
   const { spec: name, ecosystem } = target;
+  const registryAnswer = registry.answer;
   if (!(await checkHmaReady(target, globalOpts.json))) return;
 
   console.error(chalk.gray(statusMessage));
@@ -659,7 +700,18 @@ async function handleScanFlow(
   // Output scan results. This path scanned a downloaded package (npm pack /
   // PyPI archive), not the user's own tree → remote verdict (no `secure --fix`).
   if (globalOpts.json) {
-    console.log(formatJson(buildCheckJson({ kind: "scan", scan: scanResult, ecosystem })));
+    console.log(
+      formatJson(
+        buildCheckJson({
+          kind: "scan",
+          scan: scanResult,
+          ecosystem,
+          registry: registryAnswer,
+          registryError: registry.error,
+          requestedVersion: targetVersion(target),
+        }),
+      ),
+    );
   } else {
     // The registry's score printed beside this scan's is the package's, not
     // the scanned version's: the note says so first, as it does before the
@@ -801,6 +853,11 @@ function verdictOutcome(verdict?: string): CheckOutcome {
     verdict === "warnings" ||
     verdict === "failed";
   return policyFailure ? "policy-signal" : "ok";
+}
+
+/** The version or tag a `<name>@<version>` target gives, or undefined. */
+function targetVersion(target: PackageTarget): string | undefined {
+  return target.kind === "git" ? undefined : target.version;
 }
 
 /**

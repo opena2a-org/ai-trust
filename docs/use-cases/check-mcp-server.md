@@ -79,6 +79,7 @@ Expected output on stdout (the `Resolved:` note goes to stderr, so stdout stays 
   "trustScore": 0.7866666666666666,
   "scanStatus": "warnings",
   "lastScannedAt": "2026-03-02T00:46:00.496394Z",
+  "communityScans": 3,
   "securityProfile": {
     "criticalCount": 0,
     "highCount": 1,
@@ -87,7 +88,7 @@ Expected output on stdout (the `Resolved:` note goes to stderr, so stdout stays 
 }
 ```
 
-`ecosystem` is the ecosystem the package was checked under: `pypi` when the target was given as `pip:<name>`, `npm` when it was not. It comes from the target, not from the registry's answer. `trustLevel` uses the 0-4 scale above. `trustScore` is the registry score from 0 to 1 (the text output shows it out of 100). `securityProfile` holds the critical and high finding counts and known CVE identifiers from the registry's last scan; it, `scanStatus` and `lastScannedAt` are omitted when the registry did not return them, and a count the registry did not report is omitted from `securityProfile`. Without `--no-scan`, `--json` prints the local scan result instead (`"source": "scan"`, with `score`, `maxScore` and any failed `findings`).
+`communityScans` is the number of community scans the registry records, which the text output prints as its Scans line. `ecosystem` is the ecosystem the package was checked under: `pypi` when the target was given as `pip:<name>`, `npm` when it was not. It comes from the target, not from the registry's answer. `trustLevel` uses the 0-4 scale above. `trustScore` is the registry score from 0 to 1 (the text output shows it out of 100). `securityProfile` holds the critical and high finding counts and known CVE identifiers from the registry's last scan; it, `scanStatus` and `lastScannedAt` are omitted when the registry did not return them, and a count the registry did not report is omitted from `securityProfile`. Without `--no-scan`, `--json` prints the local scan result instead (`"source": "scan"`, with `score`, `maxScore` and any failed `findings`).
 
 This output can be parsed by `jq`, piped into other tools, or used in CI gates:
 

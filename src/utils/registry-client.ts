@@ -23,11 +23,17 @@
  * `publishScan` is a write — retrying it after a timeout could publish
  * the same scan twice, so it keeps single-attempt semantics.
  *
+ * When the first attempt timed out, a line on stderr says so before the
+ * second one starts. When the second attempt also times out, the error
+ * names the registry URL, the time both attempts took and the limit of each,
+ * instead of the dependency's "timed out after 15000ms", which counts one.
+ *
  * The dependency's `checkTrust(name, type)` sends no ecosystem. A client
  * created with an `ecosystem` adds it to each trust query, so a
  * `pip:<name>` target is asked about as a PyPI package (#131).
  */
 
+import chalk from "chalk";
 import { RegistryClient } from "@opena2a/registry-client";
 import { stripControlCharacters } from "../output/sanitize.js";
 
@@ -57,6 +63,13 @@ export interface CreateRegistryClientOptions {
   fetch?: typeof fetch;
   /** Backoff before the single retry (default 500 ms). Tests pass 0 to stay fast. */
   retryBackoffMs?: number;
+  /** Per-request timeout (default REGISTRY_TIMEOUT_MS). Tests pass a short one. */
+  timeoutMs?: number;
+  /**
+   * Prints the line said before the second attempt when the first timed out.
+   * Defaults to stderr, so `--json` output on stdout stays one document.
+   */
+  notice?: (line: string) => void;
 }
 
 /**
@@ -67,9 +80,49 @@ export interface CreateRegistryClientOptions {
  * registry that answered, and is not transient.
  */
 export function isTransientRegistryError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const code = (err as Error & { code?: unknown }).code;
-  return code === "timeout" || code === "network";
+  return errorCode(err) === "timeout" || errorCode(err) === "network";
+}
+
+function errorCode(err: unknown): unknown {
+  return err instanceof Error ? (err as Error & { code?: unknown }).code : undefined;
+}
+
+/**
+ * The text of a registry error to show the user. The client starts the
+ * errors it raises before sending a request with its class name
+ * ("RegistryClient: package name contains control characters"), which is
+ * left out.
+ */
+export function registryErrorMessage(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  const stripped = message.replace(/^RegistryClient: /, "");
+  return stripped === message ? message : stripped.charAt(0).toUpperCase() + stripped.slice(1);
+}
+
+/** A lookup whose last attempt timed out; `code` reads as transient. */
+export class RegistryTimeoutError extends Error {
+  readonly code = "timeout";
+  constructor(message: string) {
+    super(message);
+    this.name = "RegistryTimeoutError";
+  }
+}
+
+/** Milliseconds as seconds for a message: 30612 -> "30.6 s", 500 -> "0.5 s". */
+function seconds(ms: number): string {
+  return `${Number((ms / 1000).toFixed(1))} s`;
+}
+
+/** The registry URL as printed: without a user name or password in it. */
+function shownUrl(baseUrl: string): string {
+  try {
+    const url = new URL(baseUrl);
+    url.username = "";
+    url.password = "";
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return baseUrl;
+  }
 }
 
 /**
@@ -133,6 +186,8 @@ export function createRegistryClient(
 ): RegistryClient {
   const { baseUrl, userAgent, ecosystem } = options;
   const retryBackoffMs = options.retryBackoffMs ?? REGISTRY_RETRY_BACKOFF_MS;
+  const timeoutMs = options.timeoutMs ?? REGISTRY_TIMEOUT_MS;
+  const notice = options.notice ?? ((line: string) => console.error(chalk.dim(line)));
   const fetchImpl =
     ecosystem !== undefined
       ? withTrustQueryEcosystem(options.fetch ?? globalThis.fetch, ecosystem)
@@ -141,7 +196,7 @@ export function createRegistryClient(
   const client = new RegistryClient({
     baseUrl,
     userAgent,
-    timeoutMs: REGISTRY_TIMEOUT_MS,
+    timeoutMs,
     ...(fetchImpl !== undefined ? { fetch: fetchImpl } : {}),
   });
 
@@ -153,15 +208,29 @@ export function createRegistryClient(
       client,
     );
     mutable[method] = async (...args: unknown[]) => {
+      const startedAt = Date.now();
       try {
         return await attempt(...args);
       } catch (err) {
         if (!isTransientRegistryError(err)) throw err;
+        if (errorCode(err) === "timeout") {
+          notice(
+            `  The registry at ${shownUrl(baseUrl)} did not answer within ${timeoutMs} ms; trying once more.`,
+          );
+        }
         if (retryBackoffMs > 0) {
           await new Promise((resolve) => setTimeout(resolve, retryBackoffMs));
         }
-        // Exactly one extra attempt. A second transport failure propagates.
-        return attempt(...args);
+        // Exactly one extra attempt. A second transport failure propagates;
+        // a second timeout says how long both attempts took.
+        try {
+          return await attempt(...args);
+        } catch (retryErr) {
+          if (errorCode(retryErr) !== "timeout") throw retryErr;
+          throw new RegistryTimeoutError(
+            `Registry request timed out: the registry at ${shownUrl(baseUrl)} did not answer in ${seconds(Date.now() - startedAt)} (2 attempts of up to ${timeoutMs} ms each)`,
+          );
+        }
       }
     };
   }

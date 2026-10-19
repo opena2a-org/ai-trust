@@ -216,7 +216,7 @@ unset OPENA2A_TELEMETRY
 |---|---|---|
 | 5.1 | `node dist/index.js --version` | Version line on **stdout** (`ai-trust 0.x.x`, single line) + `Telemetry: on (opt-out: ...)` on **stderr**. `--version 2>/dev/null` shows only the version; `--version 2>&1 1>/dev/null` shows only the telemetry line. |
 | 5.2 | `node dist/index.js telemetry status` | `state: on`, install_id, config path, toggle hint |
-| 5.3 | `node dist/index.js telemetry off` | `Telemetry disabled for ai-trust.` |
+| 5.3 | `node dist/index.js telemetry off` | `Telemetry disabled for ai-trust and hackmyagent, which share the config file below.` |
 | 5.4 | `node dist/index.js telemetry on` | Re-enables persistently |
 | 5.5 | `OPENA2A_TELEMETRY=off node dist/index.js telemetry status` | `state: off` (env wins) |
 | 5.6 | `OPENA2A_TELEMETRY_DEBUG=print node dist/index.js check express --no-scan 2>&1 \| grep opena2a:telemetry` | JSON payload: `tool: "ai-trust"`, `event: "command"`, `name: "check"`, `success: true`, `duration_ms: <int>`. No PII. |

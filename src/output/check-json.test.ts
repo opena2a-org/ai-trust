@@ -606,3 +606,65 @@ describe("version (#224)", () => {
     expect(buildCheckJson({ kind: "registry", answer, ecosystem: "npm" })).not.toHaveProperty("version");
   });
 });
+
+// The text printed Scans, the registry's score beside the scan's, the Checks
+// counts and a failed registry lookup; the JSON had none of them (#230).
+describe("fields the text output prints (#230)", () => {
+  const answer = {
+    name: "fs-mcp",
+    found: true,
+    trustLevel: 3,
+    trustScore: 0.79,
+    verdict: "passed",
+    scanStatus: "warnings",
+    lastScannedAt: "2026-03-02T00:46:00Z",
+    communityScans: 3,
+  } as TrustAnswer;
+  const scan: ScanResult = {
+    packageName: "fs-mcp",
+    scan: {
+      score: 100,
+      maxScore: 100,
+      findings: [],
+      projectType: "mcp",
+      timestamp: "2026-10-18T00:00:00Z",
+      staticChecksEvaluated: 53,
+      semanticCount: 4,
+    },
+    trustScore: 1,
+    trustLevel: 3,
+    verdict: "safe",
+    notCounted: ["GIT-001", "DEP-001"],
+  };
+
+  it("registry path: communityScans, and the requested version marks the answer as the package's", () => {
+    expect(buildCheckJson({ kind: "registry", answer, ecosystem: "npm" })).toMatchObject({ communityScans: 3 });
+    const versioned = buildCheckJson({ kind: "registry", answer, ecosystem: "npm", requestedVersion: "1.0.0" });
+    expect(versioned).toMatchObject({ requestedVersion: "1.0.0", answerScope: "package" });
+  });
+
+  it("scan path: checks, notCounted and the registry's answer", () => {
+    const json = buildCheckJson({ kind: "scan", scan, ecosystem: "npm", registry: answer, requestedVersion: "1.0.0" });
+    expect(json.checks).toEqual({ static: 53, semantic: 4, semanticLayer: "ran" });
+    expect(json.notCounted).toEqual(["GIT-001", "DEP-001"]);
+    expect(json.registry).toEqual({
+      verdict: "passed",
+      trustLevel: 3,
+      trustScore: 0.79,
+      scanStatus: "warnings",
+      lastScannedAt: "2026-03-02T00:46:00Z",
+      answerScope: "package",
+    });
+    expect(json).not.toHaveProperty("registryError");
+  });
+
+  it("scan path: a --no-deep scan, an unreported semantic count, and a failed lookup", () => {
+    const noDeep = buildCheckJson({ kind: "scan", scan: { ...scan, scan: { ...scan.scan, staticOnly: true } } });
+    expect(noDeep.checks).toEqual({ static: 53, semanticLayer: "not-run" });
+    const unreported = buildCheckJson({ kind: "scan", scan: { ...scan, scan: { ...scan.scan, semanticCount: undefined } } });
+    expect(unreported.checks).toEqual({ static: 53, semanticLayer: "not-reported" });
+    const failed = buildCheckJson({ kind: "scan", scan, registryError: "Registry API returned 500" });
+    expect(failed.registryError).toBe("Registry API returned 500");
+    expect(failed).not.toHaveProperty("registry");
+  });
+});

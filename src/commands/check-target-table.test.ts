@@ -1044,36 +1044,62 @@ const ROWS: Row[] = [
       },
       "--no-scan --json": {
         exit: 1,
-        json: {"name": "table-registry-error", "ecosystem": "npm", "found": false, "error": "Registry API returned 500"},
+        json: {"name": "table-registry-error", "ecosystem": "npm", "error": "Registry API returned 500"},
         requests: ["trust table-registry-error"],
       },
     },
   },
-  // Kept as observed, though wrong: the "Scanning ..." line and the download
-  // error print the target's escape sequence as it was typed.
+  // A usage error before any lookup or download (#230): the escape sequence
+  // is not printed back, and no message names the registry client's class.
   {
     form: "control characters",
     target: "\u001b[31mtable-tool",
     cells: {
       "no flag": {
         exit: 1,
-        shows: ["Registry lookup failed (RegistryClient: package name contains control characters); proceeding with local scan.", "Scanning \u001b[31mtable-tool...", "Error: Failed to download \"\u001b[31mtable-tool\": \"\u001b[31mtable-tool\" is not a valid npm package name."],
+        shows: ["Error: The package name contains control characters. Usage: ai-trust check <package>"],
         requests: [],
       },
       "--no-scan": {
         exit: 1,
-        shows: ["Error: RegistryClient: package name contains control characters"],
+        shows: ["Error: The package name contains control characters. Usage: ai-trust check <package>"],
         requests: [],
       },
       "--json": {
         exit: 1,
-        json: {"name": "\u001b[31mtable-tool", "ecosystem": "npm", "found": false, "error": "Failed to download \"\u001b[31mtable-tool\": \"\u001b[31mtable-tool\" is not a valid npm package name."},
-        shows: ["Registry lookup failed (RegistryClient: package name contains control characters); proceeding with local scan.", "Scanning \u001b[31mtable-tool..."],
+        json: {"error": "The package name contains control characters. Usage: ai-trust check <package>"},
         requests: [],
       },
       "--no-scan --json": {
         exit: 1,
-        json: {"name": "\u001b[31mtable-tool", "ecosystem": "npm", "found": false, "error": "RegistryClient: package name contains control characters"},
+        json: {"error": "The package name contains control characters. Usage: ai-trust check <package>"},
+        requests: [],
+      },
+    },
+  },
+  // `<name>@` with no version is a usage error, not a lookup (#230).
+  {
+    form: "name@ with no version",
+    target: "table-tool@",
+    cells: {
+      "no flag": {
+        exit: 1,
+        shows: ["Error: No version after \"table-tool@\". Usage: ai-trust check table-tool@<version>, or ai-trust check table-tool without the \"@\""],
+        requests: [],
+      },
+      "--no-scan": {
+        exit: 1,
+        shows: ["Error: No version after \"table-tool@\". Usage: ai-trust check table-tool@<version>, or ai-trust check table-tool without the \"@\""],
+        requests: [],
+      },
+      "--json": {
+        exit: 1,
+        json: {"error": "No version after \"table-tool@\". Usage: ai-trust check table-tool@<version>, or ai-trust check table-tool without the \"@\""},
+        requests: [],
+      },
+      "--no-scan --json": {
+        exit: 1,
+        json: {"error": "No version after \"table-tool@\". Usage: ai-trust check table-tool@<version>, or ai-trust check table-tool without the \"@\""},
         requests: [],
       },
     },

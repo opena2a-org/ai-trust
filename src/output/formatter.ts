@@ -53,8 +53,6 @@ import { shellArg } from "../utils/shell-arg.js";
 
 // ── Visual helpers ─────────────────────────────────────────────���──────
 
-const MINI_METER_WIDTH = 8;
-
 function normalizeScanStatus(status?: string): string | undefined {
   if (!status) return status;
   return status.toLowerCase().trim();
@@ -278,6 +276,7 @@ function buildCheckCtas(
   answer: TrustAnswer,
   isScanError: boolean,
   ecosystem: "npm" | "pypi",
+  version: string | undefined,
 ): NextStepsCta[] {
   const normalized = normalizeVerdict(answer.verdict);
   const meterGate = mapScanStatusForMeter(answer.scanStatus);
@@ -285,8 +284,11 @@ function buildCheckCtas(
 
   const ctas: NextStepsCta[] = [];
   // The name is the registry's string: quoted, so it stays one argument. A
-  // PyPI answer keeps its pip: prefix, so the scan is of the same package.
-  const target = ecosystem === "pypi" ? `pip:${answer.name}` : answer.name;
+  // PyPI answer keeps its pip: prefix, so the scan is of the same package,
+  // and a `<name>@<version>` target keeps its version, so the scan is of
+  // the version asked about.
+  const name = version === undefined ? answer.name : `${answer.name}@${version}`;
+  const target = ecosystem === "pypi" ? `pip:${name}` : name;
   const checkCmd = `${checkCitation()} ${shellArg(target)}`;
   if (isScanError) {
     ctas.push({
@@ -520,9 +522,18 @@ function resolvedVersionSuffix(result: ScanResult): string {
   return packageVersion === requestedVersion ? "" : ` (${packageVersion})`;
 }
 
+export interface FormatCheckResultOptions {
+  /**
+   * The version or tag a `<name>@<version>` target gave. The registry answers
+   * for the package; the Next Steps scan is of this version.
+   */
+  version?: string;
+}
+
 export function formatCheckResult(
   registryAnswer: TrustAnswer,
   ecosystem: "npm" | "pypi" = "npm",
+  opts: FormatCheckResultOptions = {},
 ): string {
   // Registry strings are remote data: control characters are removed first.
   const answer = sanitizeRegistryValue(registryAnswer);
@@ -556,10 +567,12 @@ export function formatCheckResult(
   const profile = readSecurityProfile(answer);
   const out: string[] = [];
 
-  // Header
+  // Header. "scan date not recorded" is for a scan without a date; a package
+  // whose scan status names no scan, finished or failed, was not scanned.
   out.push("");
   const meta = [...block.header.meta];
-  meta.push(scanAge ? `scanned ${scanAge}` : "scan date not recorded");
+  const neverScanned = scanStatusForMeter === undefined && !isScanError;
+  meta.push(scanAge ? `scanned ${scanAge}` : neverScanned ? "not scanned" : "scan date not recorded");
   const headerMeta = meta.length > 0 ? `  ${chalk.dim(meta.join(" \u00b7 "))}` : "";
   out.push(
     `  ${chalk.bold.white(block.header.name)}${ecosystemSuffix(ecosystem)}${headerMeta}`,
@@ -637,7 +650,7 @@ export function formatCheckResult(
 
   // Next Steps
   out.push(divider("Next Steps"));
-  out.push(...renderNextStepsLines(buildCheckCtas(answer, isScanError, ecosystem)));
+  out.push(...renderNextStepsLines(buildCheckCtas(answer, isScanError, ecosystem, opts.version)));
 
   out.push("");
   return out.join("\n");
@@ -695,20 +708,33 @@ export function formatNotFound(input: NotFoundInput): string {
 }
 
 /**
- * What `audit` tells formatBatchResults about the file it read, and `batch`
- * about its `--type`.
+ * What `audit` tells formatBatchResults about the file it read, `batch`
+ * about its `--type`, and the width of the terminal stdout writes to.
  */
 export interface BatchResultsOptions {
   /**
    * The dependency file `audit` read. The next step for a dependency the
-   * registry does not have is then `ai-trust audit <file> --scan-missing`;
-   * without a file it is `ai-trust check <name>` for the first one.
+   * registry does not have is then `ai-trust audit <file> --scan-missing`,
+   * in the Summary and in the Next Steps; without a file the Summary's is
+   * `ai-trust check <name>` for the first one.
    */
   file?: string;
+  /**
+   * `audit` already scanned the dependencies the registry does not have
+   * (`--scan-missing`, or yes at its prompt). The next step for one that is
+   * still missing is then to check it, not to run the same scan again.
+   */
+  scannedMissing?: boolean;
   /** The ecosystem the names were looked up in: a PyPI name is checked as `pip:<name>`. */
   ecosystem?: "npm" | "pypi";
   /** The `batch --type` value, named where a package it excluded is listed. */
   type?: string;
+  /**
+   * The width of the terminal stdout writes to, or undefined when stdout is
+   * not a terminal (a pipe or a file). On a terminal a name longer than the
+   * PACKAGE column is cut; without one every name is printed whole.
+   */
+  terminalWidth?: number;
 }
 
 /**
@@ -751,7 +777,7 @@ function gateFailureLines(
     );
   }
   let next: string;
-  if (notFound.length > 0 && opts.file !== undefined) {
+  if (notFound.length > 0 && opts.file !== undefined && opts.scannedMissing !== true) {
     next = `ai-trust audit ${shellArg(opts.file)} --scan-missing`;
   } else if (notFound.length > 0 || below.length > 0) {
     const name = notFound[0] ?? below[0];
@@ -768,11 +794,52 @@ function gateFailureLines(
   ];
 }
 
+/** The width of the label column of the batch Next Steps. */
+const BATCH_STEP_LABEL_WIDTH = 19;
+
+/** The most `ai-trust check <name>` commands one Next Steps line lists. */
+const MAX_LISTED_CHECK_COMMANDS = 3;
+
+/**
+ * A Next Steps step with one `ai-trust check` command for each name, aligned
+ * under the first, the first MAX_LISTED_CHECK_COMMANDS of them followed by a
+ * count of the rest, which the sections above list. Names come from the
+ * registry or a dependency file, so each is quoted for the shell.
+ */
+function checkCommandSteps(
+  label: string,
+  names: string[],
+  ecosystem: "npm" | "pypi",
+  labelWidth = BATCH_STEP_LABEL_WIDTH,
+): string[] {
+  const commands = names
+    .slice(0, MAX_LISTED_CHECK_COMMANDS)
+    .map((n) => `ai-trust check ${shellArg(ecosystem === "pypi" ? `pip:${n}` : n)}`);
+  const rest = names.length - MAX_LISTED_CHECK_COMMANDS;
+  if (rest > 0) commands.push(chalk.dim(`+ ${rest} more, listed above`));
+  return commands.map((command, i) =>
+    i === 0
+      ? `  ${chalk.cyan(label)}${" ".repeat(Math.max(1, labelWidth - label.length))}${command}`
+      : `  ${" ".repeat(labelWidth)}${command}`,
+  );
+}
+
+/** A Next Steps step with one command. */
+function commandStep(label: string, command: string, labelWidth = BATCH_STEP_LABEL_WIDTH): string {
+  return `  ${chalk.cyan(label)}${" ".repeat(Math.max(1, labelWidth - label.length))}${command}`;
+}
+
+/** The visible width of a table cell: its length without color codes. */
+function visibleLength(s: string): number {
+  return s.replace(/\x1b\[[0-9;]*m/g, "").length;
+}
+
 export function formatBatchResults(
   response: BatchResponse,
   minTrust: number,
-  opts: BatchResultsOptions = {}
+  opts: BatchResultsOptions = {},
 ): string {
+  const ecosystem = opts.ecosystem ?? "npm";
   const lines: string[] = [];
   // Registry strings are remote data: control characters are removed first.
   const results = sanitizeRegistryValue(response.results);
@@ -824,9 +891,9 @@ export function formatBatchResults(
     }
     lines.push(...typeMismatchSectionLines(excluded, opts.type));
     lines.push(divider("Next Steps"));
-    lines.push(`  ${chalk.cyan("General security scan:")}  npx hackmyagent secure .`);
+    lines.push(commandStep("General security scan:", "npx hackmyagent secure .", 24));
     if (unknown.length > 0) {
-      lines.push(`  ${chalk.cyan("Check an AI package:")}     ai-trust check <name>`);
+      lines.push(...checkCommandSteps("Check an AI package:", unknown.map((r) => r.name), ecosystem, 24));
     }
     for (const command of mismatchCommands) {
       lines.push(`  ${chalk.cyan("Look up by type:")}         ${command}`);
@@ -873,13 +940,11 @@ export function formatBatchResults(
       }
       lines.push(...typeMismatchSectionLines(excluded, opts.type));
       lines.push(divider("Next Steps"));
-      if (unknown.length > 0) {
-        lines.push(`  ${chalk.cyan("Classify individually:")} ai-trust check <name>`);
-      }
+      lines.push(...checkCommandSteps("Classify individually:", unknown.map((r) => r.name), ecosystem, 23));
       for (const command of mismatchCommands) {
         lines.push(`  ${chalk.cyan("Look up by type:")} ${command}`);
       }
-      lines.push(`  ${chalk.cyan("General security scan:")} npx hackmyagent secure .`);
+      lines.push(commandStep("General security scan:", "npx hackmyagent secure .", 23));
       lines.push("");
       return lines.join("\n");
     }
@@ -890,13 +955,21 @@ export function formatBatchResults(
   }
 
   // Tier 1 trust table — the main event.
-  // Table header
-  const nameWidth = 36;
+  // Table header. On a terminal the PACKAGE column is 36 wide and a longer
+  // name is cut; without one (a pipe or a file) the column fits the longest
+  // name, printed whole. The SCAN column fits the longest scan status.
+  const onTerminal = opts.terminalWidth !== undefined;
+  const nameWidth = onTerminal
+    ? 36
+    : Math.max(36, ...native.map((r) => r.name.length + 2));
   const typeWidth = 14;
   const verdictWidth = 10;
   const levelWidth = 12;
   const scoreWidth = 16;
-  const scanWidth = 10;
+  const scanWidth = Math.max(
+    10,
+    ...native.filter((r) => r.found).map((r) => (r.scanStatus || "-").length + 2),
+  );
 
   lines.push("");
   lines.push(
@@ -925,7 +998,7 @@ export function formatBatchResults(
   );
 
   for (const result of native) {
-    const name = capLength(result.name, nameWidth - 2);
+    const name = onTerminal ? capLength(result.name, nameWidth - 2) : result.name;
 
     if (!result.found) {
       lines.push(
@@ -947,16 +1020,19 @@ export function formatBatchResults(
     const scoreVal = scorePercent(result.trustScore);
     const isScanError = isScanErrorStatus(result.scanStatus);
 
-    // Score column: mini meter for scanned, text for error/unscanned, and
-    // "--" for a score off the 0-1 scale.
+    // Score column: mini meter for scanned, text for error, and "--" with no
+    // meter for a package with no score (not scanned, or a score off the 0-1
+    // scale): an empty meter reads as a full one where color is off. The
+    // cell is padded to the column, so SCAN lines up under its header.
     let scoreCell: string;
     if (isScanError) {
-      scoreCell = chalk.red.bold("Error") + "         ";
+      scoreCell = chalk.red.bold("Error");
     } else if (scoreDisplay === "Not scanned" || scoreVal === undefined) {
-      scoreCell = chalk.dim("\u2501".repeat(MINI_METER_WIDTH)) + " " + chalk.dim("--");
+      scoreCell = chalk.dim("--");
     } else {
       scoreCell = miniMeter(scoreVal);
     }
+    scoreCell += " ".repeat(Math.max(2, scoreWidth - visibleLength(scoreCell)));
 
     // Color the scan status
     const statusText = result.scanStatus || "-";
@@ -968,7 +1044,7 @@ export function formatBatchResults(
         (result.packageType || "-").padEnd(typeWidth) +
         colorVerdict(normalized.toUpperCase().padEnd(verdictWidth)) +
         chalk.bold(colorTrust(trustLevelLabel(result.trustLevel).padEnd(levelWidth))) +
-        scoreCell + "  " +
+        scoreCell +
         coloredStatus
     );
   }
@@ -1085,39 +1161,39 @@ export function formatBatchResults(
     lines.push(`  ${trustLevelLegend(minTrust)}`);
   }
 
-  // Next steps
-  lines.push(divider("Next Steps"));
+  // Next steps. Each names the packages it is for and the file `audit`
+  // read; `<file>` stays only in `batch`, which reads no file. After
+  // `audit` scanned the missing packages, it does not offer that scan again.
+  const names = (rs: TrustAnswer[]): string[] => rs.map((r) => r.name);
+  const steps: string[] = [];
   if (errorScans.length > 0) {
-    lines.push(
-      `  ${chalk.cyan("Rescan errors:")}     ai-trust check <name>`
-    );
+    steps.push(...checkCommandSteps("Rescan errors:", names(errorScans), ecosystem));
   }
   if (notFound.length > 0) {
-    lines.push(
-      `  ${chalk.cyan("Scan missing:")}      ai-trust audit <file> --scan-missing`
-    );
-    lines.push(
-      `  ${chalk.cyan("Check individual:")}  ai-trust check <name>`
-    );
+    if (opts.scannedMissing !== true) {
+      const file = opts.file !== undefined ? shellArg(stripControlCharacters(opts.file)) : "<file>";
+      steps.push(commandStep("Scan missing:", `ai-trust audit ${file} --scan-missing`));
+    }
+    steps.push(...checkCommandSteps("Check individual:", names(notFound), ecosystem));
   }
   if (belowThreshold.length > 0) {
-    lines.push(
-      `  ${chalk.cyan("Inspect flagged:")}   ai-trust check <name>`
-    );
+    steps.push(...checkCommandSteps("Inspect flagged:", names(belowThreshold), ecosystem));
   }
   if (unknown.length > 0) {
-    lines.push(
-      `  ${chalk.cyan("Classify unknown:")}  ai-trust check <name>`
-    );
+    steps.push(...checkCommandSteps("Classify unknown:", names(unknown), ecosystem));
   }
   for (const command of mismatchCommands) {
-    lines.push(`  ${chalk.cyan("Look up by type:")}   ${command}`);
+    steps.push(`  ${chalk.cyan("Look up by type:")}   ${command}`);
   }
-  // Always offer HMA for library security — even when the current audit has
-  // no libraries, users often come back to audit another file that will.
-  lines.push(
-    `  ${chalk.cyan("Library security:")}  npx hackmyagent secure .`
-  );
+  // The library step is for the libraries listed above.
+  if (unrelated.length > 0) {
+    steps.push(commandStep("Library security:", "npx hackmyagent secure ."));
+  }
+  // A run with nothing left to do has no Next Steps section.
+  if (steps.length > 0) {
+    lines.push(divider("Next Steps"));
+    lines.push(...steps);
+  }
 
   lines.push("");
   return lines.join("\n");
@@ -1172,6 +1248,23 @@ export interface FormatScanResultOptions {
 
 /** Findings printed in text mode when `--all` is not given. */
 const FINDINGS_SHOWN_BY_DEFAULT = 10;
+
+/** The most check ids the not-counted line names before it counts the rest. */
+const MAX_NOT_COUNTED_SHOWN = 5;
+
+/**
+ * "Not counted: GIT-001, DEP-001, SANDBOX-001 (...)" for a downloaded
+ * package whose scan left failed local-setup checks out of its score, or
+ * null when it left none out.
+ */
+function notCountedLine(result: ScanResult): string | null {
+  const ids = result.notCounted ?? [];
+  if (ids.length === 0) return null;
+  const shown = ids.slice(0, MAX_NOT_COUNTED_SHOWN).map((id) => stripControlCharacters(id));
+  const more = ids.length - shown.length;
+  const list = more > 0 ? `${shown.join(", ")} +${more} more` : shown.join(", ");
+  return `Not counted: ${list} (local-setup checks a downloaded package is not scored on; --scan-path counts them)`;
+}
 
 export function formatScanResult(result: ScanResult, opts: FormatScanResultOptions = {}): string {
   const remote = opts.remote === true;
@@ -1255,6 +1348,11 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
     );
   } else {
     lines.push(`  Security  ${scoreMeter(result.scan.score, result.scan.maxScore)}`);
+    // A downloaded package's score leaves out the checks that describe a
+    // local setup; say which failed, since `--scan-path` on the same files
+    // counts them.
+    const notCounted = notCountedLine(result);
+    if (notCounted) lines.push(`            ${chalk.dim(notCounted)}`);
   }
 
   // Trust level
