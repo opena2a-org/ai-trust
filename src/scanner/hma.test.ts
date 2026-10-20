@@ -142,6 +142,38 @@ describe("scannerNodeVersionProblem", () => {
     const manifest = JSON.parse(readFileSync(join(__dirname, "..", "..", "package.json"), "utf8"));
     expect(manifest.engines.node).toBe(">=20.19.0 <21 || >=22.12.0");
   });
+
+  // README.md names the same releases (#244): "^20.19" is 20.19.0 and later
+  // 20.x releases, as in an npm range, and "22.12+" is 22.12.0 and later.
+  it("matches the Node.js releases README.md names", async () => {
+    vi.mocked(execFile as any).mockRejectedValue(requireEsmFailure);
+    expect(await isHmaAvailable()).toBe(false);
+
+    const readme = readFileSync(join(__dirname, "..", "..", "README.md"), "utf8");
+    const named = /^It needs Node\.js (\S+(?: or \S+)*)/m.exec(readme)?.[1];
+    expect(named, 'README.md has no "It needs Node.js ..." sentence').toBeDefined();
+    const releases = named!.split(" or ").map((entry) => {
+      const caret = /^\^(\d+)\.(\d+)$/.exec(entry);
+      const [, major, minor] = caret ?? /^(\d+)\.(\d+)\+$/.exec(entry) ?? [];
+      if (major === undefined) throw new Error(`README.md names Node.js "${entry}", not ^major.minor or major.minor+`);
+      return { major: Number(major), minor: Number(minor), sameMajor: caret !== null };
+    });
+    const readmeAllows = (version: string) => {
+      const [major, minor] = version.split(".").map(Number);
+      return releases.some((r) =>
+        r.sameMajor
+          ? major === r.major && minor >= r.minor
+          : major > r.major || (major === r.major && minor >= r.minor),
+      );
+    };
+
+    for (const version of [
+      "18.20.8", "20.0.0", "20.18.3", "20.19.0", "20.20.0", "21.7.3", "22.0.0",
+      "22.11.0", "22.12.0", "22.23.3", "23.0.0", "24.21.0", "26.12.0",
+    ]) {
+      expect(readmeAllows(version), `Node.js ${version}`).toBe(scannerNodeVersionProblem(version) === null);
+    }
+  });
 });
 
 describe("runHmaScan", () => {
