@@ -604,4 +604,65 @@ describe("downloadPackage (npm)", () => {
     expect(readFileSync(npmArgs, "utf8").trimEnd().split("\n").slice(-2)).toEqual(["--", "pkg-name@9.9.9"]);
     expect(readdirSync(scanTmp)).toEqual([]);
   });
+
+  it("downloads a package whose npm pack file listing is larger than 1 MiB, by running npm pack with --loglevel=error (#252)", async () => {
+    // At npm's default loglevel, `notice`, npm pack lists every file of the
+    // package on stderr, one `npm notice` line each. execFile keeps at most
+    // 1 MiB of a child's stderr by default and stops npm when there is more.
+    // This npm prints such a listing for 43,010 files unless its loglevel,
+    // from npm_config_loglevel or a `--loglevel=` argument, is `warn`,
+    // `error` or `silent`, then copies the tarball into the
+    // --pack-destination directory and prints its file name, as npm does.
+    vi.stubEnv("npm_config_loglevel", "notice");
+    const listing = [
+      "npm notice Tarball Contents",
+      ...Array.from({ length: 43_010 }, (_, i) => `npm notice 1.1kB package/esm/Icon${i}Outlined.js`),
+      "npm notice Tarball Details",
+      "",
+    ].join("\n");
+    expect(Buffer.byteLength(listing)).toBeGreaterThan(1024 * 1024);
+    const listingFile = join(root, "npm-notice-listing");
+    writeFileSync(listingFile, listing);
+
+    const pkg = join(root, "pkg", "package");
+    mkdirSync(pkg, { recursive: true });
+    writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "@scope/many-files", version: "1.0.0" }));
+    const tarball = join(root, "scope-many-files-1.0.0.tgz");
+    execFileSync("tar", ["czf", tarball, "-C", join(root, "pkg"), "package"]);
+
+    writeFileSync(
+      join(root, "bin", "npm"),
+      [
+        "#!/bin/sh",
+        `for a in "$@"; do printf '%s\\n' "$a"; done > "${npmArgs}"`,
+        'level="${npm_config_loglevel:-notice}"',
+        "dest=",
+        "prev=",
+        'for a in "$@"; do',
+        '  case "$a" in --loglevel=*) level="${a#--loglevel=}";; esac',
+        '  [ "$prev" = --pack-destination ] && dest="$a"',
+        '  prev="$a"',
+        "done",
+        `case "$level" in silent|error|warn) ;; *) cat "${listingFile}" >&2;; esac`,
+        `cp "${tarball}" "$dest/" || exit 1`,
+        "echo scope-many-files-1.0.0.tgz",
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+
+    const result = await downloadPackage("@scope/many-files", "npm");
+    try {
+      expect(JSON.parse(readFileSync(join(result.dir, "package.json"), "utf8"))).toEqual({
+        name: "@scope/many-files",
+        version: "1.0.0",
+      });
+    } finally {
+      await result.cleanup();
+    }
+    const args = readFileSync(npmArgs, "utf8").trimEnd().split("\n");
+    expect(args).toContain("--loglevel=error");
+    expect(args.slice(-2)).toEqual(["--", "@scope/many-files"]);
+    expect(readdirSync(scanTmp)).toEqual([]);
+  });
 });

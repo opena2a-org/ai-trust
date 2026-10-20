@@ -120,7 +120,11 @@ async function downloadNpmPackage(name: string, version?: string): Promise<Downl
     // extractNpmError would not recognise them. `--loglevel=error` keeps
     // them printed: with `loglevel=silent` in the user's npm config or
     // environment, npm pack prints no error lines for a package or version
-    // it does not find, and extractNpmError would have nothing to read.
+    // it does not find, and extractNpmError would have nothing to read. It
+    // also keeps npm's `npm notice` listing of every file in the package
+    // off stderr: for a package with many files that listing is larger than
+    // the 1 MiB execFile reads, and execFile would stop npm and fail the
+    // download with `stderr maxBuffer length exceeded`.
     const { stdout } = await execFileAsync(
       "npm",
       [
