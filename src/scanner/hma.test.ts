@@ -785,6 +785,21 @@ ${JSON.stringify({
   // runHmaWithArgs and runHmaScan each added "HMA scan failed: " to the
   // error, so the message carried the prefix twice.
   describe("failure message", () => {
+    // The scan runs on a path under a directory the test creates, so a
+    // directory at a fixed path such as /tmp/test-pkg cannot add a size
+    // sentence to the report-size message (#251).
+    let root: string;
+    let missing: string;
+
+    beforeEach(() => {
+      root = mkdtempSync(join(tmpdir(), "hma-failure-message-"));
+      missing = join(root, "not-there");
+    });
+
+    afterEach(() => {
+      rmSync(root, { recursive: true, force: true });
+    });
+
     it.each([
       [
         "the report is larger than maxBuffer",
@@ -798,7 +813,7 @@ ${JSON.stringify({
               stderr: "",
             }),
           ),
-        // /tmp/test-pkg does not exist, so the message names no size.
+        // The scanned path does not exist, so the message names no size.
         "HMA scan failed: the scanner's report is larger than 128 MiB, the most ai-trust reads.",
       ],
       [
@@ -819,8 +834,9 @@ ${JSON.stringify({
       ],
     ])("says \"HMA scan failed\" once when %s", async (_label, run, expected) => {
       vi.mocked(execFile as any).mockImplementation(run);
+      expect(existsSync(missing)).toBe(false);
 
-      const err = await runHmaScan("/tmp/test-pkg").then(
+      const err = await runHmaScan(missing).then(
         () => undefined,
         (e: unknown) => e,
       );
