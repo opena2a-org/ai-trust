@@ -715,4 +715,80 @@ describe("downloadPackage (npm)", () => {
     expect(args.slice(-2)).toEqual(["--", "@scope/pkg-name"]);
     expect(readdirSync(scanTmp)).toEqual([]);
   });
+
+  describe("when npm's json setting is on, by running npm pack with --json=false (#254)", () => {
+    // With `json=true` in the npm config, or `npm_config_json=true` in the
+    // environment, npm pack prints a JSON array that lists the tarball and
+    // each of its files on stdout instead of the tarball's file name. This
+    // npm does that unless a `--json=` argument turns the setting off, after
+    // copying the tarball into the --pack-destination directory, as npm does.
+    function npmPrintsJsonUnlessTurnedOff(fileCount: number): void {
+      vi.stubEnv("npm_config_json", "true");
+      const files = Array.from({ length: fileCount }, (_, i) => ({
+        path: `esm/Icon${i}Outlined.js`,
+        size: 1100,
+        mode: 420,
+      }));
+      const json = `${JSON.stringify(
+        [{ id: "@scope/json-pkg@1.0.0", name: "@scope/json-pkg", version: "1.0.0", filename: "scope-json-pkg-1.0.0.tgz", files }],
+        null,
+        2,
+      )}\n`;
+      const jsonFile = join(root, "npm-pack-json");
+      writeFileSync(jsonFile, json);
+
+      const pkg = join(root, "pkg", "package");
+      mkdirSync(pkg, { recursive: true });
+      writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "@scope/json-pkg", version: "1.0.0" }));
+      const tarball = join(root, "scope-json-pkg-1.0.0.tgz");
+      execFileSync("tar", ["czf", tarball, "-C", join(root, "pkg"), "package"]);
+
+      writeFileSync(
+        join(root, "bin", "npm"),
+        [
+          "#!/bin/sh",
+          `for a in "$@"; do printf '%s\\n' "$a"; done > "${npmArgs}"`,
+          'json="${npm_config_json:-false}"',
+          "dest=",
+          "prev=",
+          'for a in "$@"; do',
+          '  case "$a" in --json=*) json="${a#--json=}";; esac',
+          '  [ "$prev" = --pack-destination ] && dest="$a"',
+          '  prev="$a"',
+          "done",
+          `cp "${tarball}" "$dest/" || exit 1`,
+          `if [ "$json" = true ]; then cat "${jsonFile}"; else echo scope-json-pkg-1.0.0.tgz; fi`,
+          "",
+        ].join("\n"),
+        { mode: 0o755 },
+      );
+    }
+
+    async function expectDownloaded(): Promise<void> {
+      const result = await downloadPackage("@scope/json-pkg", "npm");
+      try {
+        expect(JSON.parse(readFileSync(join(result.dir, "package.json"), "utf8"))).toEqual({
+          name: "@scope/json-pkg",
+          version: "1.0.0",
+        });
+      } finally {
+        await result.cleanup();
+      }
+      const args = readFileSync(npmArgs, "utf8").trimEnd().split("\n");
+      expect(args).toContain("--json=false");
+      expect(args.slice(-2)).toEqual(["--", "@scope/json-pkg"]);
+      expect(readdirSync(scanTmp)).toEqual([]);
+    }
+
+    it("downloads the package instead of extracting a tarball named `]`", async () => {
+      npmPrintsJsonUnlessTurnedOff(3);
+      await expectDownloaded();
+    });
+
+    it("downloads a package whose JSON file listing is larger than 1 MiB", async () => {
+      npmPrintsJsonUnlessTurnedOff(43_010);
+      expect(readFileSync(join(root, "npm-pack-json")).byteLength).toBeGreaterThan(1024 * 1024);
+      await expectDownloaded();
+    });
+  });
 });

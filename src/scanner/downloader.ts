@@ -128,7 +128,11 @@ async function downloadNpmPackage(name: string, version?: string): Promise<Downl
     // makes npm pack write the tarball: with `dry-run=true` in the user's
     // npm config or environment, npm pack exits 0 and prints the tarball's
     // file name but writes no file, and tar would fail on a file that does
-    // not exist.
+    // not exist. `--json=false` keeps the tarball's file name the last line
+    // of stdout: with `json=true` in the user's npm config or environment,
+    // npm pack prints a JSON array instead, whose last line is `]`, and for
+    // a package with many files that array can be larger than the 1 MiB of
+    // stdout execFile reads.
     const { stdout } = await execFileAsync(
       "npm",
       [
@@ -136,6 +140,7 @@ async function downloadNpmPackage(name: string, version?: string): Promise<Downl
         "--ignore-scripts",
         "--no-color",
         "--loglevel=error",
+        "--json=false",
         "--pack-destination",
         tempDir,
         "--dry-run=false",

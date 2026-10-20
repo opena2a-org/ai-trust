@@ -143,7 +143,7 @@ function shellQuote(value: string): string {
 }
 
 /**
- * An `npm` that answers `npm pack --ignore-scripts --no-color --loglevel=error --pack-destination <dir> --dry-run=false -- <name>`,
+ * An `npm` that answers `npm pack --ignore-scripts --no-color --loglevel=error --json=false --pack-destination <dir> --dry-run=false -- <name>`,
  * the call the downloader makes, by copying the fixture tarball into <dir>
  * and printing its file name, as npm does.
  */
@@ -154,8 +154,8 @@ function installNpmStandIn(): string {
     join(bin, "npm"),
     [
       "#!/bin/sh",
-      '[ "$1" = pack ] && [ "$5" = --pack-destination ] || exit 1',
-      `cp ${shellQuote(join(root, FIXTURE_TARBALL))} "$6/" || exit 1`,
+      '[ "$1" = pack ] && [ "$6" = --pack-destination ] || exit 1',
+      `cp ${shellQuote(join(root, FIXTURE_TARBALL))} "$7/" || exit 1`,
       `echo ${FIXTURE_TARBALL}`,
       "",
     ].join("\n"),
