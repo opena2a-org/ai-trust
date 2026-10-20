@@ -81,6 +81,7 @@
 - An unknown `telemetry` action prints its error on stderr, as `config contribute` does for its own, and `check --no-scan --json` on a failed registry lookup no longer prints `"found": false` ([#230](https://github.com/opena2a-org/ai-trust/issues/230)).
 - `check` notes that `--scan-if-missing` is deprecated, as it notes for `--rescan`, and that `--no-scan` and `--contribute` are ignored with `--scan-path` ([#230](https://github.com/opena2a-org/ai-trust/issues/230)).
 - `check --help` and `audit --help` describe two flags without internal terms ([#177](https://github.com/opena2a-org/ai-trust/issues/177)).
+- `check` reports a download that failed on the network, as when the npm registry refuses the connection, as that failure with exit code 1. A `404` in the name of the debug log npm cites, or in the path of your home directory, no longer makes `check` report the package as not found on npm with exit code 2; only npm's own `E404` error lines count as a missing package.
 
 ### Documentation
 

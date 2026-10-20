@@ -342,8 +342,13 @@ async function fetchPypiArchive(file: PypiReleaseFile, dest: string): Promise<vo
 
 /**
  * Extract a clean error message from npm's verbose stderr. npm reports a
- * version or tag the package does not have as `code ETARGET`, on a line that
- * begins `npm error`, or `npm ERR!` in older npm releases.
+ * version or tag the package does not have as `code ETARGET`, and a package
+ * the registry does not have as `code E404` followed by lines that begin
+ * `404`, each on a line that begins `npm error`, or `npm ERR!` in older npm
+ * releases. Both matches are anchored to those lines: the last line of every
+ * npm error names its debug log, `<timestamp>-debug-0.log` under the user's
+ * home directory, and a `404` in that timestamp or in the home path is not a
+ * missing package.
  */
 function extractNpmError(name: string, version: string | undefined, err: unknown): string {
   if (
@@ -356,8 +361,7 @@ function extractNpmError(name: string, version: string | undefined, err: unknown
     if (version !== undefined && /^npm (?:error|ERR!) code ETARGET\b/m.test(stderr)) {
       return `Version "${version}" of "${name}" not found on npm. Verify the version and try again.`;
     }
-    const notFound = stderr.includes("404") || stderr.includes("Not Found");
-    if (notFound) {
+    if (/^npm (?:error|ERR!) (?:code E404\b|404\b)/m.test(stderr)) {
       return `Package "${name}" not found on npm. Verify the package name and try again.`;
     }
     const errorLine = stderr
