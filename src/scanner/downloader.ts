@@ -113,10 +113,14 @@ async function downloadNpmPackage(name: string, version?: string): Promise<Downl
   try {
     // Use npm pack to download the tarball. `--` ends option parsing, so a
     // dependency name from a package.json that starts with "-" is looked up
-    // as a package instead of being read as an npm option.
+    // as a package instead of being read as an npm option. `--no-color`
+    // keeps npm's error lines plain: with `color=always` in the user's npm
+    // config or environment npm wraps the `npm`, `error` and `code` words of
+    // each line in colour escape sequences, also when stderr is a pipe, and
+    // extractNpmError would not recognise them.
     const { stdout } = await execFileAsync(
       "npm",
-      ["pack", "--ignore-scripts", "--pack-destination", tempDir, "--", spec],
+      ["pack", "--ignore-scripts", "--no-color", "--pack-destination", tempDir, "--", spec],
       { timeout: 60_000 }
     );
 
@@ -345,10 +349,13 @@ async function fetchPypiArchive(file: PypiReleaseFile, dest: string): Promise<vo
  * version or tag the package does not have as `code ETARGET`, and a package
  * the registry does not have as `code E404` followed by lines that begin
  * `404`, each on a line that begins `npm error`, or `npm ERR!` in older npm
- * releases. Both matches are anchored to those lines: the last line of every
+ * releases. Both matches are anchored to those lines: the last line of an
  * npm error names its debug log, `<timestamp>-debug-0.log` under the user's
- * home directory, and a `404` in that timestamp or in the home path is not a
- * missing package.
+ * home directory (unless `logs-max` is 0), and a `404` in that timestamp or
+ * in the home path is not a missing package. The lines are plain because
+ * npm pack runs with `--no-color`: under `color=always` npm would wrap the
+ * `npm`, `error` and `code` words in colour escape sequences, which neither
+ * match nor the `npm error` fallback below would recognise.
  */
 function extractNpmError(name: string, version: string | undefined, err: unknown): string {
   if (

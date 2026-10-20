@@ -311,6 +311,7 @@ describe("downloadPackage (npm)", () => {
       const args = readFileSync(npmArgs, "utf8").trimEnd().split("\n");
       expect(args[0]).toBe("pack");
       expect(args).toContain("--ignore-scripts");
+      expect(args).toContain("--no-color");
       expect(args.slice(-2)).toEqual(["--", name]);
     }
   });
@@ -327,6 +328,7 @@ describe("downloadPackage (npm)", () => {
       const args = readFileSync(npmArgs, "utf8").trimEnd().split("\n");
       expect(args[0]).toBe("pack");
       expect(args).toContain("--ignore-scripts");
+      expect(args).toContain("--no-color");
       expect(args.slice(-2)).toEqual(["--", `${name}@${version}`]);
     }
   });
@@ -496,6 +498,55 @@ describe("downloadPackage (npm)", () => {
         'Failed to download "@scope/pkg-name": Package "@scope/pkg-name" not found on npm. Verify the package name and try again.',
       );
     }
+    expect(readdirSync(scanTmp)).toEqual([]);
+  });
+
+  it("reads npm's E404 lines when npm is set to colour its output, by running npm pack with --no-color", async () => {
+    // With `color=always` in the npm config, or `npm_config_color=always` in
+    // the environment, npm 10 and 11 wrap the `npm`, `error` and `code` words
+    // of each error line in colour escape sequences, also when stderr is a
+    // pipe, so no line begins `npm error`. This npm does the same unless
+    // --no-color is among its arguments.
+    const log = "A complete log of this run can be found in: /home/user/.npm/_logs/2026-10-20T06_16_11_629Z-debug-0.log";
+    const plain = [
+      "npm error code E404",
+      "npm error 404 Not Found - GET http://127.0.0.1:4873/@scope%2fpkg-name - Not found",
+      `npm error ${log}`,
+    ];
+    const prefix = "\x1b[1mnpm\x1b[22m \x1b[31merror\x1b[39m";
+    const coloured = [
+      `${prefix} \x1b[94mcode\x1b[39m E404`,
+      `${prefix} \x1b[94m404\x1b[39m Not Found - GET http://127.0.0.1:4873/@scope%2fpkg-name - Not found`,
+      `${prefix} ${log}`,
+    ];
+    writeFileSync(
+      join(root, "bin", "npm"),
+      [
+        "#!/bin/sh",
+        `for a in "$@"; do printf '%s\\n' "$a"; done > "${npmArgs}"`,
+        "plain=no",
+        'for a in "$@"; do case "$a" in --no-color) plain=yes;; esac; done',
+        'if [ "$plain" = yes ]; then',
+        "cat >&2 <<'NPM_STDERR'",
+        ...plain,
+        "NPM_STDERR",
+        "else",
+        "cat >&2 <<'NPM_STDERR'",
+        ...coloured,
+        "NPM_STDERR",
+        "fi",
+        "exit 1",
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+
+    await expect(downloadPackage("@scope/pkg-name", "npm")).rejects.toThrow(
+      'Failed to download "@scope/pkg-name": Package "@scope/pkg-name" not found on npm. Verify the package name and try again.',
+    );
+    const args = readFileSync(npmArgs, "utf8").trimEnd().split("\n");
+    expect(args).toContain("--no-color");
+    expect(args.slice(-2)).toEqual(["--", "@scope/pkg-name"]);
     expect(readdirSync(scanTmp)).toEqual([]);
   });
 });
