@@ -90,6 +90,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   process.env.PATH = saved.PATH;
   if (saved.TMPDIR === undefined) delete process.env.TMPDIR;
   else process.env.TMPDIR = saved.TMPDIR;
@@ -547,6 +548,60 @@ describe("downloadPackage (npm)", () => {
     const args = readFileSync(npmArgs, "utf8").trimEnd().split("\n");
     expect(args).toContain("--no-color");
     expect(args.slice(-2)).toEqual(["--", "@scope/pkg-name"]);
+    expect(readdirSync(scanTmp)).toEqual([]);
+  });
+
+  it("reads npm's E404 and ETARGET lines when npm's loglevel is silent, by running npm pack with --loglevel=error (#250)", async () => {
+    // With `loglevel=silent` in the npm config, or `npm_config_loglevel=silent`
+    // in the environment, npm prints no error lines when `npm pack` does not
+    // find the package or the version, and a `--loglevel` on the command line
+    // takes precedence over both. This npm does the same.
+    vi.stubEnv("npm_config_loglevel", "silent");
+    function npmSilentUnlessLoglevelGiven(stderrLines: string[]): void {
+      writeFileSync(
+        join(root, "bin", "npm"),
+        [
+          "#!/bin/sh",
+          `for a in "$@"; do printf '%s\\n' "$a"; done > "${npmArgs}"`,
+          'level="${npm_config_loglevel:-notice}"',
+          'for a in "$@"; do case "$a" in --loglevel=*) level="${a#--loglevel=}";; esac; done',
+          '[ "$level" = silent ] && exit 1',
+          "cat >&2 <<'NPM_STDERR'",
+          ...stderrLines,
+          "NPM_STDERR",
+          "exit 1",
+          "",
+        ].join("\n"),
+        { mode: 0o755 },
+      );
+    }
+    const log = "A complete log of this run can be found in: /home/user/.npm/_logs/2026-10-20T08_58_05_285Z-debug-0.log";
+
+    npmSilentUnlessLoglevelGiven([
+      "npm error code E404",
+      "npm error 404 Not Found - GET http://127.0.0.1:4873/@scope%2fpkg-name - Not found",
+      "npm error 404",
+      "npm error 404  The requested resource '@scope/pkg-name@*' could not be found or you do not have permission to access it.",
+      "npm error 404",
+      `npm error ${log}`,
+    ]);
+    await expect(downloadPackage("@scope/pkg-name", "npm")).rejects.toThrow(
+      'Failed to download "@scope/pkg-name": Package "@scope/pkg-name" not found on npm. Verify the package name and try again.',
+    );
+    const args = readFileSync(npmArgs, "utf8").trimEnd().split("\n");
+    expect(args).toContain("--loglevel=error");
+    expect(args.slice(-2)).toEqual(["--", "@scope/pkg-name"]);
+
+    npmSilentUnlessLoglevelGiven([
+      "npm error code ETARGET",
+      "npm error notarget No matching version found for pkg-name@9.9.9.",
+      "npm error notarget In most cases you or one of your dependencies are requesting a package version that doesn't exist.",
+      `npm error ${log}`,
+    ]);
+    await expect(downloadPackage("pkg-name", "npm", "9.9.9")).rejects.toThrow(
+      'Failed to download "pkg-name@9.9.9": Version "9.9.9" of "pkg-name" not found on npm. Verify the version and try again.',
+    );
+    expect(readFileSync(npmArgs, "utf8").trimEnd().split("\n").slice(-2)).toEqual(["--", "pkg-name@9.9.9"]);
     expect(readdirSync(scanTmp)).toEqual([]);
   });
 });

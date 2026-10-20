@@ -117,10 +117,22 @@ async function downloadNpmPackage(name: string, version?: string): Promise<Downl
     // keeps npm's error lines plain: with `color=always` in the user's npm
     // config or environment npm wraps the `npm`, `error` and `code` words of
     // each line in colour escape sequences, also when stderr is a pipe, and
-    // extractNpmError would not recognise them.
+    // extractNpmError would not recognise them. `--loglevel=error` keeps
+    // them printed: with `loglevel=silent` in the user's npm config or
+    // environment, npm pack prints no error lines for a package or version
+    // it does not find, and extractNpmError would have nothing to read.
     const { stdout } = await execFileAsync(
       "npm",
-      ["pack", "--ignore-scripts", "--no-color", "--pack-destination", tempDir, "--", spec],
+      [
+        "pack",
+        "--ignore-scripts",
+        "--no-color",
+        "--loglevel=error",
+        "--pack-destination",
+        tempDir,
+        "--",
+        spec,
+      ],
       { timeout: 60_000 }
     );
 
@@ -355,7 +367,9 @@ async function fetchPypiArchive(file: PypiReleaseFile, dest: string): Promise<vo
  * in the home path is not a missing package. The lines are plain because
  * npm pack runs with `--no-color`: under `color=always` npm would wrap the
  * `npm`, `error` and `code` words in colour escape sequences, which neither
- * match nor the `npm error` fallback below would recognise.
+ * match nor the `npm error` fallback below would recognise. They are there
+ * because npm pack runs with `--loglevel=error`: under `loglevel=silent` npm
+ * would print none of them.
  */
 function extractNpmError(name: string, version: string | undefined, err: unknown): string {
   if (
