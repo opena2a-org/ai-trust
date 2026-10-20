@@ -74,7 +74,6 @@
 - `audit` reports a file name longer than the file system allows in one short line with a next step ([#189](https://github.com/opena2a-org/ai-trust/issues/189)), decides whether a file name is a requirements file in time linear in its length ([#187](https://github.com/opena2a-org/ai-trust/issues/187)), and ends a shortened file name in a whole character, not half of an emoji ([#195](https://github.com/opena2a-org/ai-trust/issues/195)).
 - `check` suggests `ai-trust audit <file>` only where that file exists, and `audit` says what to do when its file is missing.
 - An unreachable telemetry endpoint no longer holds a command open for about 10 s: the exit is capped 2 seconds after the command finishes, and still waits for a scan ping in flight ([#129](https://github.com/opena2a-org/ai-trust/issues/129)).
-- A long `Version` header in a PyPI package no longer stalls the scan.
 - `config contribute status` reports `not set` after a scan in a home where no choice was made ([#127](https://github.com/opena2a-org/ai-trust/issues/127)), and reports a no saved by ai-trust 0.7.6 as `disabled` when fewer than three scans are counted, and otherwise says how to record it ([#133](https://github.com/opena2a-org/ai-trust/issues/133)).
 - The missing-scanner message gives a reinstall command for the way ai-trust was installed.
 - `ai-trust config` with no subcommand prints its help to stdout and exits 0 ([#177](https://github.com/opena2a-org/ai-trust/issues/177)).
