@@ -5,12 +5,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { randomUUID } from "node:crypto";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
+  truncateSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -795,7 +798,8 @@ ${JSON.stringify({
               stderr: "",
             }),
           ),
-        "HMA scan failed: stdout maxBuffer length exceeded",
+        // /tmp/test-pkg does not exist, so the message names no size.
+        "HMA scan failed: the scanner's report is larger than 128 MiB, the most ai-trust reads.",
       ],
       [
         "the scanner exits 1 without a report",
@@ -866,6 +870,119 @@ ${JSON.stringify({
 
       await expect(runHmaScan("/tmp/test-pkg", { deep: false })).rejects.toBeInstanceOf(HmaScanError);
     });
+  });
+});
+
+// A report larger than ai-trust reads failed the scan with Node's
+// "stdout maxBuffer length exceeded" alone, which named neither the size of
+// what was scanned nor a way to scan it (#247).
+describe("runHmaScan on a report larger than ai-trust reads", () => {
+  let root: string;
+  let dir: string;
+
+  /** What Node's execFile rejects with when the scanner writes more than maxBuffer to `stream`. */
+  function overLimit(stream: "stdout" | "stderr"): RangeError {
+    return Object.assign(new RangeError(`${stream} maxBuffer length exceeded`), {
+      code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER",
+      stdout: stream === "stdout" ? '{"score": 85, "maxScore": 100, "findings": [' : "",
+      stderr: stream === "stderr" ? "e".repeat(64) : "",
+    });
+  }
+
+  async function failure(...args: Parameters<typeof runHmaScan>): Promise<Error> {
+    const err = await runHmaScan(...args).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(HmaScanError);
+    return err as Error;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    root = mkdtempSync(join(tmpdir(), "hma-report-limit-"));
+    dir = join(root, "package");
+    // Three files of 100, 2,000 and 50 bytes: 2,150 bytes, 2.1 KiB.
+    mkdirSync(join(dir, "lib", "deep"), { recursive: true });
+    writeFileSync(join(dir, "index.js"), "a".repeat(100));
+    writeFileSync(join(dir, "lib", "a.js"), "b".repeat(2000));
+    writeFileSync(join(dir, "lib", "deep", "b.json"), "c".repeat(50));
+    // A link to a file outside the directory is neither followed nor counted.
+    writeFileSync(join(root, "outside.bin"), "d".repeat(4096));
+    symlinkSync(join(root, "outside.bin"), join(dir, "link.bin"));
+  });
+
+  afterEach(() => {
+    chmodSync(join(dir, "lib"), 0o755);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("names the limit and the files and bytes of the scanned directory", async () => {
+    vi.mocked(execFile as any).mockRejectedValue(overLimit("stdout"));
+
+    const err = await failure(dir, { deep: false });
+
+    expect(err.message).toBe(
+      "HMA scan failed: the scanner's report is larger than 128 MiB, the most ai-trust reads. " +
+        "The scanned directory holds 3 files, 2.1 KiB.",
+    );
+  });
+
+  it.each([
+    [
+      "an npm package",
+      { name: "big-pkg", ecosystem: "npm" as const },
+      "Run the scanner on it directly: npx hackmyagent check big-pkg",
+    ],
+    [
+      "a scoped npm package at a version",
+      { name: "@scope/big-pkg", ecosystem: "npm" as const, version: "1.2.3" },
+      "Run the scanner on it directly (by name; its check takes no version): npx hackmyagent check @scope/big-pkg",
+    ],
+    [
+      "a PyPI package",
+      { name: "big_pkg", ecosystem: "pypi" as const },
+      "Run the scanner on it directly: npx hackmyagent check pip:big_pkg",
+    ],
+  ])("names the size of %s and the command that scans it directly", async (_label, downloadedPackage, command) => {
+    vi.mocked(execFile as any).mockRejectedValue(overLimit("stdout"));
+
+    const err = await failure(dir, { downloadedPackage });
+
+    expect(err.message).toBe(
+      "HMA scan failed: the scanner's report is larger than 128 MiB, the most ai-trust reads. " +
+        `The package unpacks to 3 files, 2.1 KiB. ${command}`,
+    );
+  });
+
+  it("gives a large directory's size with thousands separators and the unit that fits", async () => {
+    for (let i = 0; i < 1000; i++) writeFileSync(join(dir, `empty-${i}.js`), "");
+    // Sparse: 1.5 GiB long without 1.5 GiB on disk.
+    writeFileSync(join(dir, "large.bin"), "");
+    truncateSync(join(dir, "large.bin"), 1.5 * 1024 * 1024 * 1024);
+    vi.mocked(execFile as any).mockRejectedValue(overLimit("stdout"));
+
+    const err = await failure(dir);
+
+    expect(err.message).toContain("The scanned directory holds 1,004 files, 1.5 GiB.");
+  });
+
+  // Windows keeps a directory readable after chmod, and root reads any.
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)("says at least when a subdirectory cannot be read", async () => {
+    chmodSync(join(dir, "lib"), 0o000);
+    vi.mocked(execFile as any).mockRejectedValue(overLimit("stdout"));
+
+    const err = await failure(dir);
+
+    expect(err.message).toContain("The scanned directory holds at least 1 file, 100 bytes.");
+  });
+
+  it("keeps Node's error when the scanner writes more than the limit to stderr", async () => {
+    vi.mocked(execFile as any).mockRejectedValue(overLimit("stderr"));
+
+    const err = await failure(dir, { downloadedPackage: { name: "big-pkg", ecosystem: "npm" } });
+
+    expect(err.message).toBe("HMA scan failed: stderr maxBuffer length exceeded");
   });
 });
 

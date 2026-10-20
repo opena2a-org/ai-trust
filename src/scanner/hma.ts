@@ -6,12 +6,15 @@
 import { execFile } from "node:child_process";
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
   symlinkSync,
+  type Dirent,
 } from "node:fs";
 import Module, { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
@@ -512,6 +515,21 @@ export interface HmaScanOptions {
   deep?: boolean;
   /** Enable AnaLM analysis via HMA --analm flag. Defaults to false. */
   analm?: boolean;
+  /**
+   * The registry package the scanned directory was unpacked from. When the
+   * scanner's report is larger than ai-trust reads, the error names the
+   * directory as that package and gives the command that scans it with the
+   * scanner directly.
+   */
+  downloadedPackage?: DownloadedPackage;
+}
+
+/** A registry package ai-trust downloaded and unpacked to scan. */
+export interface DownloadedPackage {
+  name: string;
+  ecosystem: "npm" | "pypi";
+  /** The version or tag downloaded instead of the latest, when one was given. */
+  version?: string;
 }
 
 export async function runHmaScan(
@@ -559,6 +577,9 @@ export async function runHmaScan(
           (flag) => attemptArgs.includes(flag) && isUnknownOptionError(err, flag)
         );
         if (!rejected) {
+          if (isReportTooLarge(err)) {
+            throw new HmaScanError(reportTooLargeMessage(targetDir, options.downloadedPackage));
+          }
           const message = err instanceof Error ? err.message : String(err);
           throw new HmaScanError(message);
         }
@@ -604,6 +625,103 @@ function isUnknownOptionError(err: unknown, flag: string): boolean {
  * exceeded".
  */
 const HMA_MAX_REPORT_BYTES = 128 * 1024 * 1024;
+
+/**
+ * Whether a run failed because the scanner wrote more than
+ * HMA_MAX_REPORT_BYTES to stdout, where its report goes: `execFile` then
+ * rejects with ERR_CHILD_PROCESS_STDIO_MAXBUFFER and the message "stdout
+ * maxBuffer length exceeded". The same code with "stderr" is not the report,
+ * and keeps Node's message.
+ */
+function isReportTooLarge(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    (err as NodeJS.ErrnoException).code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" &&
+    err.message.startsWith("stdout")
+  );
+}
+
+/**
+ * The error for a report larger than HMA_MAX_REPORT_BYTES: the limit, the
+ * files and bytes of the scanned directory, and for a downloaded package the
+ * command that scans it with the scanner directly. That command takes the
+ * package name alone: `hackmyagent check` 0.33.2 reads an npm
+ * `<name>@<version>` as a skill identifier and a PyPI one as the name of a
+ * package it does not find, and does not apply `--at` to an npm or PyPI
+ * package.
+ */
+function reportTooLargeMessage(dir: string, pkg: DownloadedPackage | undefined): string {
+  const parts = [
+    `the scanner's report is larger than ${HMA_MAX_REPORT_BYTES / (1024 * 1024)} MiB, the most ai-trust reads.`,
+  ];
+  const size = directorySize(dir);
+  if (size) {
+    const files = `${size.files.toLocaleString("en-US")} ${size.files === 1 ? "file" : "files"}`;
+    parts.push(
+      `${pkg ? "The package unpacks to" : "The scanned directory holds"} ${size.partial ? "at least " : ""}${files}, ${formatBytes(size.bytes)}.`,
+    );
+  }
+  if (pkg) {
+    const target = shellPath(pkg.ecosystem === "pypi" ? `pip:${pkg.name}` : pkg.name);
+    const byName = pkg.version === undefined ? "" : " (by name; its check takes no version)";
+    parts.push(`Run the scanner on it directly${byName}: npx hackmyagent check ${target}`);
+  }
+  return parts.join(" ");
+}
+
+/** The regular files under a directory and their total size in bytes. */
+interface DirectorySize {
+  files: number;
+  bytes: number;
+  /** A subdirectory or a file could not be read, so the counts are a lower bound. */
+  partial: boolean;
+}
+
+/**
+ * Count the regular files under `dir` and add up their sizes. A symlink is
+ * neither followed nor counted. Undefined when `dir` itself cannot be read.
+ */
+function directorySize(dir: string): DirectorySize | undefined {
+  const size: DirectorySize = { files: 0, bytes: 0, partial: false };
+  const pending = [dir];
+  for (let current = pending.pop(); current !== undefined; current = pending.pop()) {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(current, { withFileTypes: true });
+    } catch {
+      if (current === dir) return undefined;
+      size.partial = true;
+      continue;
+    }
+    for (const entry of entries) {
+      const path = join(current, entry.name);
+      if (entry.isDirectory()) {
+        pending.push(path);
+      } else if (entry.isFile()) {
+        try {
+          size.bytes += lstatSync(path).size;
+          size.files += 1;
+        } catch {
+          size.partial = true;
+        }
+      }
+    }
+  }
+  return size;
+}
+
+/** A byte count in bytes, or in KiB, MiB or GiB to one decimal place. */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} ${bytes === 1 ? "byte" : "bytes"}`;
+  const units = ["KiB", "MiB", "GiB"];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (Number(value.toFixed(1)) >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(1)} ${units[unit]}`;
+}
 
 async function runHmaWithArgs(
   cmd: string,

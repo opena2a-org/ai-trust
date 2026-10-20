@@ -136,6 +136,32 @@ describe("scanPackage", () => {
     expect(latest).not.toHaveProperty("requestedVersion");
   });
 
+  // The error for a report larger than ai-trust reads names the package's
+  // size and the command that scans it with the scanner directly (#247).
+  it.each([
+    ["an npm package", "test-pkg", {}, { name: "test-pkg", ecosystem: "npm" }],
+    [
+      "a version of an npm package",
+      "test-pkg",
+      { version: "1.0.0" },
+      { name: "test-pkg", ecosystem: "npm", version: "1.0.0" },
+    ],
+    ["a PyPI package", "test_pkg", { ecosystem: "pypi" as const }, { name: "test_pkg", ecosystem: "pypi" }],
+  ])("tells the scanner run which package it scans: %s", async (_label, name, options, downloadedPackage) => {
+    const dir = setupDownload(name);
+    vi.mocked(runHmaScan).mockResolvedValue({
+      score: 95,
+      maxScore: 100,
+      findings: [],
+      projectType: "mcp",
+      timestamp: "2026-03-14T00:00:00Z",
+    });
+
+    await scanPackage(name, options);
+
+    expect(runHmaScan).toHaveBeenCalledWith(dir, expect.objectContaining({ downloadedPackage }));
+  });
+
   it("derives warning verdict for high-severity findings", async () => {
     setupDownload("risky-pkg");
     vi.mocked(runHmaScan).mockResolvedValue({

@@ -19,6 +19,7 @@ export type {
   SemanticFinding,
   AnalystFinding,
   AnalystLayerStatus,
+  DownloadedPackage,
   HmaScanOptions,
 } from "./hma.js";
 
@@ -127,7 +128,10 @@ export async function scanPackage(
       await assertPackageMatchesName(download.dir, name);
     }
     const packageVersion = await readPackageVersion(download.dir, ecosystem);
-    const scan = await runHmaScan(download.dir, options);
+    const scan = await runHmaScan(download.dir, {
+      ...options,
+      downloadedPackage: { name, ecosystem, version },
+    });
 
     // Filter out local-dev-only findings that are meaningless for downloaded packages.
     // This matches HMA's filterLocalOnlyFindings() so scores are consistent.
