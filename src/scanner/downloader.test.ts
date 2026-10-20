@@ -404,4 +404,98 @@ describe("downloadPackage (npm)", () => {
     );
     expect(readdirSync(scanTmp)).toEqual([]);
   });
+
+  /** An npm stand-in that prints `stderrLines` and exits 1. */
+  function npmFailsWith(stderrLines: string[]): void {
+    writeFileSync(
+      join(root, "bin", "npm"),
+      [
+        "#!/bin/sh",
+        `for a in "$@"; do printf '%s\\n' "$a"; done > "${npmArgs}"`,
+        "cat >&2 <<'NPM_STDERR'",
+        ...stderrLines,
+        "NPM_STDERR",
+        "exit 1",
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+  }
+
+  // The last line of every npm error names its debug log, whose name is a
+  // timestamp with milliseconds, under the user's home directory. The lines
+  // below are npm 10's for a refused connection, with 404 in that timestamp
+  // and in the home path.
+  const REFUSED = [
+    "npm error code ECONNREFUSED",
+    "npm error syscall connect",
+    "npm error errno ECONNREFUSED",
+    "npm error FetchError: request to http://127.0.0.1:1/@scope%2fpkg-name failed, reason: connect ECONNREFUSED 127.0.0.1:1",
+    "npm error     at ClientRequest.<anonymous> (/home/user404/lib/node_modules/npm/node_modules/minipass-fetch/lib/index.js:130:14)",
+    "npm error     at ClientRequest.emit (node:events:524:28)",
+    "npm error  {",
+    "npm error   code: 'ECONNREFUSED',",
+    "npm error   errno: 'ECONNREFUSED',",
+    "npm error   syscall: 'connect',",
+    "npm error   address: '127.0.0.1',",
+    "npm error   port: 1,",
+    "npm error   type: 'system'",
+    "npm error }",
+    "npm error",
+    "npm error If you are behind a proxy, please make sure that the",
+    "npm error 'proxy' config is set properly.  See: 'npm help config'",
+    "npm error A complete log of this run can be found in: /home/user404/.npm/_logs/2026-10-20T05_16_44_404Z-debug-0.log",
+  ];
+
+  it("reports a refused connection as that failure, not as a missing package, when 404 is in the debug log's name or the home path", async () => {
+    npmFailsWith(REFUSED);
+
+    const failure = await downloadPackage("@scope/pkg-name", "npm").then(
+      () => undefined,
+      (e: unknown) => e as Error,
+    );
+    expect(failure?.message).toBe('Failed to download "@scope/pkg-name": code ECONNREFUSED');
+    expect(readFileSync(npmArgs, "utf8").trimEnd().split("\n").slice(-2)).toEqual(["--", "@scope/pkg-name"]);
+    expect(readdirSync(scanTmp)).toEqual([]);
+  });
+
+  it("reports a package the registry does not have as not found on npm, from npm's E404 lines", async () => {
+    const log = "A complete log of this run can be found in: /home/user/.npm/_logs/2026-10-20T05_37_28_512Z-debug-0.log";
+    for (const lines of [
+      // npm 10
+      [
+        "npm error code E404",
+        "npm error 404 Not Found - GET http://127.0.0.1:4873/@scope%2fpkg-name - Not found",
+        "npm error 404",
+        "npm error 404  '@scope/pkg-name@*' is not in this registry.",
+        "npm error 404",
+        "npm error 404 Note that you can also install from a",
+        "npm error 404 tarball, folder, http url, or git url.",
+        `npm error ${log}`,
+      ],
+      // npm 11
+      [
+        "npm error code E404",
+        "npm error 404 Not Found - GET http://127.0.0.1:4873/@scope%2fpkg-name - Not found",
+        "npm error 404",
+        "npm error 404  The requested resource '@scope/pkg-name@*' could not be found or you do not have permission to access it.",
+        "npm error 404",
+        `npm error ${log}`,
+      ],
+      // older npm releases
+      [
+        "npm ERR! code E404",
+        "npm ERR! 404 Not Found - GET http://127.0.0.1:4873/@scope%2fpkg-name - Not found",
+        "npm ERR! 404",
+        "npm ERR! 404  '@scope/pkg-name@*' is not in this registry.",
+        `npm ERR! ${log}`,
+      ],
+    ]) {
+      npmFailsWith(lines);
+      await expect(downloadPackage("@scope/pkg-name", "npm")).rejects.toThrow(
+        'Failed to download "@scope/pkg-name": Package "@scope/pkg-name" not found on npm. Verify the package name and try again.',
+      );
+    }
+    expect(readdirSync(scanTmp)).toEqual([]);
+  });
 });
