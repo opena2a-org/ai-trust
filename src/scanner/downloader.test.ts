@@ -665,4 +665,54 @@ describe("downloadPackage (npm)", () => {
     expect(args.slice(-2)).toEqual(["--", "@scope/many-files"]);
     expect(readdirSync(scanTmp)).toEqual([]);
   });
+
+  it("downloads a package when npm's dry-run setting is on, by running npm pack with --dry-run=false (#255)", async () => {
+    // With `dry-run=true` in the npm config, or `npm_config_dry_run=true` in
+    // the environment, npm pack exits 0 and prints the tarball's file name
+    // but writes no tarball, and `--dry-run=false` on the command line takes
+    // precedence over both. This npm does the same: it copies the tarball
+    // into the --pack-destination directory only when its dry-run setting,
+    // from npm_config_dry_run or a `--dry-run` argument, is not `true`.
+    vi.stubEnv("npm_config_dry_run", "true");
+
+    const pkg = join(root, "pkg", "package");
+    mkdirSync(pkg, { recursive: true });
+    writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "@scope/pkg-name", version: "1.0.0" }));
+    const tarball = join(root, "scope-pkg-name-1.0.0.tgz");
+    execFileSync("tar", ["czf", tarball, "-C", join(root, "pkg"), "package"]);
+
+    writeFileSync(
+      join(root, "bin", "npm"),
+      [
+        "#!/bin/sh",
+        `for a in "$@"; do printf '%s\\n' "$a"; done > "${npmArgs}"`,
+        'dry="${npm_config_dry_run:-false}"',
+        "dest=",
+        "prev=",
+        'for a in "$@"; do',
+        '  case "$a" in --dry-run=*) dry="${a#--dry-run=}";; --dry-run) dry=true;; --no-dry-run) dry=false;; esac',
+        '  [ "$prev" = --pack-destination ] && dest="$a"',
+        '  prev="$a"',
+        "done",
+        `[ "$dry" = true ] || cp "${tarball}" "$dest/" || exit 1`,
+        "echo scope-pkg-name-1.0.0.tgz",
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+
+    const result = await downloadPackage("@scope/pkg-name", "npm");
+    try {
+      expect(JSON.parse(readFileSync(join(result.dir, "package.json"), "utf8"))).toEqual({
+        name: "@scope/pkg-name",
+        version: "1.0.0",
+      });
+    } finally {
+      await result.cleanup();
+    }
+    const args = readFileSync(npmArgs, "utf8").trimEnd().split("\n");
+    expect(args).toContain("--dry-run=false");
+    expect(args.slice(-2)).toEqual(["--", "@scope/pkg-name"]);
+    expect(readdirSync(scanTmp)).toEqual([]);
+  });
 });
