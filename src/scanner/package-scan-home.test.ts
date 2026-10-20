@@ -143,7 +143,7 @@ function shellQuote(value: string): string {
 }
 
 /**
- * An `npm` that answers `npm pack --ignore-scripts --no-color --loglevel=error --pack-destination <dir> -- <name>`,
+ * An `npm` that answers `npm pack --ignore-scripts --no-color --loglevel=error --pack-destination <dir> --dry-run=false -- <name>`,
  * the call the downloader makes, by copying the fixture tarball into <dir>
  * and printing its file name, as npm does.
  */

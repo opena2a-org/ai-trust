@@ -124,7 +124,11 @@ async function downloadNpmPackage(name: string, version?: string): Promise<Downl
     // also keeps npm's `npm notice` listing of every file in the package
     // off stderr: for a package with many files that listing is larger than
     // the 1 MiB execFile reads, and execFile would stop npm and fail the
-    // download with `stderr maxBuffer length exceeded`.
+    // download with `stderr maxBuffer length exceeded`. `--dry-run=false`
+    // makes npm pack write the tarball: with `dry-run=true` in the user's
+    // npm config or environment, npm pack exits 0 and prints the tarball's
+    // file name but writes no file, and tar would fail on a file that does
+    // not exist.
     const { stdout } = await execFileAsync(
       "npm",
       [
@@ -134,6 +138,7 @@ async function downloadNpmPackage(name: string, version?: string): Promise<Downl
         "--loglevel=error",
         "--pack-destination",
         tempDir,
+        "--dry-run=false",
         "--",
         spec,
       ],
