@@ -39,17 +39,28 @@ function section(markdown: string, heading: string): string {
   return lines.slice(start, end === -1 ? undefined : end).join("\n");
 }
 
-const classifier = readFileSync(
-  join(scannerRoot(), "dist", "nanomind-core", "inference", "tme-classifier.js"),
-  "utf8",
+/**
+ * The files a classifier downloads, the host it downloads them from and the
+ * directory it stores them in, read from the text of the compiled classifier.
+ * A value the text does not give is an empty list or an empty string.
+ */
+function modelDownload(classifier: string): { files: string[]; host: string; downloadDir: string } {
+  // MODEL_FILES: an entry for each file the classifier downloads, its name
+  // under `name` beside other fields such as its sha256.
+  const entries = classifier.match(/const MODEL_FILES = \[([\s\S]*?)\];/)?.[1] ?? "";
+  const files = [...entries.matchAll(/\bname: ['"`]([^'"`]+)['"`]/g)].map((m) => m[1]);
+  // HF_BASE: the URL each file name is appended to, a quoted string or a
+  // template literal whose host is written out.
+  const host = classifier.match(/const HF_BASE = ['"`]https:\/\/([^/'"`$]+)\//)?.[1] ?? "";
+  // DOWNLOAD_DIR: the home directory joined with these names.
+  const dirNames = classifier.match(/const DOWNLOAD_DIR = .*homedir\)\(\), ((?:'[^']+'(?:, )?)+)\);/)?.[1] ?? "";
+  const downloadDir = dirNames && `~/${[...dirNames.matchAll(/'([^']+)'/g)].map((m) => m[1]).join("/")}`;
+  return { files, host, downloadDir };
+}
+
+const { files, host, downloadDir } = modelDownload(
+  readFileSync(join(scannerRoot(), "dist", "nanomind-core", "inference", "tme-classifier.js"), "utf8"),
 );
-// MODEL_FILES: one { name, sha256 } entry for each file the classifier downloads.
-const files = [...classifier.matchAll(/\{ name: '([^']+)', sha256: '[0-9a-f]{64}' \}/g)].map((m) => m[1]);
-// HF_BASE: the URL each file name is appended to.
-const host = classifier.match(/const HF_BASE = 'https:\/\/([^/']+)\//)?.[1] ?? "";
-// DOWNLOAD_DIR: the home directory joined with these names.
-const dirNames = classifier.match(/const DOWNLOAD_DIR = .*homedir\)\(\), ((?:'[^']+'(?:, )?)+)\);/)?.[1] ?? "";
-const downloadDir = `~/${[...dirNames.matchAll(/'([^']+)'/g)].map((m) => m[1]).join("/")}`;
 
 describe("docs: the model a deep scan downloads (#123)", () => {
   const localScan = section(read("docs/commands.md"), LOCAL_SCAN_HEADING);
@@ -57,7 +68,32 @@ describe("docs: the model a deep scan downloads (#123)", () => {
   it("reads the files, the host and the directory from the pinned scanner", () => {
     expect(files.length).toBeGreaterThan(0);
     expect(host).not.toBe("");
-    expect(dirNames).not.toBe("");
+    expect(downloadDir).not.toBe("");
+  });
+
+  it("reads the files, the host and the directory from a classifier whose file entries carry another field and whose HF_BASE is a template literal (#269)", () => {
+    // TypeScript's CommonJS output, target ES2020, for a classifier whose file
+    // entries also carry a byte count, one entry written over several lines,
+    // and whose HF_BASE is a template literal.
+    const classifier = [
+      "const HF_REPO = 'opena2a/nanomind-security-classifier';",
+      "const HF_BASE = `https://huggingface.co/${HF_REPO}/resolve/main`;",
+      "const MODEL_FILES = [",
+      "    { name: 'tokenizer.json', sha256: 'FAKE-DIGEST-1', bytes: 1000 },",
+      "    { name: 'nanomind-tme.onnx', sha256: 'FAKE-DIGEST-2', bytes: 2000 },",
+      "    {",
+      "        name: 'nanomind-tme.onnx.data',",
+      "        sha256: 'FAKE-DIGEST-3',",
+      "        bytes: 3000,",
+      "    },",
+      "];",
+      "const DOWNLOAD_DIR = (0, node_path_1.join)((0, node_os_1.homedir)(), '.nanomind', 'models');",
+    ].join("\n");
+    expect(modelDownload(classifier)).toEqual({
+      files: ["tokenizer.json", "nanomind-tme.onnx", "nanomind-tme.onnx.data"],
+      host: "huggingface.co",
+      downloadDir: "~/.nanomind/models",
+    });
   });
 
   it("the local scan section of docs/commands.md names the host, the directory and each file", () => {
