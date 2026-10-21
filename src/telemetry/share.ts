@@ -47,6 +47,8 @@ export async function shareScans(
     ecosystem: "npm" | "pypi";
     /** The `--type` the package was checked with. */
     type?: string;
+    /** The dependency file `audit` read, named in the command that shares the scans. */
+    file?: string;
   }
 ): Promise<void> {
   if (scans.length === 0) return;
@@ -57,6 +59,7 @@ export async function shareScans(
     saved: readContributeChoice(),
     interactive: process.stdin.isTTY === true,
     scanned: scans.length,
+    file: opts.file,
   };
   let decision = decideContribution(inputs);
 

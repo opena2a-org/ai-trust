@@ -1526,4 +1526,61 @@ describe("audit command", () => {
     expect(printed).not.toMatch(/Thank you for building trust/i);
     expect(printed).not.toMatch(/Published to registry/i);
   });
+
+  // With stdin not a terminal, audit cannot ask whether to share its scans
+  // and prints the command that shares them.
+  describe("the command that shares the scans when audit cannot ask (#230)", () => {
+    let savedIsTTY: boolean | undefined;
+
+    beforeEach(() => {
+      savedIsTTY = process.stdin.isTTY;
+      Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
+      vi.mocked(readContributeChoice).mockReturnValue(undefined);
+      vi.mocked(parseDependencyFile).mockResolvedValue([{ name: "piped-pkg" }]);
+      vi.mocked(RegistryClient).mockImplementation(
+        function () {
+          return {
+            batchQuery: vi.fn().mockResolvedValue({
+              results: [{ name: "piped-pkg", found: false }],
+              meta: { total: 1, found: 0, notFound: 1 },
+            }),
+          } as any;
+        }
+      );
+      vi.mocked(isHmaAvailable).mockResolvedValueOnce(true);
+      vi.mocked(scanPackage).mockResolvedValueOnce({
+        packageName: "piped-pkg",
+        scan: {
+          score: 90,
+          maxScore: 100,
+          findings: [],
+          projectType: "library",
+          timestamp: "2026-04-12T00:00:00Z",
+        },
+        trustScore: 0.9,
+        trustLevel: 3,
+        verdict: "safe",
+      });
+    });
+
+    afterEach(() => {
+      Object.defineProperty(process.stdin, "isTTY", { value: savedIsTTY, configurable: true });
+    });
+
+    it.each([
+      ["package.json", "package.json"],
+      ["docs/demo/requirements.txt", "docs/demo/requirements.txt"],
+      ["my deps/package.json", "'my deps/package.json'"],
+    ])("names the file it read, %s, as %s", async (file, shown) => {
+      await createProgram().parseAsync(["node", "test", "audit", file, "--scan-missing"]);
+
+      const stderr = consoleErrSpy.mock.calls.map((c) =>
+        String(c[0]).replace(/\x1b\[[0-9;]*m/g, "")
+      );
+      expect(stderr).toContain("  1 package(s) scanned for the first time. Share with the community:");
+      expect(stderr).toContain(`    ai-trust audit ${shown} --scan-missing --contribute`);
+      expect(stderr.join("\n")).not.toContain("<file>");
+      expect(sendScanPing).not.toHaveBeenCalled();
+    });
+  });
 });

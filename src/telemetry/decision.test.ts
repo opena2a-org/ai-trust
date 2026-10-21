@@ -29,6 +29,9 @@ const READING: Record<Saved, boolean | undefined> = {
   invalid: undefined,
 };
 
+/** The dependency file `audit` read in the table's runs; `check` reads none. */
+const FILE = "package.json";
+
 const ASKED = [
   "  You just scanned 1 package(s) with no community trust data.",
   "  Sharing pseudonymous results helps other developers make informed decisions.",
@@ -36,7 +39,7 @@ const ASKED = [
 ];
 const HOW_TO_SHARE = [
   "  1 package(s) scanned for the first time. Share with the community:",
-  "    ai-trust audit <file> --scan-missing --contribute",
+  `    ai-trust audit ${FILE} --scan-missing --contribute`,
 ];
 
 type Row = [ContributionCommand, Flag, Saved, Stdin, boolean, boolean, boolean, boolean | undefined, boolean, string[]];
@@ -124,6 +127,7 @@ describe("decideContribution", () => {
       saved: READING[saved],
       interactive: stdin === "terminal",
       scanned: 1,
+      file: command === "audit" ? FILE : undefined,
     };
     const first = decideContribution(inputs);
     // The answer the table gives a prompt is "y".
@@ -166,6 +170,45 @@ describe("decideContribution", () => {
     expect(decideContribution({ ...base, interactive: false }).lines[1].text).toBe(
       "  3 package(s) scanned for the first time. Share with the community:",
     );
+  });
+
+  describe("the command printed when audit cannot ask (#230)", () => {
+    const shareCommand = (file: string): string =>
+      decideContribution({
+        command: "audit",
+        flag: undefined,
+        saved: undefined,
+        interactive: false,
+        scanned: 1,
+        file,
+      }).lines[2].text;
+
+    it("names the file audit read, as the user gave it", () => {
+      expect(shareCommand("docs/demo/package.json")).toBe(
+        "    ai-trust audit docs/demo/package.json --scan-missing --contribute",
+      );
+      expect(shareCommand("requirements/dev.txt")).toBe(
+        "    ai-trust audit requirements/dev.txt --scan-missing --contribute",
+      );
+    });
+
+    it("single-quotes a file name with shell syntax in it", () => {
+      expect(shareCommand("my deps/package.json")).toBe(
+        "    ai-trust audit 'my deps/package.json' --scan-missing --contribute",
+      );
+      expect(shareCommand("it's/requirements.txt")).toBe(
+        "    ai-trust audit 'it'\\''s/requirements.txt' --scan-missing --contribute",
+      );
+      expect(shareCommand("$(id)/package.json")).toBe(
+        "    ai-trust audit '$(id)/package.json' --scan-missing --contribute",
+      );
+    });
+
+    it("prints a run of tabs and line breaks in a file name as one space and removes its other control characters", () => {
+      expect(shareCommand("dev\u001b[2J\u009b31m\r\n\t/package.json")).toBe(
+        "    ai-trust audit 'dev[2J31m /package.json' --scan-missing --contribute",
+      );
+    });
   });
 
   it("styles the lines as audit printed them", () => {

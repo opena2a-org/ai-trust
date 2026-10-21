@@ -152,6 +152,7 @@ export function registerAuditCommand(program: Command): void {
           deep: opts.deep ?? true,
           ecosystem,
           manifestNames: packages.map((p) => p.name),
+          file,
         };
         // After a scan of the missing packages, the next step for one that
         // is still missing is to check it, not to run the same scan again.
@@ -344,6 +345,8 @@ async function scanMissingPackages(
     deep: boolean;
     ecosystem?: "npm" | "pypi";
     manifestNames: readonly string[];
+    /** The dependency file, as the user gave it. */
+    file: string;
   }
 ): Promise<void> {
   const available = await isHmaAvailable();
@@ -407,5 +410,6 @@ async function scanMissingPackages(
     flag: opts.contribute,
     registryUrl,
     ecosystem: scanOpts.ecosystem ?? "npm",
+    file: scanOpts.file,
   });
 }
