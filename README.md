@@ -41,7 +41,7 @@ It needs Node.js ^20.19 or 22.12+ and no account.
 npx ai-trust check @modelcontextprotocol/server-filesystem
 ```
 
-Without `--no-scan`, `check` downloads the package to a temporary directory and scans it with the bundled HackMyAgent. A general-purpose library gets an out-of-scope notice instead. Deep scans download their model from huggingface.co to `~/.nanomind/models` once; `--no-deep` does not.
+Without `--no-scan`, `check` downloads the package to a temporary directory and scans it with the bundled HackMyAgent. A general-purpose library gets an out-of-scope notice instead. Deep scans download [their model](docs/commands.md#local-scan-and-registry-lookup) from huggingface.co to `~/.nanomind/models` once; `--no-deep` does not.
 
 `check` exits 0 for a safe or out-of-scope package, 1 on an operational error, and 2 for a warning or blocked verdict or a package not found.
 
