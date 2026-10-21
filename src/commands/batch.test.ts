@@ -312,7 +312,7 @@ describe("batch command", () => {
 
       const out = stdoutText();
       expect(out).toContain("1 AI package audited · 1 excluded by --type mcp_server");
-      expect(out).toMatch(/@modelcontextprotocol\/server-fi\S*\s+mcp_server\s+\S/);
+      expect(out).toMatch(/@modelcontextprotocol\/server-fi\S*\s+MCP server\s+\S/);
       expect(out).toContain("This package is registered as a2a_agent, not mcp_server:\n  │ some-agent");
       expect(out).not.toMatch(/some-agent\s+a2a_agent/);
       expect(out).not.toContain("not found in registry");

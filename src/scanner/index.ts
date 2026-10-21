@@ -207,7 +207,9 @@ export async function scanPackage(
 
 /**
  * The refusal of a scanLocalPath target that could not be read or is not a
- * directory. It is thrown before the scanner runs.
+ * directory. It is thrown before the scanner runs. `check --scan-path`
+ * prints its message after "error: ", so the message names the directory
+ * and not this function.
  */
 export class ScanPathError extends Error {
   constructor(message: string) {
@@ -231,12 +233,10 @@ export async function scanLocalPath(
     st = await stat(targetDir);
   } catch (e) {
     const code = (e as NodeJS.ErrnoException).code ?? "unknown";
-    throw new ScanPathError(
-      `scanLocalPath: ${targetDir} could not be read (${code}).`,
-    );
+    throw new ScanPathError(`${targetDir} could not be read (${code}).`);
   }
   if (!st.isDirectory()) {
-    throw new ScanPathError(`scanLocalPath: ${targetDir} is not a directory.`);
+    throw new ScanPathError(`${targetDir} is not a directory.`);
   }
   const scan = await runHmaScan(targetDir, options);
   const trustScore = scan.maxScore > 0 ? scan.score / scan.maxScore : 0;

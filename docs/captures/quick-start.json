@@ -5,19 +5,23 @@
     "package": "ai-trust",
     "version": "0.7.6",
     "build": "dist/index.js as npm run build left it",
-    "commit": "ef9039f1b35e40fa8f724031462ddde65df045d2",
+    "commit": "50e3455a48f5fb2d508d53f2d248d4211937ae93",
     "uncommittedBuildInputs": [
-      "src/commands/check.ts",
-      "src/output/formatter.ts"
+      "src/output/formatter.ts",
+      "src/scanner/downloader.ts",
+      "src/scanner/hma.ts",
+      "src/scanner/index.ts",
+      "src/utils/package-type.ts",
+      "src/scanner/signal-cleanup.ts"
     ],
     "taggedRelease": false,
     "invokedAs": "node dist/index.js check @modelcontextprotocol/server-filesystem --no-scan"
   },
-  "capturedAt": "2026-10-16T10:57:57Z",
+  "capturedAt": "2026-10-21T13:42:48Z",
   "registry": "https://api.oa2a.org",
   "environment": {
     "platform": "darwin arm64",
-    "node": "v26.7.0",
+    "node": "v26.12.0",
     "cwd": "an empty directory",
     "home": "an empty directory",
     "variables": {
@@ -32,7 +36,7 @@
     "capture": "docs/captures/quick-start.txt",
     "stream": "stdout",
     "bytes": 691,
-    "sha256": "965ec9a39f3e012cf557565cbf00bda5a17baffa6d133f5066299b74a7c85e84",
+    "sha256": "400d2992d340a9533eb14276387b9cc94a17d0f1fb50c9f04f8a7afd94a17cd9",
     "stderr": "empty"
   },
   "readmeExcerpt": {

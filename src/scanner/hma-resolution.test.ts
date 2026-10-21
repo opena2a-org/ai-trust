@@ -39,6 +39,7 @@ const SRC_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
 const HMA_SOURCES = [
   "scanner/hma.ts",
   "scanner/mask-secrets.ts",
+  "scanner/signal-cleanup.ts",
   "telemetry/opt-in.ts",
   "utils/cli-prefix.ts",
 ];

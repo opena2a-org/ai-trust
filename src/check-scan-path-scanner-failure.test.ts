@@ -133,7 +133,8 @@ describe.skipIf(process.platform === "win32")("check --scan-path when the scanne
 
     const { stderr, status } = checkScanPath(missing);
 
-    expect(stderr).toContain(`error: scanLocalPath: ${missing} could not be read (ENOENT).\n`);
+    expect(stderr).toContain(`error: ${missing} could not be read (ENOENT).\n`);
+    expect(stderr).not.toContain("scanLocalPath");
     expect(stderr).toContain("Fix: pass --scan-path to a directory that exists and is readable.\n");
     expect(stderr).not.toContain("the scanner produced no readable report");
     expect(status).toBe(2);

@@ -54,7 +54,7 @@ describe("check --scan-path --json with a directory that does not exist", () => 
     expect(JSON.parse(res.stdout)).toEqual({
       name: "fx",
       found: false,
-      error: `scanLocalPath: ${missing} could not be read (ENOENT).`,
+      error: `${missing} could not be read (ENOENT).`,
     });
     expect(res.stderr).toBe("");
     expect(res.status).toBe(2);

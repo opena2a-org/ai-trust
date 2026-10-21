@@ -343,7 +343,7 @@ describe("registry answers through the built CLI", () => {
       expect(stdout).not.toMatch(CONTROL);
       expect(stderr).not.toMatch(CONTROL);
       expect(stdout).toMatch(
-        /^ {2}name\]0;x-ctrl SECOND LINE {2}mcp server\[2J · scan date not recorded$/m,
+        /^ {2}name\]0;x-ctrl SECOND LINE {2}mcp_server\[2J · scan date not recorded$/m,
       );
       expect(stdout).toMatch(/scan status passed$/m);
       expect(stdout).not.toMatch(/^SECOND LINE/m);
@@ -397,7 +397,7 @@ describe("registry answers through the built CLI", () => {
         expect(stderr, args.join(" ")).not.toMatch(CONTROL);
         // Table row, then the below-threshold summary line.
         expect(stdout, args.join(" ")).toMatch(
-          /^ {2}row\]0;x-ctrl SECOND LINE\s+mcp_server\s+WARNING\s.*warnings\[1m\s*$/m,
+          /^ {2}row\]0;x-ctrl SECOND LINE\s+MCP server\s+WARNING\s.*warnings\[1m\s+-\s*$/m,
         );
         expect(stdout, args.join(" ")).toMatch(/^ {2}│ row\]0;x-ctrl SECOND LINE {2}/m);
       }
@@ -564,7 +564,7 @@ describe("registry answers through the built CLI", () => {
 
       expect(status).toBe(2);
       // "--" with no meter, which reads as a full one without color (#230).
-      expect(stdout).toMatch(/^ {2}running-mcp\s+mcp_server\s+LISTED\s+Listed\s+-- +running\s*$/m);
+      expect(stdout).toMatch(/^ {2}running-mcp\s+MCP server\s+LISTED\s+Listed\s+-- +running {2,}\S.*$/m);
       expect(stdout).toMatch(/^ {2}│ running-mcp {2}not scanned {2}Listed \(2\/4\)$/m);
       expect(stdout).not.toContain("0/100");
     });
@@ -573,7 +573,7 @@ describe("registry answers through the built CLI", () => {
       const { stdout, status } = await runCli(["check", "pending-dated", "--no-scan"]);
 
       expect(status).toBe(0);
-      expect(stdout).toMatch(/^ {2}pending-dated {2}mcp server · scanned 231 days ago \(stale\)$/m);
+      expect(stdout).toMatch(/^ {2}pending-dated {2}MCP server · scanned 231 days ago \(stale\)$/m);
       expect(stdout).toMatch(
         /^ {2}Trust {5}score not shown: the registry's scan status is pending · last recorded scan 231 days ago \(stale\)$/m,
       );
@@ -614,7 +614,7 @@ describe("registry answers through the built CLI", () => {
         expect(status, args.join(" ")).toBe(0);
         for (const name of OFF_SCALE) {
           expect(stdout, `${args.join(" ")}: ${name}`).toMatch(
-            new RegExp(`^ {2}${name}\\s+mcp_server\\s+SAFE\\s+Scanned\\s+-- +completed\\s*$`, "m"),
+            new RegExp(`^ {2}${name}\\s+MCP server\\s+PASSED\\s+Scanned\\s+-- +completed {2,}\\S.*$`, "m"),
           );
         }
         expect(stdout, args.join(" ")).not.toMatch(/5500|-50|NaN/);
@@ -712,7 +712,7 @@ describe("registry answers through the built CLI", () => {
         expect(JSON.parse(json.stdout).results[0].trustLevel, args.join(" ")).toBe("\t1");
         // Table row, then the below-threshold summary line.
         expect(stdout, args.join(" ")).toMatch(
-          /^ {2}level-tab\s+mcp_server\s+LISTED\s+- {11}\S.*\swarnings\s*$/m,
+          /^ {2}level-tab\s+MCP server\s+LISTED\s+- {11}\S.*\swarnings {2,}\S.*$/m,
         );
         expect(stdout, args.join(" ")).toMatch(/^ {2}│ level-tab {2}\S.* {2}level unavailable$/m);
         expect(stdout, args.join(" ")).not.toContain("undefined");
@@ -731,11 +731,11 @@ describe("registry answers through the built CLI", () => {
         // 1.5 is below the default minimum trust level 2.
         expect(status, args.join(" ")).toBe(2);
         expect(stdout, args.join(" ")).toMatch(
-          /^ {2}level-fraction\s+mcp_server\s+LISTED\s+- {11}\S.*\swarnings\s*$/m,
+          /^ {2}level-fraction\s+MCP server\s+LISTED\s+- {11}\S.*\swarnings {2,}\S.*$/m,
         );
         // SCORE is "--", after an empty meter or with none.
         expect(stdout, args.join(" ")).toMatch(
-          /^ {2}status-number\s+mcp_server\s+LISTED\s+Listed\s+(?:━{8} )?-- +-\s*$/m,
+          /^ {2}status-number\s+MCP server\s+LISTED\s+Listed\s+(?:━{8} )?-- +- +\S.*$/m,
         );
       }
     });

@@ -623,6 +623,20 @@ describe("scanLocalPath", () => {
     );
   });
 
+  // check --scan-path prints the message after "error: " (#177).
+  it("names the directory, not the function, in the message of each refusal", async () => {
+    const missing = join(tmpRoot, "does-not-exist");
+    const filePath = join(tmpRoot, "file.txt");
+    writeFileSync(filePath, "hello");
+
+    await expect(scanLocalPath(missing)).rejects.toThrow(
+      new ScanPathError(`${missing} could not be read (ENOENT).`),
+    );
+    await expect(scanLocalPath(filePath)).rejects.toThrow(
+      new ScanPathError(`${filePath} is not a directory.`),
+    );
+  });
+
   // check --scan-path prints its directory fix for a ScanPathError only (#226).
   it("refuses a target that does not exist or is a file with a ScanPathError, before the scanner runs", async () => {
     const filePath = join(tmpRoot, "file.txt");

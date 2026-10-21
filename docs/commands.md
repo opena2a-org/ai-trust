@@ -93,13 +93,13 @@ Example output for the sample project in [`docs/demo/package.json`](demo/package
 ```
   5 AI packages audited · 5 libraries out of scope
 
-  PACKAGE                                  TYPE          VERDICT   TRUST       SCORE           SCAN
-  ───────────────────────────────────────────────────────────────────────────────────────────────────────
-  @modelcontextprotocol/sdk                mcp_server    SAFE      Scanned     ━━━━━━━━ 71     warnings
-  @modelcontextprotocol/server-filesystem  mcp_server    SAFE      Scanned     ━━━━━━━━ 79     warnings
-  @modelcontextprotocol/server-memory      mcp_server    SAFE      Scanned     ━━━━━━━━ 79     warnings
-  @modelcontextprotocol/server-github      mcp_server    LISTED    Listed      --              -
-  mcp-server-kubernetes                    mcp_server    LISTED    Listed      --              -
+  PACKAGE                                  TYPE          VERDICT   TRUST       SCORE           SCAN      LAST SCAN
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  @modelcontextprotocol/sdk                MCP server    PASSED    Scanned     ━━━━━━━━ 71     warnings  -
+  @modelcontextprotocol/server-filesystem  MCP server    PASSED    Scanned     ━━━━━━━━ 79     warnings  233 days ago (stale)
+  @modelcontextprotocol/server-memory      MCP server    PASSED    Scanned     ━━━━━━━━ 79     warnings  233 days ago (stale)
+  @modelcontextprotocol/server-github      MCP server    LISTED    Listed      --              -         -
+  mcp-server-kubernetes                    MCP server    LISTED    Listed      --              -         -
 
   All 5 AI packages meet minimum trust level 2.
 
