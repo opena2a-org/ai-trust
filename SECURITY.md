@@ -34,6 +34,24 @@ Reports about a *checked package* (a package this tool reports on) should go to 
 to us. Reports about how this tool **handles** what it downloads, scans or receives from the
 registry, including anything it writes into its own output, are in scope here.
 
+## Scanning this repository
+
+`hackmyagent secure . --ci --no-registry --no-contribute --format json`, run from the repository
+root with the `hackmyagent` 0.33.2 that `package.json` pins, reports one failed check: MEDIUM
+`AIM-001` ("Agent project has no identity declaration file") on `package.json`, with a score of
+95/100. The check fires when no `agent-card.json`, `agent.json` or `aim.json` (at the root or under
+`.well-known/`) exists and a `package.json` keyword contains `agent` or `a2a`.
+
+Trigger keywords: `a2a`, `ai-agent`, `opena2a`
+
+The finding does not apply to this repository. `ai-trust` is a command-line tool that queries the
+registry and runs the scanner locally; it is not an agent. Its source starts no server and
+publishes no agent card, so there is no identity for another agent or a registry to verify, and a
+declaration file would describe an identity that does not exist. The keywords stay because they
+name what the tool checks. No suppression is configured for the finding: it stays in the scanner's
+output, and this section records why it is left open. Revisit it if `ai-trust` starts serving
+requests or taking part in an agent-to-agent exchange.
+
 ## Supported versions
 
 | Version | Supported |

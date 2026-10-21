@@ -11,7 +11,7 @@
  * SECURITY.md states one.
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
 const ROOT = resolve(__dirname, "..");
@@ -59,5 +59,56 @@ describe("security reports: one policy", () => {
 
   it("SECURITY.md states the response window once", () => {
     expect(windowLines("SECURITY.md")).toHaveLength(1);
+  });
+});
+
+/**
+ * The scanner's AIM-001 check fires on this repository's package.json and
+ * SECURITY.md records why it does not apply. These checks keep that record
+ * tied to the tree it describes: it names the scanner version package.json
+ * pins, the keywords it names as the trigger are still in package.json, and
+ * no identity file the check looks for exists, since adding one would make
+ * the record wrong.
+ */
+describe("security reports: AIM-001 exemption record", () => {
+  const pkg = JSON.parse(read("package.json")) as {
+    keywords: string[];
+    dependencies: Record<string, string>;
+  };
+  const section = () => {
+    const doc = read("SECURITY.md");
+    const start = doc.indexOf("## Scanning this repository");
+    expect(start).toBeGreaterThanOrEqual(0);
+    const next = doc.indexOf("\n## ", start + 1);
+    return doc.slice(start, next === -1 ? undefined : next);
+  };
+
+  it("SECURITY.md records the AIM-001 finding against the pinned scanner", () => {
+    const text = section();
+    expect(text).toContain("`AIM-001`");
+    expect(text).toContain(`\`hackmyagent\` ${pkg.dependencies.hackmyagent}`);
+  });
+
+  it("the trigger keywords the record names are the package.json keywords the check matches", () => {
+    const line = section()
+      .split("\n")
+      .find((l) => l.startsWith("Trigger keywords:"));
+    expect(line).toBeDefined();
+    const listed = (line!.match(/`[^`]+`/g) ?? []).map((k) => k.slice(1, -1));
+    const matching = pkg.keywords.filter(
+      (k) => k.includes("agent") || k.includes("a2a"),
+    );
+    expect([...listed].sort()).toEqual([...matching].sort());
+  });
+
+  it.each([
+    "agent-card.json",
+    ".well-known/agent-card.json",
+    "agent.json",
+    ".well-known/agent.json",
+    "aim.json",
+    ".well-known/aim.json",
+  ])("no identity file %s exists at the repository root", (file) => {
+    expect(existsSync(join(ROOT, file))).toBe(false);
   });
 });
