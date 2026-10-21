@@ -6,7 +6,7 @@ Time: 3 min.
 
 ### 1. Enable contribution
 
-`ai-trust check` never asks whether to share: it shares a scan only when contribution is enabled or you pass `--contribute`. `ai-trust audit` on a terminal asks after it scans packages that the registry does not have, unless contribution is already enabled, you answered no to that question or ran `ai-trust config contribute off`, or you pass `--contribute` or `--no-contribute`. It saves your answer in `~/.opena2a/config.json`. The setting is shared across all OpenA2A tools (opena2a-cli, hackmyagent, ai-trust). A no saved by ai-trust 0.7.6, or an off saved by hackmyagent, carries no mark of a choice. ai-trust reads it as a no, and marks it, when it finds it with fewer than three scans counted in that file; from the third counted scan on it looks the same as no choice at all, so `audit` still asks. Answering it or running `ai-trust config contribute off` records the choice.
+`ai-trust check` never asks whether to share: it shares a scan only when contribution is enabled or you pass `--contribute`. `ai-trust audit` on a terminal asks after it scans packages that the registry does not have, unless contribution is already enabled, you answered no to that question or ran `ai-trust config contribute off`, or you pass `--contribute` or `--no-contribute`. It saves your answer in `~/.opena2a/config.json`. The setting is shared across all OpenA2A tools (opena2a-cli, hackmyagent, ai-trust). A no saved by ai-trust 0.7.6, or an off saved by hackmyagent, carries no mark of a choice. ai-trust reads it as a no, and marks it, when it finds it with fewer than three scans counted in that file; from the third counted scan on it looks the same as no choice at all, so `audit` still asks. An off saved by `opena2a config contribute off` carries no mark either. When no choice was saved before it, ai-trust reads it as no choice whatever the scan count, so `audit` still asks; after a choice saved through ai-trust, it reads as off. Answering the question or running `ai-trust config contribute off` records the choice.
 
 To save the preference up front:
 
@@ -84,6 +84,8 @@ Or, with opena2a-cli installed:
 opena2a config contribute off
 ```
 
+When no choice was saved before it, ai-trust reads this off as no choice: `ai-trust config contribute status` reports `not set`, and `audit` on a terminal still asks whether to share. After `ai-trust config contribute off`, it does not ask.
+
 Your local scan results continue to work. Only the telemetry submission stops.
 
 ## Community contribution
@@ -92,7 +94,7 @@ Every scan you run can improve trust data for the entire community. A contribute
 
 The bundled scanner (hackmyagent) sends no telemetry or scan results of its own during an ai-trust scan: ai-trust keeps your saved choice out of its reach, so the choice decides only what ai-trust shares. ai-trust also runs the scanner without `ANTHROPIC_API_KEY`, so the scanner sends no file to any LLM provider. [What data is shared](#4-what-data-is-shared-and-what-is-not) lists the fields.
 
-No scan results are shared until you opt in. `check` never asks: after a few scans without a choice, it prints a tip on how to opt in. `audit` on a terminal asks whether to share after it scans packages the registry does not have, unless contribution is already on, you answered no to that question or ran `ai-trust config contribute off`, or you pass `--contribute` or `--no-contribute`. A no saved by ai-trust 0.7.6 or an off saved by hackmyagent counts as a no when ai-trust finds it with fewer than three scans counted; after that it looks like no choice, so `audit` still asks. Answering it or running `ai-trust config contribute off` records the choice. A global choice is saved in `~/.opena2a/config.json` and shared across all OpenA2A tools (`opena2a-cli`, `hackmyagent`).
+No scan results are shared until you opt in. `check` never asks: after a few scans without a choice, it prints a tip on how to opt in. `audit` on a terminal asks whether to share after it scans packages the registry does not have, unless contribution is already on, you answered no to that question or ran `ai-trust config contribute off`, or you pass `--contribute` or `--no-contribute`. A no saved by ai-trust 0.7.6 or an off saved by hackmyagent counts as a no when ai-trust finds it with fewer than three scans counted; after that it looks like no choice, so `audit` still asks. An off saved by `opena2a config contribute off` looks like no choice whatever the scan count when no choice was saved before it, so `audit` still asks after it too. Answering the question or running `ai-trust config contribute off` records the choice. A global choice is saved in `~/.opena2a/config.json` and shared across all OpenA2A tools (`opena2a-cli`, `hackmyagent`).
 
 ```bash
 ai-trust check @modelcontextprotocol/server-filesystem --contribute   # contribute for this scan (non-interactive / CI)
