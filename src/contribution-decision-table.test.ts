@@ -37,6 +37,7 @@ import {
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { shellArg } from "./utils/shell-arg.js";
 
 const CLI_PATH = resolve(__dirname, "../dist/index.js");
 const PACKAGE = "decision-table-fixture-pkg";
@@ -316,9 +317,11 @@ const ASKED = [
   "Share these scans with the community? [Y/n]",
   "  (Future scans will auto-share. Change: ai-trust config contribute off)",
 ];
+/** Stands for the package.json `audit` read, as a shell word; see expectedFor. */
+const MANIFEST = "<manifest>";
 const HOW_TO_SHARE = [
   "  1 package(s) scanned for the first time. Share with the community:",
-  "    ai-trust audit <file> --scan-missing --contribute",
+  `    ai-trust audit ${MANIFEST} --scan-missing --contribute`,
 ];
 
 const SEEDED = { decidedAt: SEEDED_AT };
@@ -442,7 +445,13 @@ function expectedFor(cell: Cell): Observed {
   );
   if (!row) throw new Error(`no row for ${cellKey(cell)}`);
   const [, , , , prompt, sent, config, lines] = row;
-  return { prompt, sent, config, lines };
+  // Every audit run reads the same package.json in the scratch directory.
+  return {
+    prompt,
+    sent,
+    config,
+    lines: lines.map((line) => line.replace(MANIFEST, () => shellArg(manifestPath))),
+  };
 }
 
 /**

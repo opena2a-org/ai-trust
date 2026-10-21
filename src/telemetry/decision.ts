@@ -17,6 +17,9 @@
  * flag, saved choice and stdin and lists the cells where they differ.
  */
 
+import { stripControlCharacters } from "../output/sanitize.js";
+import { shellArg } from "../utils/shell-arg.js";
+
 export type ContributionCommand = "check" | "audit";
 
 export interface ContributionInputs {
@@ -31,6 +34,11 @@ export interface ContributionInputs {
   scanned: number;
   /** The answer to the question, once it has been asked. */
   answer?: boolean;
+  /**
+   * The dependency file `audit` read, as the user gave it. The command
+   * `audit` prints for sharing the scans names it.
+   */
+  file?: string;
 }
 
 export interface ContributionLine {
@@ -62,7 +70,7 @@ const NOTHING: ContributionDecision = {
 };
 
 export function decideContribution(input: ContributionInputs): ContributionDecision {
-  const { command, flag, saved, interactive, scanned, answer } = input;
+  const { command, flag, saved, interactive, scanned, answer, file } = input;
 
   // A flag answers for this run either way; without one, only a saved true
   // is consent.
@@ -74,6 +82,9 @@ export function decideContribution(input: ContributionInputs): ContributionDecis
   // audit, not sharing so far.
   if (flag === false) return NOTHING;
   if (!interactive) {
+    // The file as the user gave it, without control characters, as one
+    // shell word.
+    const target = file !== undefined ? shellArg(stripControlCharacters(file)) : "<file>";
     return {
       ...NOTHING,
       lines: [
@@ -82,7 +93,7 @@ export function decideContribution(input: ContributionInputs): ContributionDecis
           text: `  ${scanned} package(s) scanned for the first time. Share with the community:`,
           style: "gray",
         },
-        { text: "    ai-trust audit <file> --scan-missing --contribute", style: "cyan" },
+        { text: `    ai-trust audit ${target} --scan-missing --contribute`, style: "cyan" },
       ],
     };
   }
