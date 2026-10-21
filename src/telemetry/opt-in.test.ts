@@ -245,6 +245,39 @@ describe("readContributeChoice with the @opena2a/shared backend", () => {
     expect(homeConfig().contribute).not.toHaveProperty("decidedAt");
   });
 
+  /** Whether `audit` on a terminal, with no flag, asks to share, on the saved choice. */
+  function auditAsks(): boolean {
+    return decideContribution({
+      command: "audit",
+      flag: undefined,
+      saved: readContributeChoice(),
+      interactive: true,
+      scanned: 1,
+    }).prompt;
+  }
+
+  // opena2a-cli 0.10.13 saves `opena2a config contribute off` with this one
+  // call, which writes neither a dismissal nor `decidedAt`.
+  it.each([0, 2, 3, 5])(
+    "reads an off saved by `opena2a config contribute off` with %i scans counted as no choice, so audit asks (#141)",
+    (scans) => {
+      scannerFile(scans);
+      shared.setContributeEnabled(false);
+      expect(recordEarlierNo()).toBe(false);
+      expect(readContributeChoice()).toBeUndefined();
+      expect(homeConfig().contribute).not.toHaveProperty("decidedAt");
+      expect(auditAsks()).toBe(true);
+    },
+  );
+
+  it("reads that off as off after a choice saved through ai-trust, so audit does not ask (#141)", () => {
+    scannerFile(0);
+    saveContributeChoice(true);
+    shared.setContributeEnabled(false);
+    expect(readContributeChoice()).toBe(false);
+    expect(auditAsks()).toBe(false);
+  });
+
   it("keeps a saved on choice", () => {
     saveContributeChoice(true);
     sharedConfig.incrementScanCount();

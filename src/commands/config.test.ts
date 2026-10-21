@@ -258,6 +258,31 @@ describe("contribution docs cite commands that exist", () => {
   });
 });
 
+// `opena2a config contribute off` saves an off that ai-trust reads as no
+// choice when no choice was saved before it (src/telemetry/opt-in.test.ts).
+describe("the contribution guide on an off saved by opena2a-cli (#141)", () => {
+  const guide = fs.readFileSync(
+    path.join(REPO_ROOT, "docs/use-cases/contribute-scans.md"),
+    "utf-8"
+  );
+
+  it("names it in each paragraph that says when `audit` asks", () => {
+    const paragraphs = guide
+      .split(/\n\s*\n/)
+      .filter((p) => /`(?:ai-trust )?audit` on a terminal asks/.test(p));
+    expect(paragraphs).toHaveLength(2);
+    for (const paragraph of paragraphs) {
+      expect(paragraph).toContain("An off saved by `opena2a config contribute off`");
+    }
+  });
+
+  it("says after its `opena2a config contribute off` command that `audit` still asks", () => {
+    const [, after = ""] = guide.split("```bash\nopena2a config contribute off\n```");
+    const section = after.split("\n## ")[0];
+    expect(section).toContain("`audit` on a terminal still asks");
+  });
+});
+
 describe("config with no subcommand (#177)", () => {
   interface Captured {
     out: string;
