@@ -49,6 +49,7 @@ import type { ScanResult } from "../scanner/index.js";
 import { nothingToScan } from "../scanner/hma.js";
 import { findAuditFile } from "../utils/audit-file.js";
 import { checkCitation } from "../utils/cli-prefix.js";
+import { packageTypeName, scanKindName } from "../utils/package-type.js";
 import { shellArg } from "../utils/shell-arg.js";
 
 // ── Visual helpers ─────────────────────────────────────────────���──────
@@ -269,6 +270,44 @@ function typeMismatchCommands(excluded: TrustAnswer[]): string[] {
  */
 function runnableFix(fix: string): string {
   return citeCommandsInText(fix);
+}
+
+/** "Fix: ", the label the later lines of a fix are indented past. */
+const FIX_LABEL_WIDTH = "Fix: ".length;
+
+/**
+ * The Fix lines of a finding, each inside the finding's gutter. The scanner
+ * writes some fixes on several lines: a command, the lines to add to a file
+ * and a closing `Verify:` command. The first line follows "Fix:", each later
+ * line is indented under it, and an empty line is the gutter alone. A fix of
+ * several lines that a finding printed above already printed is not printed
+ * again: the line names that finding. `shown` holds the fixes of several
+ * lines printed so far, each with the finding that printed it.
+ */
+function fixLines(
+  finding: { name: string; checkId: string; file?: string; line?: number; fix: string },
+  gutter: string,
+  shown: Map<string, string>,
+): string[] {
+  const text = runnableFix(finding.fix).split(/\r?\n/);
+  while (text.length > 1 && text[0].trim() === "") text.shift();
+  while (text.length > 1 && text[text.length - 1].trim() === "") text.pop();
+  const label = `  ${gutter} ${chalk.cyan("Fix:")}`;
+  if (text.length === 1) return [`${label} ${text[0]}`];
+
+  const key = text.join("\n");
+  const earlier = shown.get(key);
+  if (earlier !== undefined) return [`${label} same as for ${earlier} above`];
+  const file =
+    typeof finding.file === "string" && finding.file !== ""
+      ? stripControlCharacters(finding.file) + (typeof finding.line === "number" ? `:${finding.line}` : "")
+      : "";
+  shown.set(key, `${finding.name || finding.checkId}${file ? ` (${file})` : ""}`);
+  const indent = " ".repeat(FIX_LABEL_WIDTH);
+  return [
+    `${label} ${text[0]}`,
+    ...text.slice(1).map((line) => (line.trim() === "" ? `  ${gutter}` : `  ${gutter} ${indent}${line}`)),
+  ];
 }
 
 /**
@@ -608,9 +647,10 @@ export function formatCheckResult(
     scanStatusForMeter !== undefined && scorePercent(answer.trustScore) === undefined;
   // A date that does not parse is not a scan date: no "Last scan" line for it.
   const scanAge = registryScanAge(answer.lastScannedAt);
+  // The type is not passed: the shared block prints `mcp_server` as
+  // "mcp server", and the header names it as the batch table does.
   const block = renderCheckBlock({
     name: answer.name,
-    packageType: answer.packageType,
     trustLevel: answer.trustLevel,
     trustScore: answer.trustScore,
     verdict: answer.verdict,
@@ -626,7 +666,8 @@ export function formatCheckResult(
   // Header. "scan date not recorded" is for a scan without a date; a package
   // whose scan status names no scan, finished or failed, was not scanned.
   out.push("");
-  const meta = [...block.header.meta];
+  const typeName = packageTypeName(answer.packageType);
+  const meta = typeName === undefined ? [...block.header.meta] : [typeName, ...block.header.meta];
   const neverScanned = scanStatusForMeter === undefined && !isScanError;
   meta.push(scanAge ? `scanned ${scanAge}` : neverScanned ? "not scanned" : "scan date not recorded");
   const headerMeta = meta.length > 0 ? `  ${chalk.dim(meta.join(" \u00b7 "))}` : "";
@@ -910,6 +951,30 @@ function visibleLength(s: string): number {
   return s.replace(/\x1b\[[0-9;]*m/g, "").length;
 }
 
+/**
+ * The VERDICT cell of a found package. The registry's passed verdict prints
+ * as PASSED, the word check's verdict line gives it ("Passed, but the
+ * registry recorded 1 high finding"); a package `audit --scan-missing`
+ * scanned on this machine keeps its scan's verdict, SAFE. Every other
+ * verdict prints as normalized, upper case.
+ */
+function verdictCell(answer: TrustAnswer): string {
+  const normalized = normalizeVerdict(answer.verdict);
+  const local = normalizeScanStatus(answer.scanStatus) === "local";
+  return (normalized === "safe" && !local ? "passed" : normalized).toUpperCase();
+}
+
+/**
+ * The LAST SCAN cell of a found package: the age of the registry's scan as
+ * check prints it ("233 days ago (stale)"), "today" for a package
+ * `audit --scan-missing` scanned in this run, and "-" for an answer with no
+ * scan date or one that does not parse.
+ */
+function lastScanCell(answer: TrustAnswer): string {
+  if (normalizeScanStatus(answer.scanStatus) === "local") return "today";
+  return registryScanAge(answer.lastScannedAt) ?? "-";
+}
+
 export function formatBatchResults(
   response: BatchResponse,
   minTrust: number,
@@ -1034,7 +1099,8 @@ export function formatBatchResults(
   // Tier 1 trust table — the main event.
   // Table header. On a terminal the PACKAGE column is 36 wide and a longer
   // name is cut; without one (a pipe or a file) the column fits the longest
-  // name, printed whole. The SCAN column fits the longest scan status.
+  // name, printed whole. The SCAN column fits the longest scan status, and
+  // LAST SCAN the longest scan age.
   const onTerminal = opts.terminalWidth !== undefined;
   const nameWidth = onTerminal
     ? 36
@@ -1047,6 +1113,10 @@ export function formatBatchResults(
     10,
     ...native.filter((r) => r.found).map((r) => (r.scanStatus || "-").length + 2),
   );
+  const lastScanWidth = Math.max(
+    "LAST SCAN".length + 2,
+    ...native.filter((r) => r.found).map((r) => lastScanCell(r).length + 2),
+  );
 
   lines.push("");
   lines.push(
@@ -1057,7 +1127,8 @@ export function formatBatchResults(
           "VERDICT".padEnd(verdictWidth) +
           "TRUST".padEnd(levelWidth) +
           "SCORE".padEnd(scoreWidth) +
-          "SCAN".padEnd(scanWidth)
+          "SCAN".padEnd(scanWidth) +
+          "LAST SCAN".padEnd(lastScanWidth)
       )
   );
   lines.push(
@@ -1069,7 +1140,8 @@ export function formatBatchResults(
             verdictWidth +
             levelWidth +
             scoreWidth +
-            scanWidth
+            scanWidth +
+            lastScanWidth
         )
       )
   );
@@ -1085,12 +1157,12 @@ export function formatBatchResults(
           chalk.gray("NO DATA".padEnd(verdictWidth)) +
           chalk.dim("-".padEnd(levelWidth)) +
           chalk.dim("-".padEnd(scoreWidth)) +
-          chalk.dim("-".padEnd(scanWidth))
+          chalk.dim("-".padEnd(scanWidth)) +
+          chalk.dim("-".padEnd(lastScanWidth))
       );
       continue;
     }
 
-    const normalized = normalizeVerdict(result.verdict);
     const colorVerdict = verdictColor(result.verdict);
     const colorTrust = trustLevelColor(result.trustLevel);
     const scoreDisplay = formatScore(result.trustScore, result.scanStatus);
@@ -1122,14 +1194,25 @@ export function formatBatchResults(
         ? chalk.dim("-".padEnd(levelWidth))
         : chalk.bold(colorTrust(levelName.padEnd(levelWidth)));
 
+    // A scan older than 90 days is marked "(stale)", in the tone check gives
+    // its Last scan line.
+    const lastScan = lastScanCell(result);
+    const lastScanColor =
+      lastScan === "-"
+        ? chalk.dim
+        : lastScan.endsWith("(stale)")
+          ? chalk.yellow
+          : (s: string) => s;
+
     lines.push(
       "  " +
         name.padEnd(nameWidth) +
-        (result.packageType || "-").padEnd(typeWidth) +
-        colorVerdict(normalized.toUpperCase().padEnd(verdictWidth)) +
+        (packageTypeName(result.packageType) ?? "-").padEnd(typeWidth) +
+        colorVerdict(verdictCell(result).padEnd(verdictWidth)) +
         levelCell +
         scoreCell +
-        coloredStatus
+        coloredStatus +
+        lastScanColor(lastScan.padEnd(lastScanWidth))
     );
   }
 
@@ -1415,7 +1498,9 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
     absent: typeof f.file === "string" && absentFiles.has(f.file),
   }));
   const rawKind = result.scan.projectType?.trim();
-  const projectLabel = rawKind && rawKind !== "unknown" ? rawKind : "package";
+  // The scanner's `mcp` reads "MCP server", the name the check header and
+  // the batch table give the registry's mcp_server.
+  const projectLabel = rawKind && rawKind !== "unknown" ? scanKindName(rawKind) : "package";
   const scoreAwareVerdict = noAnalyzableSurfaces
     ? null
     : buildScoreAwareVerdict(
@@ -1554,6 +1639,7 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
     const limit = opts.all
       ? failed.length
       : Math.min(failed.length, FINDINGS_SHOWN_BY_DEFAULT);
+    const fixesShown = new Map<string, string>();
     for (let i = 0; i < limit; i++) {
       const f = failed[i];
       const sevColor =
@@ -1586,7 +1672,7 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
         if (verify) lines.push(`  ${sevColor("\u2502")} ${chalk.cyan("Verify:")} ${verify}`);
       }
       if (f.fix) {
-        lines.push(`  ${sevColor("\u2502")} ${chalk.cyan("Fix:")} ${runnableFix(f.fix)}`);
+        lines.push(...fixLines({ ...f, fix: f.fix }, sevColor("\u2502"), fixesShown));
       } else if (opts.scanPath !== undefined) {
         lines.push(`  ${sevColor("\u2502")} ${chalk.cyan("Fix:")} ${noFixSupplied(f.checkId)}`);
       }

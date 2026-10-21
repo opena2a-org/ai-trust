@@ -54,6 +54,7 @@ const SCANNER_SOURCES = [
   "scanner/hma.ts",
   "scanner/downloader.ts",
   "scanner/mask-secrets.ts",
+  "scanner/signal-cleanup.ts",
   "telemetry/opt-in.ts",
   "utils/cli-prefix.ts",
 ];

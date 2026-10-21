@@ -128,7 +128,7 @@ const ROWS: Row[] = [
       },
       "--no-scan": {
         exit: 0,
-        shows: ["table-tool  mcp server", "No known issues", "→ Fresh scan  ai-trust check table-tool"],
+        shows: ["table-tool  MCP server", "No known issues", "→ Fresh scan  ai-trust check table-tool"],
         requests: ["trust table-tool"],
       },
       "--json": {
@@ -156,7 +156,7 @@ const ROWS: Row[] = [
       },
       "--no-scan": {
         exit: 2,
-        shows: ["table-blocked-tool  mcp server", "Blocked by registry", "→ Scan locally  ai-trust check table-blocked-tool"],
+        shows: ["table-blocked-tool  MCP server", "Blocked by registry", "→ Scan locally  ai-trust check table-blocked-tool"],
         requests: ["trust table-blocked-tool"],
       },
       "--json": {
@@ -326,7 +326,7 @@ const ROWS: Row[] = [
       },
       "--no-scan": {
         exit: 0,
-        shows: ["Note: the registry's answer is for the package table-tool, not for version 1.2.3.", "table-tool  mcp server", "No known issues", "→ Fresh scan  ai-trust check table-tool"],
+        shows: ["Note: the registry's answer is for the package table-tool, not for version 1.2.3.", "table-tool  MCP server", "No known issues", "→ Fresh scan  ai-trust check table-tool"],
         requests: ["trust table-tool"],
       },
       "--json": {
@@ -554,7 +554,7 @@ const ROWS: Row[] = [
       },
       "--no-scan": {
         exit: 0,
-        shows: ["table-tool  mcp server", "No known issues", "→ Fresh scan  ai-trust check table-tool"],
+        shows: ["table-tool  MCP server", "No known issues", "→ Fresh scan  ai-trust check table-tool"],
         requests: ["trust table-tool"],
       },
       "--json": {
@@ -833,7 +833,7 @@ const ROWS: Row[] = [
       },
       "--no-scan": {
         exit: 0,
-        shows: ["@modelcontextprotocol/server-table  mcp server", "No known issues", "→ Fresh scan  ai-trust check @modelcontextprotocol/server-table", "Resolved: server-table -> @modelcontextprotocol/server-table"],
+        shows: ["@modelcontextprotocol/server-table  MCP server", "No known issues", "→ Fresh scan  ai-trust check @modelcontextprotocol/server-table", "Resolved: server-table -> @modelcontextprotocol/server-table"],
         requests: ["trust @modelcontextprotocol/server-table"],
       },
       "--json": {
@@ -862,7 +862,7 @@ const ROWS: Row[] = [
       },
       "--no-scan": {
         exit: 0,
-        shows: ["@modelcontextprotocol/server-table  mcp server", "No known issues", "→ Fresh scan  ai-trust check @modelcontextprotocol/server-table", "Resolved: mcp/server-table -> @modelcontextprotocol/server-table"],
+        shows: ["@modelcontextprotocol/server-table  MCP server", "No known issues", "→ Fresh scan  ai-trust check @modelcontextprotocol/server-table", "Resolved: mcp/server-table -> @modelcontextprotocol/server-table"],
         requests: ["trust @modelcontextprotocol/server-table"],
       },
       "--json": {
@@ -917,7 +917,7 @@ const ROWS: Row[] = [
       },
       "--no-scan": {
         exit: 0,
-        shows: ["table-tool  mcp server", "No known issues", "→ Fresh scan  ai-trust check table-tool"],
+        shows: ["table-tool  MCP server", "No known issues", "→ Fresh scan  ai-trust check table-tool"],
         requests: ["narrative mcp:table-tool", "trust table-tool"],
       },
       "--json": {

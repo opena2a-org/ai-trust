@@ -3205,8 +3205,8 @@ describe("check --scan-path --json prints a failed scan as JSON on stdout", () =
 
   it.each([
     ["the scanner exits without a report", SCANNER_FAILED],
-    ["the directory does not exist", "scanLocalPath: /tmp/fixture could not be read (ENOENT)."],
-    ["the path is not a directory", "scanLocalPath: /tmp/fixture is not a directory."],
+    ["the directory does not exist", "/tmp/fixture could not be read (ENOENT)."],
+    ["the path is not a directory", "/tmp/fixture is not a directory."],
   ])("prints one object with the error on stdout, nothing on stderr, and exits 2 when %s", async (_label, message) => {
     vi.mocked(scanLocalPath).mockRejectedValue(new Error(message));
 
@@ -3627,8 +3627,8 @@ describe("check --scan-path prints the fix for the failure it hit", () => {
   });
 
   it.each([
-    ["does not exist", "/nonexistent", "scanLocalPath: /nonexistent could not be read (ENOENT)."],
-    ["is a file", "/tmp/fixture.txt", "scanLocalPath: /tmp/fixture.txt is not a directory."],
+    ["does not exist", "/nonexistent", "/nonexistent could not be read (ENOENT)."],
+    ["is a file", "/tmp/fixture.txt", "/tmp/fixture.txt is not a directory."],
   ])("names the directory, not the scanner, when the --scan-path target %s", async (_label, dir, message) => {
     vi.mocked(scanLocalPath).mockRejectedValue(new ScanPathError(message));
 

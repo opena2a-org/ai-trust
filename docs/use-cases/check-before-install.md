@@ -13,13 +13,13 @@ npx ai-trust check @modelcontextprotocol/server-filesystem --no-scan
 Expected output (scores and scan ages come from the registry and change over time):
 
 ```
-  @modelcontextprotocol/server-filesystem  mcp server · scanned 225 days ago (stale)
+  @modelcontextprotocol/server-filesystem  MCP server · scanned 233 days ago (stale)
   Passed, but the registry recorded 1 high finding
 
   Trust     ━━━━━━━━━━━━━━━━━━━━ 79/100
   Level     Scanned  Blocked > Warning > Listed > Scanned > Verified
   Scans     3 community scans
-  Last scan 225 days ago (stale)
+  Last scan 233 days ago (stale)
   Findings  0 critical · 1 high (details not returned) · scan status warnings
   CVEs      none recorded
 

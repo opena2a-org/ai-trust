@@ -2,8 +2,8 @@
  * Package downloader - fetch npm tarballs or PyPI sdists and extract to temp directories.
  */
 
-import { mkdtemp, mkdir, rm, readdir } from "node:fs/promises";
-import { createWriteStream } from "node:fs";
+import { mkdir, rm, readdir } from "node:fs/promises";
+import { createWriteStream, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
@@ -12,8 +12,35 @@ import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { promisify } from "node:util";
+import { pathRemoved, removeOnSignal, stopOnSignal } from "./signal-cleanup.js";
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * execFile for a child process that writes into a download directory: a
+ * signal that stops ai-trust is passed on to it, and it is waited for before
+ * the directory is removed.
+ */
+function runInDownload(
+  file: string,
+  args: string[],
+  timeout: number
+): Promise<{ stdout: string; stderr: string }> {
+  return stopOnSignal(execFileAsync(file, args, { timeout }));
+}
+
+/** A new download directory, which a signal that stops ai-trust removes. */
+function createDownloadDir(): string {
+  return removeOnSignal(() => mkdtempSync(join(tmpdir(), "ai-trust-scan-")));
+}
+
+async function removeDownloadDir(dir: string): Promise<void> {
+  try {
+    await rm(dir, { recursive: true, force: true });
+  } finally {
+    pathRemoved(dir);
+  }
+}
 
 /**
  * PyPI JSON API base: `${PYPI_JSON_API}/<name>/json` describes the latest
@@ -108,7 +135,7 @@ async function downloadNpmPackage(name: string, version?: string): Promise<Downl
     );
   }
 
-  const tempDir = await mkdtemp(join(tmpdir(), "ai-trust-scan-"));
+  const tempDir = createDownloadDir();
 
   try {
     // Use npm pack to download the tarball. `--` ends option parsing, so a
@@ -133,7 +160,7 @@ async function downloadNpmPackage(name: string, version?: string): Promise<Downl
     // npm pack prints a JSON array instead, whose last line is `]`, and for
     // a package with many files that array can be larger than the 1 MiB of
     // stdout execFile reads.
-    const { stdout } = await execFileAsync(
+    const { stdout } = await runInDownload(
       "npm",
       [
         "pack",
@@ -147,16 +174,14 @@ async function downloadNpmPackage(name: string, version?: string): Promise<Downl
         "--",
         spec,
       ],
-      { timeout: 60_000 }
+      60_000
     );
 
     const tarball = stdout.trim().split("\n").pop()!;
     const tarballPath = join(tempDir, tarball);
 
     // Extract the tarball
-    await execFileAsync("tar", ["xzf", tarballPath, "-C", tempDir], {
-      timeout: 30_000,
-    });
+    await runInDownload("tar", ["xzf", tarballPath, "-C", tempDir], 30_000);
 
     // Detect the actual extracted directory (usually "package" but some
     // tarballs like @types/* extract to a different name)
@@ -177,12 +202,10 @@ async function downloadNpmPackage(name: string, version?: string): Promise<Downl
 
     return {
       dir: extractedDir,
-      cleanup: async () => {
-        await rm(tempDir, { recursive: true, force: true });
-      },
+      cleanup: () => removeDownloadDir(tempDir),
     };
   } catch (err) {
-    await rm(tempDir, { recursive: true, force: true });
+    await removeDownloadDir(tempDir);
     throw new Error(`Failed to download "${spec}": ${extractNpmError(name, version, err)}`);
   }
 }
@@ -209,7 +232,7 @@ async function downloadPypiPackage(name: string, version?: string): Promise<Down
     );
   }
 
-  const tempDir = await mkdtemp(join(tmpdir(), "ai-trust-scan-"));
+  const tempDir = createDownloadDir();
 
   try {
     const latestUrl = `${PYPI_JSON_API}/${name}/json`;
@@ -247,26 +270,22 @@ async function downloadPypiPackage(name: string, version?: string): Promise<Down
     const extractDir = join(tempDir, "package");
     await mkdir(extractDir);
     if (ext === ".tar.gz") {
-      await execFileAsync(
+      await runInDownload(
         "tar",
         ["xzf", archivePath, "-C", extractDir, "--strip-components=1"],
-        { timeout: 30_000 }
+        30_000
       );
     } else {
       // .whl files are zip archives
-      await execFileAsync("unzip", ["-q", "-o", archivePath, "-d", extractDir], {
-        timeout: 30_000,
-      });
+      await runInDownload("unzip", ["-q", "-o", archivePath, "-d", extractDir], 30_000);
     }
 
     return {
       dir: extractDir,
-      cleanup: async () => {
-        await rm(tempDir, { recursive: true, force: true });
-      },
+      cleanup: () => removeDownloadDir(tempDir),
     };
   } catch (err) {
-    await rm(tempDir, { recursive: true, force: true });
+    await removeDownloadDir(tempDir);
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`Failed to download "${spec}": ${message}`);
   }

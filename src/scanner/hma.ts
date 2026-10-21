@@ -23,6 +23,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { recordEarlierNo } from "../telemetry/opt-in.js";
 import { maskSecrets, maskSecretsIn } from "./mask-secrets.js";
+import { pathRemoved, removeOnSignal, stopOnSignal } from "./signal-cleanup.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -269,10 +270,12 @@ export async function isHmaAvailable(): Promise<boolean> {
   try {
     const hma = resolveHma();
     await withScannerEnv((env) =>
-      execFileAsync(hma.cmd, [...hma.prefixArgs, "--version"], {
-        timeout: 15_000,
-        env,
-      }),
+      stopOnSignal(
+        execFileAsync(hma.cmd, [...hma.prefixArgs, "--version"], {
+          timeout: 15_000,
+          env,
+        }),
+      ),
     );
     return true;
   } catch (err: unknown) {
@@ -408,12 +411,13 @@ function scannerHomeError(err: unknown, failed: string, dir: string, need: strin
 /**
  * Create a new temporary home for a scanner run in the directory
  * os.tmpdir() names. When that directory is missing or cannot be written,
- * the error names it and the variable that sets it.
+ * the error names it and the variable that sets it. A signal that stops
+ * ai-trust before removeScannerHome() removes the home.
  */
 function createScannerHome(): string {
   const dir = tmpdir();
   try {
-    return mkdtempSync(join(dir, "ai-trust-scanner-"));
+    return removeOnSignal(() => mkdtempSync(join(dir, "ai-trust-scanner-")));
   } catch (err: unknown) {
     throw scannerHomeError(err, "could not create one", dir, "that exists and that you can write to");
   }
@@ -435,6 +439,8 @@ function removeScannerHome(home: string): void {
       dirname(home),
       "where you can both create and remove entries",
     );
+  } finally {
+    pathRemoved(home);
   }
 }
 
@@ -487,7 +493,12 @@ async function withScannerEnv<T>(fn: (env: NodeJS.ProcessEnv) => Promise<T>): Pr
       if (!existsSync(target)) continue;
       const link = join(home, dir);
       mkdirSync(dirname(link), { recursive: true });
-      symlinkSync(target, link, "junction");
+      // Registered after the home, so a signal removes the link first, as
+      // the `finally` below does.
+      removeOnSignal(() => {
+        symlinkSync(target, link, "junction");
+        return link;
+      });
       links.push(link);
     }
     const inherited: NodeJS.ProcessEnv = { ...process.env };
@@ -506,7 +517,13 @@ async function withScannerEnv<T>(fn: (env: NodeJS.ProcessEnv) => Promise<T>): Pr
     });
   } finally {
     // The links go first, so removing the directory cannot reach what they point to.
-    for (const link of links) rmSync(link, { force: true });
+    for (const link of links) {
+      try {
+        rmSync(link, { force: true });
+      } finally {
+        pathRemoved(link);
+      }
+    }
     removeScannerHome(home);
   }
 }
@@ -764,10 +781,8 @@ async function runHmaWithArgs(
   env: NodeJS.ProcessEnv,
 ): Promise<HmaScanResult> {
   try {
-    const { stdout } = await execFileAsync(
-      cmd,
-      args,
-      { timeout: deep ? 180_000 : 120_000, maxBuffer: HMA_MAX_REPORT_BYTES, env }
+    const { stdout } = await stopOnSignal(
+      execFileAsync(cmd, args, { timeout: deep ? 180_000 : 120_000, maxBuffer: HMA_MAX_REPORT_BYTES, env }),
     );
 
     return parseHmaOutput(stdout);
