@@ -6,10 +6,20 @@
  * written down. The release workflow's build job runs this suite before the
  * publish job, so a version bump that lands without its section now fails
  * before anything is published instead of being found months later.
+ *
+ * Once a release has its section, that section takes corrections to what its
+ * entries say but no new entries, and what it leaves out about its release
+ * goes in an entry above it, in Unreleased or a later release. Released
+ * sections have been corrected in place: internal decision references, and
+ * citations of documents this repository does not carry (#124), were taken
+ * out of their entries, and the 0.7.2 telemetry entry carries a "(Corrected
+ * after release: ...)" note. An entry under a release's heading says the
+ * change shipped in that release, so six entries that had landed under the
+ * 0.7.5 heading while in no release were moved to Unreleased.
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
 
 const ROOT = resolve(__dirname, "..");
 const CHANGELOG = readFileSync(resolve(ROOT, "CHANGELOG.md"), "utf8");
@@ -167,7 +177,8 @@ describe("CHANGELOG.md", () => {
   // In 0.7.6, a patch release, `check <name> --no-scan --json` went from the
   // registry's whole answer to at most seven fields, so a script that read
   // `packageId` from it found the field gone. The 0.7.6 section lists the new
-  // shape only under Added, and a released section is not rewritten, so an
+  // shape only under Added, and a released section takes corrections to what
+  // its entries say but no new entries (see the top of this file), so an
   // entry above it, in Unreleased or a later release, calls the change
   // breaking.
   it("calls the 0.7.6 cut of check --no-scan --json to at most seven fields breaking, in an entry above 0.7.6", () => {
@@ -189,5 +200,36 @@ describe("CHANGELOG.md", () => {
       expect(entry).toContain(`\`${field}\``);
     }
     expect(entry).toContain("`packageId`");
+  });
+
+  // The rule for released sections is set out at the top of this file; the
+  // case above and the whole-changelog check in src/doc-citations.test.ts
+  // depend on it. The case above gave a contrary reason for reading above
+  // 0.7.6, which the corrections listed at the top of this file disprove, and
+  // the header of src/doc-citations.test.ts gave the same reason until the
+  // change for #124 corrected released sections. A sentence that names a
+  // released section and goes on to say it is not, or never, rewritten,
+  // edited or changed fails here, across line breaks and comment markers.
+  it("has one rule for released sections: no Markdown file at the root or file under src/ says they stay as published", () => {
+    const UNEDITED =
+      /\breleased[\s/*]+(?:changelog[\s/*]+)?sections?\b[^.;]*?\b(?:not|never)[\s/*]+(?:be(?:en)?[\s/*]+)?(?:rewritten|edited|changed)\b/gi;
+    const files = [
+      ...readdirSync(ROOT, { withFileTypes: true })
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+        .map((entry) => entry.name),
+      ...readdirSync(resolve(ROOT, "src"), { recursive: true, withFileTypes: true })
+        .filter((entry) => entry.isFile())
+        .map((entry) => relative(ROOT, join(entry.parentPath, entry.name))),
+    ];
+    expect(files).toContain("CHANGELOG.md");
+    expect(files).toContain(join("src", "changelog.test.ts"));
+
+    const contrary = files.flatMap((path) => {
+      const text = readFileSync(resolve(ROOT, path), "utf8");
+      return [...text.matchAll(UNEDITED)].map(
+        (m) => `${path}:${text.slice(0, m.index).split("\n").length}: ${m[0].replace(/\s+/g, " ")}`,
+      );
+    });
+    expect(contrary).toEqual([]);
   });
 });
