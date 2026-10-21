@@ -102,7 +102,7 @@
 - **The README is a short entry point, and the command reference moved to `docs/`.** Its Telemetry section says usage telemetry is personal data, what a shared scan sends, and when a pseudonymous contributor token goes with it; its samples and recording show output the CLI prints, it gives the `--min-trust` default (2), and its npm version badge links to the GitHub releases page.
 - **`docs/commands.md` lists the exit code of each outcome** of `check`, `audit` and `batch`, including a package that is not found or out of scope and `check --scan-path`.
 - **`SECURITY.md` gives the private vulnerability reporting route**, and the contribution guide and the status page point to it.
-- **The README says that deep scans download a classifier model** from huggingface.co to `~/.nanomind/models` once, and that `--no-deep` does not ([#123](https://github.com/opena2a-org/ai-trust/issues/123)).
+- **The README says that deep scans download a classifier model** from huggingface.co to `~/.nanomind/models` once, and that `--no-deep` does not ([#123](https://github.com/opena2a-org/ai-trust/issues/123)). It links to the local scan section of `docs/commands.md`, which names the three files, `tokenizer.json`, `nanomind-tme.onnx` and `nanomind-tme.onnx.data`, and `us.aws.cdn.hf.co` as an example of a Hugging Face host a download can be redirected to.
 - **The contribution guide gives `mcp`, the value the scanner reports for an MCP server, as an example project type**, says that the submitted data carries no IP address instead of listing the IP address as never shared, and says when a summary goes without the contributor token and that a scan that measured nothing is not shared ([#123](https://github.com/opena2a-org/ai-trust/issues/123)).
 
 ## 0.7.6 (2026-06-19)
