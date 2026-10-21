@@ -168,11 +168,14 @@ program.addHelpText("afterAll", ({ command }) => helpDocsLine(command));
       if (startedAt === undefined) return;
       telemetryStartedAt.delete(name);
       void tele.track(name, {
-        // Exit 0 = clean, 1 = below-threshold, 2 = not-found. All three
-        // are working outcomes per audit.test.ts. Pass [2] so the
-        // dashboard treats not-found as success (crash-rate semantics,
-        // not user-outcome semantics).
-        // Real crashes are exit >=3 or out-of-range — those stay failure.
+        // Exit 0 = safe or out of scope, 1 = operational error, 2 = a policy
+        // outcome such as a warning or blocked verdict, a package below
+        // --min-trust or a package not found (the exit-code table in
+        // docs/commands.md lists every case). successFromExitCode counts 0
+        // and 1 as success, and [2] adds 2, so the dashboard reads a policy
+        // outcome as a run that worked (crash-rate semantics, not
+        // user-outcome semantics). Exit codes from 3 to 255, and codes
+        // outside 0-255, count as failure.
         success: tele.successFromExitCode(process.exitCode, [2]),
         durationMs: Date.now() - startedAt,
       });

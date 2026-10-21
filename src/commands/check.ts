@@ -137,7 +137,7 @@ export function registerCheckCommand(program: Command): void {
     )
     .option(
       "--scan-if-missing",
-      "deprecated (every package is scanned by default)"
+      "deprecated (every in-scope package is scanned by default)"
     )
     .option(
       "--contribute",
@@ -192,7 +192,7 @@ export function registerCheckCommand(program: Command): void {
 
       // The deprecated flags are accepted and change nothing; each says so.
       if (opts.scanIfMissing) {
-        console.error(chalk.dim("  Note: --scan-if-missing is deprecated. Every package is scanned by default."));
+        console.error(chalk.dim("  Note: --scan-if-missing is deprecated. Every in-scope package is scanned by default."));
       }
       if (opts.rescan) {
         console.error(chalk.dim("  Note: --rescan is deprecated. Local scan is now the default."));
@@ -709,6 +709,8 @@ async function handleScanFlow(
             ecosystem,
             errorHint: translated.errorHint,
             suggestions: translated.suggestions,
+            // This scan could not download the package: no step runs it again.
+            scanned: true,
           })
         );
       }

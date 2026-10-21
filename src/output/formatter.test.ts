@@ -2968,6 +2968,32 @@ describe("Full project audit next step", () => {
       const output = formatNotFound({ pkg: "mcp-server-xyz", ecosystem: "npm" });
       expect(output).toContain("Full project audit  ai-trust audit requirements.txt");
     });
+
+    // After a scan that could not download the package, the scan step would
+    // repeat the command that just failed (#123).
+    it("leaves out the scan step after a failed scan, with no empty Next Steps section", () => {
+      const output = formatNotFound({
+        pkg: "this-pkg-does-not-exist-zzz-918273",
+        ecosystem: "npm",
+        scanned: true,
+      });
+      expect(output).toContain("Package not found: this-pkg-does-not-exist-zzz-918273 (npm)");
+      expect(output).not.toContain("Scan locally");
+      expect(output).not.toContain("ai-trust check this-pkg-does-not-exist-zzz-918273");
+      expect(output).not.toContain("Next Steps");
+    });
+
+    it("keeps the audit step after a failed scan when the directory holds a dependency file", () => {
+      inDir("package.json");
+      const output = formatNotFound({
+        pkg: "this-pkg-does-not-exist-zzz-918273",
+        ecosystem: "npm",
+        scanned: true,
+      });
+      expect(output).toContain("Next Steps");
+      expect(output).toContain("Full project audit  ai-trust audit package.json");
+      expect(output).not.toContain("Scan locally");
+    });
   });
 
   describe("after a scan", () => {

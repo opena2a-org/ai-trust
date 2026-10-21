@@ -102,6 +102,8 @@ interface Cell {
   exit: number;
   /** Text that the output (stdout and stderr together) shows. */
   shows?: string[];
+  /** Text that the output (stdout and stderr together) does not show. */
+  hides?: string[];
   /** Fields of the JSON document on stdout. */
   json?: Record<string, unknown>;
   requests: string[];
@@ -120,7 +122,8 @@ const ROWS: Row[] = [
     cells: {
       "no flag": {
         exit: 2,
-        shows: ["Package not found: table-tool (npm)", "→ Scan locally  ai-trust check table-tool", "Scanning table-tool..."],
+        shows: ["Package not found: table-tool (npm)", "Scanning table-tool..."],
+        hides: ["Scan locally"],
         requests: ["trust table-tool", "npm /table-tool"],
       },
       "--no-scan": {
@@ -147,7 +150,8 @@ const ROWS: Row[] = [
     cells: {
       "no flag": {
         exit: 2,
-        shows: ["Package not found: table-blocked-tool (npm)", "→ Scan locally  ai-trust check table-blocked-tool", "Scanning table-blocked-tool..."],
+        shows: ["Package not found: table-blocked-tool (npm)", "Scanning table-blocked-tool..."],
+        hides: ["Scan locally"],
         requests: ["trust table-blocked-tool", "npm /table-blocked-tool"],
       },
       "--no-scan": {
@@ -200,7 +204,8 @@ const ROWS: Row[] = [
     cells: {
       "no flag": {
         exit: 2,
-        shows: ["Package not found: express (npm)", "→ Scan locally  ai-trust check express", "Scanning express..."],
+        shows: ["Package not found: express (npm)", "Scanning express..."],
+        hides: ["Scan locally"],
         requests: ["trust express", "npm /express"],
       },
       "--no-scan": {
@@ -221,15 +226,17 @@ const ROWS: Row[] = [
       },
     },
   },
-  // After a scan that found no such package, the not-found block still offers
-  // the command that just ran as its first next step (#123).
+  // After a scan that found no such package, the not-found block offers no
+  // scan: it would run the command that just ran (#123). With --no-scan it
+  // offers the scan.
   {
     form: "bare npm name, no registry data",
     target: "table-missing",
     cells: {
       "no flag": {
         exit: 2,
-        shows: ["Package not found: table-missing (npm)", "→ Scan locally  ai-trust check table-missing", "Scanning table-missing..."],
+        shows: ["Package not found: table-missing (npm)", "Scanning table-missing..."],
+        hides: ["Scan locally"],
         requests: ["trust table-missing", "npm /table-missing"],
       },
       "--no-scan": {
@@ -283,7 +290,8 @@ const ROWS: Row[] = [
     cells: {
       "no flag": {
         exit: 2,
-        shows: ["Package not found: @table/agent (npm)", "→ Scan locally  ai-trust check @table/agent", "Scanning @table/agent..."],
+        shows: ["Package not found: @table/agent (npm)", "Scanning @table/agent..."],
+        hides: ["Scan locally"],
         requests: ["trust @table/agent", "npm /@table%2fagent"],
       },
       "--no-scan": {
@@ -312,7 +320,8 @@ const ROWS: Row[] = [
     cells: {
       "no flag": {
         exit: 2,
-        shows: ["Scanning table-tool@1.2.3...", "Package not found: table-tool@1.2.3 (npm)", "→ Scan locally  ai-trust check table-tool@1.2.3"],
+        shows: ["Scanning table-tool@1.2.3...", "Package not found: table-tool@1.2.3 (npm)"],
+        hides: ["Scan locally"],
         requests: ["trust table-tool", "npm /table-tool"],
       },
       "--no-scan": {
@@ -340,7 +349,8 @@ const ROWS: Row[] = [
     cells: {
       "no flag": {
         exit: 2,
-        shows: ["Scanning @table/agent@2.0.0...", "Package not found: @table/agent@2.0.0 (npm)", "→ Scan locally  ai-trust check @table/agent@2.0.0"],
+        shows: ["Scanning @table/agent@2.0.0...", "Package not found: @table/agent@2.0.0 (npm)"],
+        hides: ["Scan locally"],
         requests: ["trust @table/agent", "npm /@table%2fagent"],
       },
       "--no-scan": {
@@ -481,7 +491,8 @@ const ROWS: Row[] = [
     cells: {
       "no flag": {
         exit: 2,
-        shows: ["Scanning express@4.18.0...", "Package not found: express@4.18.0 (npm)", "→ Scan locally  ai-trust check express@4.18.0"],
+        shows: ["Scanning express@4.18.0...", "Package not found: express@4.18.0 (npm)"],
+        hides: ["Scan locally"],
         requests: ["trust express", "npm /express"],
       },
       "--no-scan": {
@@ -537,7 +548,8 @@ const ROWS: Row[] = [
     cells: {
       "no flag": {
         exit: 2,
-        shows: ["Package not found: table-tool (npm)", "→ Scan locally  ai-trust check table-tool", "Scanning table-tool..."],
+        shows: ["Package not found: table-tool (npm)", "Scanning table-tool..."],
+        hides: ["Scan locally"],
         requests: ["trust table-tool", "npm /table-tool"],
       },
       "--no-scan": {
@@ -584,9 +596,11 @@ const ROWS: Row[] = [
       },
     },
   },
-  // The not-found block and the --json nextSteps suggest
+  // With --no-scan, the not-found block and the --json nextSteps suggest
   // `ai-trust check pip:table-py-agent`: without the pip: prefix the command
-  // would check the npm package of that name (#114).
+  // would check the npm package of that name (#114). Without --no-scan the
+  // block follows a scan that could not download the package and offers no
+  // scan (#123).
   // With --no-scan the trust registry is asked twice: with ecosystem=pypi,
   // and, as it has no PyPI package by the name, by the bare name (#246).
   {
@@ -595,7 +609,8 @@ const ROWS: Row[] = [
     cells: {
       "no flag": {
         exit: 2,
-        shows: ["Package not found: table-py-agent (pypi)", "→ Scan locally  ai-trust check pip:table-py-agent", "Scanning table-py-agent..."],
+        shows: ["Package not found: table-py-agent (pypi)", "Scanning table-py-agent..."],
+        hides: ["Scan locally"],
         requests: ["trust table-py-agent", "pypi /pypi/table-py-agent/json"],
       },
       "--no-scan": {
@@ -784,7 +799,8 @@ const ROWS: Row[] = [
     cells: {
       "no flag": {
         exit: 2,
-        shows: ["Package not found: table-owner/table-repo (npm)", "Looks like a git-style name. npm packages use \"@scope/name\" — did you mean \"@table-owner/table-repo\"?", "Did you mean?", "@table-owner/table-repo", "→ Scan locally  ai-trust check table-owner/table-repo", "Scanning table-owner/table-repo..."],
+        shows: ["Package not found: table-owner/table-repo (npm)", "Looks like a git-style name. npm packages use \"@scope/name\" — did you mean \"@table-owner/table-repo\"?", "Did you mean?", "@table-owner/table-repo", "Scanning table-owner/table-repo..."],
+        hides: ["Scan locally"],
         requests: ["trust table-owner/table-repo"],
       },
       "--no-scan": {
@@ -811,7 +827,8 @@ const ROWS: Row[] = [
     cells: {
       "no flag": {
         exit: 2,
-        shows: ["Package not found: @modelcontextprotocol/server-table (npm)", "→ Scan locally  ai-trust check @modelcontextprotocol/server-table", "Resolved: server-table -> @modelcontextprotocol/server-table", "Scanning @modelcontextprotocol/server-table..."],
+        shows: ["Package not found: @modelcontextprotocol/server-table (npm)", "Resolved: server-table -> @modelcontextprotocol/server-table", "Scanning @modelcontextprotocol/server-table..."],
+        hides: ["Scan locally"],
         requests: ["trust @modelcontextprotocol/server-table", "npm /@modelcontextprotocol%2fserver-table"],
       },
       "--no-scan": {
@@ -839,7 +856,8 @@ const ROWS: Row[] = [
     cells: {
       "no flag": {
         exit: 2,
-        shows: ["Package not found: @modelcontextprotocol/server-table (npm)", "→ Scan locally  ai-trust check @modelcontextprotocol/server-table", "Resolved: mcp/server-table -> @modelcontextprotocol/server-table", "Scanning @modelcontextprotocol/server-table..."],
+        shows: ["Package not found: @modelcontextprotocol/server-table (npm)", "Resolved: mcp/server-table -> @modelcontextprotocol/server-table", "Scanning @modelcontextprotocol/server-table..."],
+        hides: ["Scan locally"],
         requests: ["trust @modelcontextprotocol/server-table", "npm /@modelcontextprotocol%2fserver-table"],
       },
       "--no-scan": {
@@ -893,7 +911,8 @@ const ROWS: Row[] = [
     cells: {
       "no flag": {
         exit: 2,
-        shows: ["Package not found: table-tool (npm)", "→ Scan locally  ai-trust check table-tool", "Scanning table-tool..."],
+        shows: ["Package not found: table-tool (npm)", "Scanning table-tool..."],
+        hides: ["Scan locally"],
         requests: ["narrative mcp:table-tool", "trust table-tool", "npm /table-tool"],
       },
       "--no-scan": {
@@ -922,7 +941,8 @@ const ROWS: Row[] = [
     cells: {
       "no flag": {
         exit: 2,
-        shows: ["Package not found: table-py-agent (pypi)", "→ Scan locally  ai-trust check pip:table-py-agent", "Scanning table-py-agent..."],
+        shows: ["Package not found: table-py-agent (pypi)", "Scanning table-py-agent..."],
+        hides: ["Scan locally"],
         requests: ["narrative skill:pip:table-py-agent", "trust table-py-agent", "pypi /pypi/table-py-agent/json"],
       },
       "--no-scan": {
@@ -975,7 +995,8 @@ const ROWS: Row[] = [
     cells: {
       "no flag": {
         exit: 2,
-        shows: ["Package not found: table-zero-id (npm)", "→ Scan locally  ai-trust check table-zero-id", "Scanning table-zero-id..."],
+        shows: ["Package not found: table-zero-id (npm)", "Scanning table-zero-id..."],
+        hides: ["Scan locally"],
         requests: ["trust table-zero-id", "npm /table-zero-id"],
       },
       "--no-scan": {
@@ -1032,7 +1053,8 @@ const ROWS: Row[] = [
     cells: {
       "no flag": {
         exit: 2,
-        shows: ["Package not found: table-registry-error (npm)", "→ Scan locally  ai-trust check table-registry-error", "Registry lookup failed (Registry API returned 500); proceeding with local scan.", "Scanning table-registry-error..."],
+        shows: ["Package not found: table-registry-error (npm)", "Registry lookup failed (Registry API returned 500); proceeding with local scan.", "Scanning table-registry-error..."],
+        hides: ["Scan locally"],
         requests: ["trust table-registry-error", "npm /table-registry-error"],
       },
       "--no-scan": {
@@ -1114,7 +1136,8 @@ const ROWS: Row[] = [
     cells: {
       "no flag": {
         exit: 2,
-        shows: ["Package not found: Table-Tool (npm)", "→ Scan locally  ai-trust check Table-Tool", "Scanning Table-Tool..."],
+        shows: ["Package not found: Table-Tool (npm)", "Scanning Table-Tool..."],
+        hides: ["Scan locally"],
         requests: ["trust Table-Tool", "npm /Table-Tool"],
       },
       "--no-scan": {
@@ -1341,6 +1364,7 @@ describe("check reads each target form the same way at every step", () => {
         const output = run.stdout + run.stderr;
         expect(run.status).toBe(cell.exit);
         for (const text of cell.shows ?? []) expect(output).toContain(text);
+        for (const text of cell.hides ?? []) expect(output).not.toContain(text);
         if (cell.json) expect(JSON.parse(run.stdout)).toMatchObject(cell.json);
         expect(run.requests).toEqual(cell.requests);
       });

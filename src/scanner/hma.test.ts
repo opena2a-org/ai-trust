@@ -42,7 +42,9 @@ import { execFile } from "node:child_process";
 import {
   HmaScanError,
   isHmaAvailable,
+  measuredNothing,
   nothingToScan,
+  reinstallCommand,
   runHmaScan,
   scannerNodeVersionProblem,
   scannerTempDirProblem,
@@ -381,6 +383,36 @@ describe("runHmaScan", () => {
 
       expect(result.checksEvaluated).toBe(5);
       expect(result.staticChecksEvaluated).toBe(3);
+    });
+
+    // `findings` lists only the failures, so the passed count of a shared
+    // scan's summary is read from `allFindings` (#123).
+    it("counts the records of allFindings that passed", async () => {
+      const notApplicable = { checkId: "CURSOR-001", name: "CURSOR-001", category: "cursor", notApplicable: true };
+      vi.mocked(execFile as any).mockResolvedValue({
+        stdout: JSON.stringify({
+          score: 4,
+          maxScore: 100,
+          findings: allFindings.filter((f) => !f.passed),
+          allFindings: [...allFindings, notApplicable],
+        }),
+        stderr: "",
+      });
+
+      const result = await runHmaScan("/tmp/test-pkg");
+
+      expect(result.checksPassed).toBe(1);
+    });
+
+    it("leaves the passed count unset when the report has no allFindings", async () => {
+      vi.mocked(execFile as any).mockResolvedValue({
+        stdout: JSON.stringify({ score: 75, maxScore: 100, findings: [] }),
+        stderr: "",
+      });
+
+      const result = await runHmaScan("/tmp/test-pkg");
+
+      expect(result.checksPassed).toBeUndefined();
     });
 
     it("marks a --static-only scan as one where the semantic layer did not run", async () => {
@@ -782,6 +814,44 @@ ${JSON.stringify({
     });
   });
 
+  // A shared scan that measured nothing reached the registry as a pass (#123).
+  describe("measuredNothing", () => {
+    const scan = {
+      score: 100,
+      maxScore: 100,
+      findings: [],
+      projectType: "library",
+      timestamp: "2026-10-21T00:00:00Z",
+    };
+    const failure = {
+      checkId: "CRED-001",
+      name: "CRED-001",
+      description: "",
+      category: "credentials",
+      severity: "high" as const,
+      passed: false,
+      message: "",
+    };
+    const semantic = { intentClass: "benign", attackClass: "none", confidence: 0.9, file: "index.js" };
+
+    it("is true for a scan that read no file, or executed no check and found nothing", () => {
+      expect(measuredNothing({ scan: { ...scan, filesExamined: 0 } })).toBe(true);
+      expect(measuredNothing({ scan: { ...scan, checksEvaluated: 0, filesExamined: 3 } })).toBe(true);
+    });
+
+    it("is false for a scan that executed a check or found something", () => {
+      expect(measuredNothing({ scan: { ...scan, checksEvaluated: 12, filesExamined: 3 } })).toBe(false);
+      expect(measuredNothing({ scan: { ...scan, checksEvaluated: 0, findings: [failure] } })).toBe(false);
+      expect(measuredNothing({ scan: { ...scan, checksEvaluated: 0, semanticFindings: [semantic] } })).toBe(false);
+      expect(measuredNothing({ scan: { ...scan, checksEvaluated: 0 }, semanticFindings: [semantic] })).toBe(false);
+      expect(measuredNothing({ scan: { ...scan, filesExamined: 0, unreadableInputs: 1, checksEvaluated: 4 } })).toBe(false);
+    });
+
+    it("does not read a count the report did not give as 0", () => {
+      expect(measuredNothing({ scan })).toBe(false);
+    });
+  });
+
   // runHmaWithArgs and runHmaScan each added "HMA scan failed: " to the
   // error, so the message carried the prefix twice.
   describe("failure message", () => {
@@ -1062,6 +1132,36 @@ describe("runHmaScan contribution", () => {
     expect(calls).toHaveLength(2);
     expect(calls[1]).not.toContain("--analm");
     expect(calls[1]).toContain("--no-contribute");
+  });
+
+  // A scanner build without the option would decide about contribution from
+  // the saved choice, so the scan is not run again without it (#123).
+  it("fails with a message naming --no-contribute, and no retry, when the scanner rejects it", async () => {
+    vi.mocked(execFile as any).mockImplementation(async (_cmd: string, args: string[]) => {
+      if (args.includes("--no-contribute")) {
+        const stderr = "error: unknown option '--no-contribute'";
+        throw Object.assign(new Error(`Command failed: hackmyagent ${args.join(" ")}\n${stderr}`), {
+          code: 1,
+          stdout: "",
+          stderr,
+        });
+      }
+      return { stdout: scanJson, stderr: "" };
+    });
+
+    const err = await runHmaScan("/tmp/test-pkg").then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+    expect(err).toBeInstanceOf(HmaScanError);
+    expect((err as Error).message).toBe(
+      "HMA scan failed: the scanner does not accept --no-contribute, which ai-trust passes so that only ai-trust decides what a scan shares; ai-trust does not scan without it. " +
+        `Reinstall the hackmyagent version ai-trust pins: ${reinstallCommand()}`,
+    );
+    const calls = secureCalls();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain("--no-contribute");
   });
 });
 

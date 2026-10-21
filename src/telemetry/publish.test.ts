@@ -58,7 +58,10 @@ describe("toPublishedFindings", () => {
 describe("buildScanSubmission", () => {
   it("never carries finding names, messages, descriptions, paths or fixes", () => {
     const wire = JSON.stringify(
-      buildScanSubmission("demo", scanResult({ packageVersion: "1.0.0" }), { toolVersion: "0.0.0" }),
+      buildScanSubmission("demo", scanResult({ packageVersion: "1.0.0" }), {
+        toolVersion: "0.0.0",
+        ecosystem: "npm",
+      }),
     );
     for (const leaked of ["Hardcoded API key", "sk-1234", "src/config.ts", "Remove the key"]) {
       expect(wire).not.toContain(leaked);
@@ -69,7 +72,7 @@ describe("buildScanSubmission", () => {
     const submission = buildScanSubmission(
       "demo",
       scanResult({ packageVersion: "1.0.0" }),
-      { toolVersion: "0.0.0", type: "mcp_server" },
+      { toolVersion: "0.0.0", type: "mcp_server", ecosystem: "npm" },
     );
     expect(submission).toMatchObject({
       name: "demo",
@@ -82,8 +85,9 @@ describe("buildScanSubmission", () => {
       verdict: "fail",
       projectType: "library",
     });
-    expect(buildScanSubmission("demo", scanResult({ verdict: "warning" }), { toolVersion: "0.0.0" }).verdict).toBe("warn");
-    expect(buildScanSubmission("demo", scanResult({ verdict: "safe" }), { toolVersion: "0.0.0" }).verdict).toBe("pass");
+    const opts = { toolVersion: "0.0.0", ecosystem: "npm" } as const;
+    expect(buildScanSubmission("demo", scanResult({ verdict: "warning" }), opts).verdict).toBe("warn");
+    expect(buildScanSubmission("demo", scanResult({ verdict: "safe" }), opts).verdict).toBe("pass");
   });
 
   it("sends the ecosystem the package was downloaded from", () => {
@@ -97,7 +101,7 @@ describe("buildScanSubmission", () => {
 
   it("omits version from the wire when the manifest carried none", () => {
     const wire = JSON.parse(
-      JSON.stringify(buildScanSubmission("demo", scanResult(), { toolVersion: "0.0.0" })),
+      JSON.stringify(buildScanSubmission("demo", scanResult(), { toolVersion: "0.0.0", ecosystem: "npm" })),
     ) as Record<string, unknown>;
     expect("version" in wire).toBe(false);
   });

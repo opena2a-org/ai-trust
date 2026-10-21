@@ -303,9 +303,9 @@ afterAll(async () => {
   if (scratch) rmSync(scratch, { recursive: true, force: true });
 });
 
-// What reached the registry, as captured.
+// What reached the registry, as captured. A scan shared with --contribute
+// sends its summary whatever the saved choice is (#123).
 const NONE: string[] = [];
-const PING_AND_PUBLISH = ["contribute scan_ping", "publish"];
 const PING_SUMMARY_AND_PUBLISH = ["contribute scan_ping", "contribute scan_result", "publish"];
 const SUMMARY_AND_PUBLISH = ["contribute scan_result", "publish"];
 
@@ -361,18 +361,18 @@ function sharedFile(
 type Row = [CommandName, Flag, Saved, Stdin, boolean, string[], string | null, string[]];
 const TABLE: Row[] = [
   // command, flag, saved, stdin, prompt, reached the registry, config after, lines
-  ["check", "--contribute", "absent", "terminal", false, PING_AND_PUBLISH, sharedFile(false, 1), []],
-  ["check", "--contribute", "absent", "pipe", false, PING_AND_PUBLISH, sharedFile(false, 1), []],
+  ["check", "--contribute", "absent", "terminal", false, PING_SUMMARY_AND_PUBLISH,sharedFile(false, 1), []],
+  ["check", "--contribute", "absent", "pipe", false, PING_SUMMARY_AND_PUBLISH,sharedFile(false, 1), []],
   ["check", "--contribute", "true", "terminal", false, PING_SUMMARY_AND_PUBLISH, sharedFile(true, 1, SEEDED), []],
   ["check", "--contribute", "true", "pipe", false, PING_SUMMARY_AND_PUBLISH, sharedFile(true, 1, SEEDED), []],
-  ["check", "--contribute", "false", "terminal", false, PING_AND_PUBLISH, sharedFile(false, 1, SEEDED), []],
-  ["check", "--contribute", "false", "pipe", false, PING_AND_PUBLISH, sharedFile(false, 1, SEEDED), []],
-  ["check", "--contribute", "\"true\"", "terminal", false, PING_AND_PUBLISH, sharedFile("true", 1, SEEDED), []],
-  ["check", "--contribute", "\"true\"", "pipe", false, PING_AND_PUBLISH, sharedFile("true", 1, SEEDED), []],
-  ["check", "--contribute", "\"false\"", "terminal", false, PING_AND_PUBLISH, sharedFile("false", 1, SEEDED), []],
-  ["check", "--contribute", "\"false\"", "pipe", false, PING_AND_PUBLISH, sharedFile("false", 1, SEEDED), []],
-  ["check", "--contribute", "invalid", "terminal", false, PING_AND_PUBLISH, sharedFile(false, 1), []],
-  ["check", "--contribute", "invalid", "pipe", false, PING_AND_PUBLISH, sharedFile(false, 1), []],
+  ["check", "--contribute", "false", "terminal", false, PING_SUMMARY_AND_PUBLISH,sharedFile(false, 1, SEEDED), []],
+  ["check", "--contribute", "false", "pipe", false, PING_SUMMARY_AND_PUBLISH,sharedFile(false, 1, SEEDED), []],
+  ["check", "--contribute", "\"true\"", "terminal", false, PING_SUMMARY_AND_PUBLISH,sharedFile("true", 1, SEEDED), []],
+  ["check", "--contribute", "\"true\"", "pipe", false, PING_SUMMARY_AND_PUBLISH,sharedFile("true", 1, SEEDED), []],
+  ["check", "--contribute", "\"false\"", "terminal", false, PING_SUMMARY_AND_PUBLISH,sharedFile("false", 1, SEEDED), []],
+  ["check", "--contribute", "\"false\"", "pipe", false, PING_SUMMARY_AND_PUBLISH,sharedFile("false", 1, SEEDED), []],
+  ["check", "--contribute", "invalid", "terminal", false, PING_SUMMARY_AND_PUBLISH,sharedFile(false, 1), []],
+  ["check", "--contribute", "invalid", "pipe", false, PING_SUMMARY_AND_PUBLISH,sharedFile(false, 1), []],
   ["check", "--no-contribute", "absent", "terminal", false, NONE, sharedFile(false, 1), []],
   ["check", "--no-contribute", "absent", "pipe", false, NONE, sharedFile(false, 1), []],
   ["check", "--no-contribute", "true", "terminal", false, NONE, sharedFile(true, 1, SEEDED), []],
@@ -397,18 +397,18 @@ const TABLE: Row[] = [
   ["check", "none", "\"false\"", "pipe", false, NONE, sharedFile("false", 1, SEEDED), []],
   ["check", "none", "invalid", "terminal", false, NONE, sharedFile(false, 1), []],
   ["check", "none", "invalid", "pipe", false, NONE, sharedFile(false, 1), []],
-  ["audit", "--contribute", "absent", "terminal", false, PING_AND_PUBLISH, sharedFile(false, 1), []],
-  ["audit", "--contribute", "absent", "pipe", false, PING_AND_PUBLISH, sharedFile(false, 1), []],
+  ["audit", "--contribute", "absent", "terminal", false, PING_SUMMARY_AND_PUBLISH,sharedFile(false, 1), []],
+  ["audit", "--contribute", "absent", "pipe", false, PING_SUMMARY_AND_PUBLISH,sharedFile(false, 1), []],
   ["audit", "--contribute", "true", "terminal", false, PING_SUMMARY_AND_PUBLISH, sharedFile(true, 1, SEEDED), []],
   ["audit", "--contribute", "true", "pipe", false, PING_SUMMARY_AND_PUBLISH, sharedFile(true, 1, SEEDED), []],
-  ["audit", "--contribute", "false", "terminal", false, PING_AND_PUBLISH, sharedFile(false, 1, SEEDED), []],
-  ["audit", "--contribute", "false", "pipe", false, PING_AND_PUBLISH, sharedFile(false, 1, SEEDED), []],
-  ["audit", "--contribute", "\"true\"", "terminal", false, PING_AND_PUBLISH, sharedFile("true", 1, SEEDED), []],
-  ["audit", "--contribute", "\"true\"", "pipe", false, PING_AND_PUBLISH, sharedFile("true", 1, SEEDED), []],
-  ["audit", "--contribute", "\"false\"", "terminal", false, PING_AND_PUBLISH, sharedFile("false", 1, SEEDED), []],
-  ["audit", "--contribute", "\"false\"", "pipe", false, PING_AND_PUBLISH, sharedFile("false", 1, SEEDED), []],
-  ["audit", "--contribute", "invalid", "terminal", false, PING_AND_PUBLISH, sharedFile(false, 1), []],
-  ["audit", "--contribute", "invalid", "pipe", false, PING_AND_PUBLISH, sharedFile(false, 1), []],
+  ["audit", "--contribute", "false", "terminal", false, PING_SUMMARY_AND_PUBLISH,sharedFile(false, 1, SEEDED), []],
+  ["audit", "--contribute", "false", "pipe", false, PING_SUMMARY_AND_PUBLISH,sharedFile(false, 1, SEEDED), []],
+  ["audit", "--contribute", "\"true\"", "terminal", false, PING_SUMMARY_AND_PUBLISH,sharedFile("true", 1, SEEDED), []],
+  ["audit", "--contribute", "\"true\"", "pipe", false, PING_SUMMARY_AND_PUBLISH,sharedFile("true", 1, SEEDED), []],
+  ["audit", "--contribute", "\"false\"", "terminal", false, PING_SUMMARY_AND_PUBLISH,sharedFile("false", 1, SEEDED), []],
+  ["audit", "--contribute", "\"false\"", "pipe", false, PING_SUMMARY_AND_PUBLISH,sharedFile("false", 1, SEEDED), []],
+  ["audit", "--contribute", "invalid", "terminal", false, PING_SUMMARY_AND_PUBLISH,sharedFile(false, 1), []],
+  ["audit", "--contribute", "invalid", "pipe", false, PING_SUMMARY_AND_PUBLISH,sharedFile(false, 1), []],
   ["audit", "--no-contribute", "absent", "terminal", false, NONE, savedFile("absent"), []],
   ["audit", "--no-contribute", "absent", "pipe", false, NONE, savedFile("absent"), []],
   ["audit", "--no-contribute", "true", "terminal", false, NONE, savedFile("true"), []],
