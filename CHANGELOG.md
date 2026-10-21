@@ -157,13 +157,10 @@
 ## 0.7.2 (2026-05-24)
 
 ### Changed
-- **Telemetry dispatcher passes `semanticSuccessCodes: [2]` to `successFromExitCode`.** Per `briefs/cli-telemetry-success-semantics.md`, invocation telemetry's `success` field follows crash-rate semantics: ai-trust's exit code 2 means "I checked, the package isn't in the registry" — a working outcome, not a crash. The previous dispatcher mis-labeled these as `success: false`, producing a 50% "failure" rate on `ai-trust audit` in the `/admin/cli-usage` rollup over the prior 60 days even though the real crash rate was near 0%. With this release, the dashboard signal reflects actual reliability. Public CLI exit-code contract is unchanged — `check`, `audit`, and `batch` still exit 2 for not-found and below-threshold, exit 0 for clean. (Corrected after release: this line first gave below-threshold as exit 1, but it was already 2 in this release.)
+- **Telemetry dispatcher passes `semanticSuccessCodes: [2]` to `successFromExitCode`.** Invocation telemetry's `success` field follows crash-rate semantics: ai-trust's exit code 2 means "I checked, the package isn't in the registry" — a working outcome, not a crash. The previous dispatcher mis-labeled these as `success: false`, producing a 50% "failure" rate on `ai-trust audit` in the `/admin/cli-usage` rollup over the prior 60 days even though the real crash rate was near 0%. With this release, the dashboard signal reflects actual reliability. Public CLI exit-code contract is unchanged — `check`, `audit`, and `batch` still exit 2 for not-found and below-threshold, exit 0 for clean. (Corrected after release: this line first gave below-threshold as exit 1, but it was already 2 in this release.)
 
 ### Pinned
 - `@opena2a/telemetry` bumped from `0.2.0` to `0.3.0` (exact). 0.3.0 adds the optional `semanticSuccessCodes` argument; the bump unlocks the dispatcher change above.
-
-### Brief
-- opena2a-org/briefs/cli-telemetry-success-semantics.md
 
 ## 0.7.0 (2026-04-27)
 
@@ -176,24 +173,17 @@
 - **AI-TRUST-1: Tier 3 library renders out-of-scope only.** Per `CLAUDE.md` v0.3 "UX philosophy", libraries get the redirect to HMA without a trust block on top. Earlier behavior surfaced `formatCheckResult` AND the out-of-scope CTA, which on errored library scans showed "Scan failed — score is unreliable" stacked on "Out of scope for ai-trust" — two unrelated messages competing. The full trust read for libraries lives in `hackmyagent check`.
 
 ### Policy
-- **Silent post-consent rule** (`briefs/scan-result-telemetry-policy.md` §5). Once the user has opted in to scan contribution, the act of contributing is invisible — no per-scan banner, no "queued for registry" line. ai-trust currently emits no per-scan contribution prints; this release locks that behavior in by policy. Disclosure lives in the initial consent prompt, `--help`, and the privacy policy.
+- **Silent post-consent rule.** Once the user has opted in to scan contribution, the act of contributing is invisible — no per-scan banner, no "queued for registry" line. ai-trust currently emits no per-scan contribution prints; this release locks that behavior in by policy. Disclosure lives in the initial consent prompt, `--help`, and the privacy policy.
 
 ### Pinned
 - `@opena2a/cli-ui` exact-pinned at `0.5.0` (was `0.3.0`). Required for `renderCheckRichBlock` + sub-block primitives.
 - `@opena2a/telemetry` added at `^0.1.2`.
 
-### Brief
-- opena2a-org/briefs/check-rich-context-skills-mcp-v1.md (§3, §8)
-- opena2a-org/briefs/scan-result-telemetry-policy.md
-
 ## 0.6.0 (2026-04-27)
 
 ### Changed
-- **`@opena2a/check-core` exact-pinned at `0.2.0`** (was `0.1.0`). Ride-along consume — ai-trust does not yet render the rich-context narrative block (that lands with `cli-ui@0.4.0` in session 3 of `briefs/check-rich-context-skills-mcp-v1.md`). Bumping the pin keeps ai-trust on the same data-layer version as `hackmyagent@0.20.0` and prevents check-core 0.1.0 from being silently retained as a transitive dep.
+- **`@opena2a/check-core` exact-pinned at `0.2.0`** (was `0.1.0`). Ride-along consume — ai-trust does not yet render the rich-context narrative block (0.7.0 adds it). Bumping the pin keeps ai-trust on the same data-layer version as `hackmyagent@0.20.0` and prevents check-core 0.1.0 from being silently retained as a transitive dep.
 - **Round 2 `buildNotFoundOutput` adoption (was queued in 0.5.1).** Bundles the five not-found path migrations into the 0.6.0 release window per the round 2 queueing decision, which held the standalone publish until partner work surfaced. Partner work is the check-core 0.2.0 consume above.
-
-### Brief
-- opena2a-org/briefs/check-rich-context-skills-mcp-v1.md (§8 task 2f, "round 2 PRs ride along")
 
 ## 0.5.1 (2026-04-22)
 
@@ -211,7 +201,7 @@
 ## 0.4.0 (2026-04-23)
 
 ### Changed
-- **`ai-trust check <pkg>` now consumes `@opena2a/cli-ui@0.3.0` (exact pin).** Rendering of registered packages, package-not-found results, and the Next Steps block flows through shared primitives (`renderCheckBlock`, `renderNotFoundBlock`, `renderNextSteps`). Closes F5 (divergent output schemas), F6 (meter suppressed on unscanned packages — "a number implies measurement"), and F7 (Next Steps CTAs diverged) from `briefs/check-command-divergence.md`. Trust-level legend is always shown inline on the Level row so users see the full scale next to where their package sits.
+- **`ai-trust check <pkg>` now consumes `@opena2a/cli-ui@0.3.0` (exact pin).** Rendering of registered packages, package-not-found results, and the Next Steps block flows through shared primitives (`renderCheckBlock`, `renderNotFoundBlock`, `renderNextSteps`). Closes F5 (divergent output schemas), F6 (meter suppressed on unscanned packages — "a number implies measurement"), and F7 (Next Steps CTAs diverged). Trust-level legend is always shown inline on the Level row so users see the full scale next to where their package sits.
 
 ### Fixed
 - **Git-style package names no longer leak raw `code 128` (F3).** `ai-trust check anthropic/code-review` previously surfaced the raw git exit code when `npm pack` fell through to git. The error is now translated into a shared not-found block with a "did you mean '@anthropic/code-review'?" hint.

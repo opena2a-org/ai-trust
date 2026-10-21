@@ -7,8 +7,9 @@
  * working from a clone. A comment states the rule itself, or cites a file
  * that is tracked here.
  *
- * Released CHANGELOG sections are historical records and are not rewritten;
- * the changelog is checked from the top down to its first release heading.
+ * The changelog is checked whole, its released sections included: an entry
+ * there also states the rule it followed instead of citing the document
+ * that set it.
  *
  * In a git work tree the files checked are the tracked ones. A source archive
  * has no git metadata (#129), so there the tree is walked instead, leaving out
@@ -57,15 +58,10 @@ function trackedFiles(): string[] {
   return gitTrackedFiles() ?? walkedFiles();
 }
 
+/** The whole text of a file, or null for a binary file. */
 function checkedText(path: string): string | null {
   const text = readFileSync(resolve(ROOT, path), "utf8");
-  if (text.includes("\0")) return null;
-  if (path !== "CHANGELOG.md") return text;
-  const lines = text.split("\n");
-  const firstRelease = lines.findIndex(
-    (line) => line.startsWith("## ") && line !== "## Unreleased",
-  );
-  return (firstRelease === -1 ? lines : lines.slice(0, firstRelease)).join("\n");
+  return text.includes("\0") ? null : text;
 }
 
 describe("document citations", () => {
@@ -86,6 +82,12 @@ describe("document citations", () => {
       const walkedSet = new Set(walked);
       expect(tracked.filter((path) => !walkedSet.has(path))).toEqual([]);
     }
+  });
+
+  it("checks the whole changelog, its released sections included", () => {
+    const changelog = readFileSync(resolve(ROOT, "CHANGELOG.md"), "utf8");
+    expect(changelog).toMatch(/^## \d+\.\d+\.\d+ /m);
+    expect(checkedText("CHANGELOG.md")).toBe(changelog);
   });
 
   it("cites no path under a briefs directory in any tracked file", () => {
