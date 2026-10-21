@@ -46,8 +46,11 @@ function section(markdown: string, heading: string): string {
  */
 function modelDownload(classifier: string): { files: string[]; host: string; downloadDir: string } {
   // MODEL_FILES: an entry for each file the classifier downloads, its name
-  // under `name` beside other fields such as its sha256.
-  const entries = classifier.match(/const MODEL_FILES = \[([\s\S]*?)\];/)?.[1] ?? "";
+  // under `name` beside other fields such as its sha256. The array is a const
+  // or an export (`exports.MODEL_FILES = `), bare or passed to Object.freeze,
+  // and the entries are read up to the first `;` that ends a line.
+  const entries =
+    classifier.match(/\b(?:const |exports\.)MODEL_FILES = (?:Object\.freeze\()?\[([\s\S]*?);$/m)?.[1] ?? "";
   const files = [...entries.matchAll(/\bname: ['"`]([^'"`]+)['"`]/g)].map((m) => m[1]);
   // HF_BASE: the URL each file name is appended to, a quoted string or a
   // template literal whose host is written out.
@@ -87,6 +90,34 @@ describe("docs: the model a deep scan downloads (#123)", () => {
       "        bytes: 3000,",
       "    },",
       "];",
+      "const DOWNLOAD_DIR = (0, node_path_1.join)((0, node_os_1.homedir)(), '.nanomind', 'models');",
+    ].join("\n");
+    expect(modelDownload(classifier)).toEqual({
+      files: ["tokenizer.json", "nanomind-tme.onnx", "nanomind-tme.onnx.data"],
+      host: "huggingface.co",
+      downloadDir: "~/.nanomind/models",
+    });
+  });
+
+  it("reads the files from a classifier that exports MODEL_FILES as a frozen array of frozen entries (#273)", () => {
+    // Lines of TypeScript's CommonJS output, target ES2020, for a classifier
+    // that declares `export const MODEL_FILES: ReadonlyArray<...> =
+    // Object.freeze([...].map(f => Object.freeze(f)));`. The first line, which
+    // sets the exported names to void 0 before the declarations run, also
+    // holds `exports.MODEL_FILES = `.
+    const classifier = [
+      "exports.TMEClassifier = exports.MODEL_FILES = void 0;",
+      "const HF_REPO = 'opena2a/nanomind-security-classifier';",
+      "const HF_BASE = `https://huggingface.co/${HF_REPO}/resolve/main`;",
+      "exports.MODEL_FILES = Object.freeze([",
+      "    { name: 'tokenizer.json', sha256: 'FAKE-DIGEST-1', bytes: 1000 },",
+      "    { name: 'nanomind-tme.onnx', sha256: 'FAKE-DIGEST-2', bytes: 2000 },",
+      "    {",
+      "        name: 'nanomind-tme.onnx.data',",
+      "        sha256: 'FAKE-DIGEST-3',",
+      "        bytes: 3000,",
+      "    },",
+      "].map(f => Object.freeze(f)));",
       "const DOWNLOAD_DIR = (0, node_path_1.join)((0, node_os_1.homedir)(), '.nanomind', 'models');",
     ].join("\n");
     expect(modelDownload(classifier)).toEqual({
