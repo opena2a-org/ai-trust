@@ -163,4 +163,31 @@ describe("CHANGELOG.md", () => {
     expect(entry, "no entry for the saved-state end-to-end test").toBeDefined();
     for (const exclusion of exclusions) expect(entry).toMatch(exclusion.entry);
   });
+
+  // In 0.7.6, a patch release, `check <name> --no-scan --json` went from the
+  // registry's whole answer to at most seven fields, so a script that read
+  // `packageId` from it found the field gone. The 0.7.6 section lists the new
+  // shape only under Added, and a released section is not rewritten, so an
+  // entry above it, in Unreleased or a later release, calls the change
+  // breaking.
+  it("calls the 0.7.6 cut of check --no-scan --json to at most seven fields breaking, in an entry above 0.7.6", () => {
+    const lines = CHANGELOG.split("\n");
+    const released = lines.findIndex((line) => line.startsWith("## 0.7.6 ("));
+    expect(released, 'no "## 0.7.6" section').toBeGreaterThan(-1);
+
+    const entry = lines
+      .slice(0, released)
+      .find(
+        (line) =>
+          line.startsWith("- ") &&
+          line.includes("0.7.6") &&
+          line.includes("`check <name> --no-scan --json`"),
+      );
+    expect(entry, "no entry above 0.7.6 on its cut of check <name> --no-scan --json").toBeDefined();
+    expect(entry).toMatch(/\bbreaking change\b/);
+    for (const field of ["name", "source", "found", "packageType", "verdict", "trustLevel", "trustScore"]) {
+      expect(entry).toContain(`\`${field}\``);
+    }
+    expect(entry).toContain("`packageId`");
+  });
 });
