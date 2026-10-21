@@ -378,11 +378,22 @@ export function registerCheckCommand(program: Command): void {
         try {
           // The registry looks a package up by its name: a `<name>@<version>`
           // target is looked up as `<name>`.
-          const result = await client.checkTrust(pkg.name, opts.type);
-          // The registry can answer a miss with the all-zero package id
-          // instead of a 404; the client reads that as found: false. Both are
-          // the same miss, with the same output and exit code.
-          if (!result.found) throw new PackageNotFoundError(name);
+          let result = await findInRegistry(client, pkg.name, opts.type);
+          // The registry keeps some PyPI packages under their bare name only
+          // and answers the query with ecosystem=pypi for them as a miss.
+          // When it has no PyPI package by the name, a pip: target gets its
+          // answer for the name with no ecosystem, the query `check <name>`
+          // sends.
+          const byBareName = result === undefined && ecosystem === "pypi";
+          if (byBareName) {
+            const bareNameClient = createRegistryClient({
+              baseUrl: globalOpts.registryUrl,
+              userAgent: `ai-trust/${AI_TRUST_VERSION}`,
+            });
+            result = await findInRegistry(bareNameClient, pkg.name, opts.type);
+          }
+          if (result === undefined) throw new PackageNotFoundError(name);
+          if (byBareName) noteBareNameAnswer(pkg);
           notePackageAnswer(pkg);
           // Classify using the registry's packageType (authoritative) before
           // falling back to the name-only allowlist, which is consulted with
@@ -494,6 +505,9 @@ export function registerCheckCommand(program: Command): void {
         // We deliberately do NOT consult the name allowlist here; a novel
         // package with a library-ish name could just as easily be a typosquat
         // as a legitimate library, and scanning costs nothing beyond latency.
+        // Nor is a pip: target asked about by its bare name, as --no-scan
+        // does: the answer for the name can be another package's, and a
+        // library answer would skip the scan.
       }
 
       await handleScanFlow(
@@ -878,6 +892,40 @@ function verdictOutcome(verdict?: string): CheckOutcome {
 /** The version or tag a `<name>@<version>` target gives, or undefined. */
 function targetVersion(target: PackageTarget): string | undefined {
   return target.kind === "git" ? undefined : target.version;
+}
+
+/**
+ * The registry's answer for a package, or undefined when it has none. The
+ * registry can answer a miss with the all-zero package id instead of a 404;
+ * the client reads that as found: false. Both are the same miss, with the
+ * same output and exit code.
+ */
+async function findInRegistry(
+  client: RegistryClient,
+  name: string,
+  type: string | undefined,
+): Promise<TrustAnswer | undefined> {
+  try {
+    const answer = await client.checkTrust(name, type);
+    return answer.found ? answer : undefined;
+  } catch (err) {
+    if (err instanceof PackageNotFoundError) return undefined;
+    throw err;
+  }
+}
+
+/**
+ * A pip: target the registry has no PyPI package for is answered, with
+ * --no-scan, by the registry's answer for the name with no ecosystem. Say so
+ * on stderr before the answer.
+ */
+function noteBareNameAnswer(target: PackageTarget): void {
+  const name = stripControlCharacters(target.name);
+  console.error(
+    chalk.dim(
+      `  Note: the registry has no PyPI package named ${name}; its answer is for the name ${name} with no ecosystem given.`,
+    ),
+  );
 }
 
 /**

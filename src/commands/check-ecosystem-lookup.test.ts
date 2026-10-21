@@ -37,11 +37,12 @@ vi.mock("../scanner/index.js", () => ({
   reinstallCommand: vi.fn().mockReturnValue("npm install -g ai-trust"),
   scanPackage: vi.fn(),
   scanLocalPath: vi.fn(),
+  scannerNodeVersionProblem: vi.fn().mockReturnValue(null),
   scannerTempDirProblem: vi.fn().mockReturnValue(null),
 }));
 
 import { registerCheckCommand } from "./check.js";
-import { scanPackage } from "../scanner/index.js";
+import { isHmaAvailable, scanPackage } from "../scanner/index.js";
 
 const NAME = "pyprobe-agent";
 
@@ -188,5 +189,218 @@ describe("check looks a pip: target up as a PyPI package (#131)", () => {
     const output = printedJson(consoleSpy);
     expect((output.registryData as Record<string, unknown>).verdict).toBe("blocked");
     expect(process.exitCode).toBe(2);
+  });
+});
+
+/**
+ * A registry that keeps a package under its bare name and has no PyPI
+ * package by that name. On 2026-10-21 (UTC) the registry at api.oa2a.org
+ * answered so for anthropic: the trust query with `ecosystem=pypi` got 404
+ * "Package not found", and the query with no ecosystem got the package
+ * (packageType ai_tool, trustLevel 2, verdict listed, scanStatus pending).
+ * `miss: "zero-id"` answers the PyPI query with the all-zero package id
+ * instead, the other form in which the registry says it has no package.
+ */
+function bareNameRegistry(
+  name: string,
+  { miss = "404", verdict = "listed" }: { miss?: "404" | "zero-id"; verdict?: string } = {},
+) {
+  const urls: URL[] = [];
+  const fetchMock = vi.fn(async (input: unknown) => {
+    const url = new URL(String(input));
+    urls.push(url);
+    if (url.searchParams.has("ecosystem")) {
+      return miss === "404"
+        ? jsonResponse({ error: "Package not found" }, 404)
+        : jsonResponse({ name, packageId: "00000000-0000-0000-0000-000000000000" });
+    }
+    return jsonResponse({
+      name,
+      packageId: "77777777-8888-9999-aaaa-bbbbbbbbbbbb",
+      packageType: "ai_tool",
+      verdict,
+      trustLevel: 2,
+      trustScore: 0.35,
+      scanStatus: "pending",
+    });
+  });
+  return { fetchMock, urls };
+}
+
+/** A registry that has no package of any name. */
+function emptyRegistry() {
+  const urls: URL[] = [];
+  const fetchMock = vi.fn(async (input: unknown) => {
+    urls.push(new URL(String(input)));
+    return jsonResponse({ error: "Package not found" }, 404);
+  });
+  return { fetchMock, urls };
+}
+
+describe("check pip:<name> --no-scan answers for a PyPI package the registry keeps under its bare name", () => {
+  let consoleSpy: ReturnType<typeof vi.spyOn>;
+  let consoleErrSpy: ReturnType<typeof vi.spyOn>;
+  let savedExitCode: number | undefined;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    savedExitCode = process.exitCode;
+    process.exitCode = undefined;
+  });
+
+  afterEach(() => {
+    consoleSpy.mockRestore();
+    consoleErrSpy.mockRestore();
+    process.exitCode = savedExitCode;
+    harness.fetchMock = undefined;
+  });
+
+  function stderrText(): string {
+    return consoleErrSpy.mock.calls
+      .map((args) => args.join(" "))
+      .join("\n")
+      .replace(/\x1b\[[0-9;]*m/g, "");
+  }
+
+  function stdoutText(): string {
+    return consoleSpy.mock.calls
+      .map((args) => args.join(" "))
+      .join("\n")
+      .replace(/\x1b\[[0-9;]*m/g, "");
+  }
+
+  const NOTE =
+    "Note: the registry has no PyPI package named anthropic; its answer is for the name anthropic with no ecosystem given.";
+
+  it("check pip:anthropic --no-scan --json asks with ecosystem=pypi, then by the bare name, and prints that answer with exit 0", async () => {
+    const registry = bareNameRegistry("anthropic");
+    harness.fetchMock = registry.fetchMock;
+
+    await createProgram().parseAsync([
+      "node", "test", "--json", "check", "pip:anthropic", "--no-scan",
+    ]);
+
+    expect(registry.urls).toHaveLength(2);
+    expect(registry.urls[0].pathname).toBe("/api/v1/trust/query");
+    expect(registry.urls[0].searchParams.get("name")).toBe("anthropic");
+    expect(registry.urls[0].searchParams.get("ecosystem")).toBe("pypi");
+    expect(registry.urls[1].pathname).toBe("/api/v1/trust/query");
+    expect(registry.urls[1].searchParams.get("name")).toBe("anthropic");
+    expect(registry.urls[1].searchParams.has("ecosystem")).toBe(false);
+    const output = printedJson(consoleSpy);
+    // The five fields the opena2a-parity contract for pip:anthropic compares.
+    expect({
+      name: output.name,
+      trustLevel: output.trustLevel,
+      verdict: output.verdict,
+      packageType: output.packageType,
+      scanStatus: output.scanStatus,
+    }).toEqual({
+      name: "anthropic",
+      trustLevel: 2,
+      verdict: "listed",
+      packageType: "ai_tool",
+      scanStatus: "pending",
+    });
+    expect(output.found).toBe(true);
+    expect(output.ecosystem).toBe("pypi");
+    expect(output).not.toHaveProperty("error");
+    expect(stderrText()).toContain(NOTE);
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("reads the all-zero package id for the PyPI query as the same miss", async () => {
+    const registry = bareNameRegistry("anthropic", { miss: "zero-id" });
+    harness.fetchMock = registry.fetchMock;
+
+    await createProgram().parseAsync([
+      "node", "test", "--json", "check", "pip:anthropic", "--no-scan",
+    ]);
+
+    expect(registry.urls).toHaveLength(2);
+    expect(registry.urls[1].searchParams.has("ecosystem")).toBe(false);
+    const output = printedJson(consoleSpy);
+    expect(output.found).toBe(true);
+    expect(output.verdict).toBe("listed");
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("the bare name's verdict sets the exit code: blocked exits 2", async () => {
+    const registry = bareNameRegistry("anthropic", { verdict: "blocked" });
+    harness.fetchMock = registry.fetchMock;
+
+    await createProgram().parseAsync([
+      "node", "test", "--json", "check", "pip:anthropic", "--no-scan",
+    ]);
+
+    expect(registry.urls).toHaveLength(2);
+    const output = printedJson(consoleSpy);
+    expect(output.found).toBe(true);
+    expect(output.verdict).toBe("blocked");
+    expect(process.exitCode).toBe(2);
+  });
+
+  it("text output prints the note on stderr and the answer on stdout", async () => {
+    const registry = bareNameRegistry("anthropic");
+    harness.fetchMock = registry.fetchMock;
+
+    await createProgram().parseAsync([
+      "node", "test", "check", "pip:anthropic", "--no-scan",
+    ]);
+
+    expect(registry.urls).toHaveLength(2);
+    expect(stderrText()).toContain(NOTE);
+    expect(stdoutText()).toContain("anthropic");
+    expect(stdoutText()).not.toContain("not found");
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("a pip: target the registry has under neither query is not found, exit 2, with no note", async () => {
+    const registry = emptyRegistry();
+    harness.fetchMock = registry.fetchMock;
+
+    await createProgram().parseAsync([
+      "node", "test", "--json", "check", "pip:anthropic", "--no-scan",
+    ]);
+
+    expect(registry.urls).toHaveLength(2);
+    expect(registry.urls[0].searchParams.get("ecosystem")).toBe("pypi");
+    expect(registry.urls[1].searchParams.has("ecosystem")).toBe(false);
+    const output = printedJson(consoleSpy);
+    expect(output.found).toBe(false);
+    expect(output.ecosystem).toBe("pypi");
+    expect(stderrText()).not.toContain("Note: the registry has no PyPI package");
+    expect(process.exitCode).toBe(2);
+  });
+
+  it("check <name> --no-scan, an npm target, asks once with no ecosystem when the registry has no package", async () => {
+    const registry = emptyRegistry();
+    harness.fetchMock = registry.fetchMock;
+
+    await createProgram().parseAsync([
+      "node", "test", "--json", "check", "anthropic-probe-missing", "--no-scan",
+    ]);
+
+    expect(registry.urls).toHaveLength(1);
+    expect(registry.urls[0].searchParams.has("ecosystem")).toBe(false);
+    expect(printedJson(consoleSpy).found).toBe(false);
+    expect(process.exitCode).toBe(2);
+  });
+
+  it("without --no-scan, the PyPI miss goes on to the scan and the bare name is not asked", async () => {
+    const registry = bareNameRegistry("anthropic");
+    harness.fetchMock = registry.fetchMock;
+
+    await createProgram().parseAsync([
+      "node", "test", "--json", "check", "pip:anthropic",
+    ]);
+
+    // Only an answer for the PyPI package decides that a scan is skipped.
+    expect(registry.urls).toHaveLength(1);
+    expect(registry.urls[0].searchParams.get("ecosystem")).toBe("pypi");
+    expect(isHmaAvailable).toHaveBeenCalled();
+    expect(stderrText()).not.toContain("Note: the registry has no PyPI package");
   });
 });
