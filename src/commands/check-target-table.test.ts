@@ -584,9 +584,9 @@ const ROWS: Row[] = [
       },
     },
   },
-  // Kept as observed, though wrong: the not-found block and the --json
-  // nextSteps suggest `ai-trust check table-py-agent`, without the pip:
-  // prefix, a command that checks the npm package of that name.
+  // The not-found block and the --json nextSteps suggest
+  // `ai-trust check pip:table-py-agent`: without the pip: prefix the command
+  // would check the npm package of that name (#114).
   // With --no-scan the trust registry is asked twice: with ecosystem=pypi,
   // and, as it has no PyPI package by the name, by the bare name (#246).
   {
@@ -595,12 +595,12 @@ const ROWS: Row[] = [
     cells: {
       "no flag": {
         exit: 2,
-        shows: ["Package not found: table-py-agent (pypi)", "→ Scan locally  ai-trust check table-py-agent", "Scanning table-py-agent..."],
+        shows: ["Package not found: table-py-agent (pypi)", "→ Scan locally  ai-trust check pip:table-py-agent", "Scanning table-py-agent..."],
         requests: ["trust table-py-agent", "pypi /pypi/table-py-agent/json"],
       },
       "--no-scan": {
         exit: 2,
-        shows: ["Package not found: table-py-agent (pypi)", "→ Scan locally  ai-trust check table-py-agent"],
+        shows: ["Package not found: table-py-agent (pypi)", "→ Scan locally  ai-trust check pip:table-py-agent"],
         requests: ["trust table-py-agent", "trust table-py-agent"],
       },
       "--json": {
@@ -611,7 +611,7 @@ const ROWS: Row[] = [
       },
       "--no-scan --json": {
         exit: 2,
-        json: {"name": "table-py-agent", "ecosystem": "pypi", "found": false, "nextSteps": ["ai-trust check table-py-agent", "npx hackmyagent secure <project-dir>"], "error": "Package \"table-py-agent\" not found in the OpenA2A Registry."},
+        json: {"name": "table-py-agent", "ecosystem": "pypi", "found": false, "nextSteps": ["ai-trust check pip:table-py-agent", "npx hackmyagent secure <project-dir>"], "error": "Package \"table-py-agent\" not found in the OpenA2A Registry."},
         requests: ["trust table-py-agent", "trust table-py-agent"],
       },
     },
@@ -914,20 +914,20 @@ const ROWS: Row[] = [
       },
     },
   },
-  // Same missing pip: prefix in the suggested command as the pip: row above,
-  // and the same two trust queries with --no-scan.
+  // The same pip: prefix in the suggested command as the pip: row above
+  // (#114), and the same two trust queries with --no-scan.
   {
     form: "skill: naming a pip: target, no narrative",
     target: "skill:pip:table-py-agent",
     cells: {
       "no flag": {
         exit: 2,
-        shows: ["Package not found: table-py-agent (pypi)", "→ Scan locally  ai-trust check table-py-agent", "Scanning table-py-agent..."],
+        shows: ["Package not found: table-py-agent (pypi)", "→ Scan locally  ai-trust check pip:table-py-agent", "Scanning table-py-agent..."],
         requests: ["narrative skill:pip:table-py-agent", "trust table-py-agent", "pypi /pypi/table-py-agent/json"],
       },
       "--no-scan": {
         exit: 2,
-        shows: ["Package not found: table-py-agent (pypi)", "→ Scan locally  ai-trust check table-py-agent"],
+        shows: ["Package not found: table-py-agent (pypi)", "→ Scan locally  ai-trust check pip:table-py-agent"],
         requests: ["narrative skill:pip:table-py-agent", "trust table-py-agent", "trust table-py-agent"],
       },
       "--json": {
@@ -938,7 +938,7 @@ const ROWS: Row[] = [
       },
       "--no-scan --json": {
         exit: 2,
-        json: {"name": "table-py-agent", "ecosystem": "pypi", "found": false, "nextSteps": ["ai-trust check table-py-agent", "npx hackmyagent secure <project-dir>"], "error": "Package \"table-py-agent\" not found in the OpenA2A Registry."},
+        json: {"name": "table-py-agent", "ecosystem": "pypi", "found": false, "nextSteps": ["ai-trust check pip:table-py-agent", "npx hackmyagent secure <project-dir>"], "error": "Package \"table-py-agent\" not found in the OpenA2A Registry."},
         requests: ["narrative skill:pip:table-py-agent", "trust table-py-agent", "trust table-py-agent"],
       },
     },

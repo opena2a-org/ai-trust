@@ -756,11 +756,14 @@ export function formatNotFound(input: NotFoundInput): string {
     }
   }
   out.push(divider("Next Steps"));
+  // A PyPI miss keeps its pip: prefix, so the scan is of the same package and
+  // not of the npm package of that name.
+  const target = input.ecosystem === "pypi" ? `pip:${input.pkg}` : input.pkg;
   const ctas: NextStepsCta[] = [
     {
       label: "Scan locally",
       // check scans by default; --scan-if-missing is a no-op.
-      command: `${checkCitation()} ${shellArg(input.pkg)}`,
+      command: `${checkCitation()} ${shellArg(target)}`,
       primary: true,
     },
   ];
