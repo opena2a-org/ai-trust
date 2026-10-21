@@ -64,7 +64,7 @@ vi.mock("../telemetry/contribute.js", async (importOriginal) => ({
 }));
 // isContributeEnabled is the library's read of a saved on, which no test
 // here saves: a scan shared with --contribute sends its summary through
-// submitBatch, and contribute.scanResult would queue nothing.
+// submitBatch, and queueScanResult would queue nothing.
 vi.mock("@opena2a/contribute", () => ({
   contribute: {
     scanResult: vi.fn().mockResolvedValue(undefined),

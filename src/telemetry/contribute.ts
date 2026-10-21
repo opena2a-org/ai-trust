@@ -17,6 +17,7 @@ import {
   contribute,
   getContributorToken,
   isContributeEnabled,
+  queueEvent,
   submitBatch,
   type ContributionEvent as SharedContributionEvent,
   type ContributionBatch as SharedContributionBatch,
@@ -136,36 +137,11 @@ function summarize(scanResult: ScanResult): ScanSummary {
   };
 }
 
-/**
- * Queue a scan's summary as a ContributionEvent.
- *
- * Delegates to @opena2a/contribute for queue management and batch
- * submission. The library queues nothing unless contribution is saved as on.
- */
-export function queueScanResult(
-  packageName: string,
-  scanResult: ScanResult,
-  ecosystem: "npm" | "pypi" | "github" = "npm",
-): void {
-  // Delegate to @opena2a/contribute -- fire-and-forget since the
-  // shared library handles queue persistence internally.
-  contribute.scanResult({
-    tool: "ai-trust",
-    toolVersion: VERSION,
-    packageName,
-    packageVersion: scanResult.packageVersion,
-    ecosystem,
-    ...summarize(scanResult),
-  }).catch(() => {
-    // Non-fatal: contribution should never crash the scan
-  });
-}
-
 /** A scan's summary as the scan_result event the contribute library queues. */
 function scanResultEvent(
   packageName: string,
   scanResult: ScanResult,
-  ecosystem: "npm" | "pypi",
+  ecosystem: "npm" | "pypi" | "github",
 ): SharedContributionEvent {
   return {
     type: "scan_result",
@@ -175,6 +151,30 @@ function scanResultEvent(
     package: { name: packageName, version: scanResult.packageVersion, ecosystem },
     scanSummary: summarize(scanResult),
   };
+}
+
+/**
+ * Queue a scan's summary in the contribute library's queue, for flushQueue
+ * to send. Nothing is queued unless contribution is saved as on. Never
+ * throws.
+ *
+ * The summary goes in with the library's queueEvent, not
+ * contribute.scanResult, which also sends the queue on its own whenever it
+ * holds 10 or more events, to https://api.oa2a.org when it is passed no
+ * registryUrl. ai-trust sends the queue only with flushQueue, to the
+ * registry it is given.
+ */
+export function queueScanResult(
+  packageName: string,
+  scanResult: ScanResult,
+  ecosystem: "npm" | "pypi" | "github" = "npm",
+): void {
+  if (!isContributeEnabled()) return;
+  try {
+    queueEvent(scanResultEvent(packageName, scanResult, ecosystem));
+  } catch {
+    // Non-fatal: contribution should never crash the scan
+  }
 }
 
 const SCAN_PING_TIMEOUT_MS = 5000;
@@ -278,9 +278,9 @@ export async function flushQueue(
  * flush the queue, then send each scan's per-check results to the registry's
  * publish endpoint. Nothing is printed. Never throws.
  *
- * With contribution saved as on, the contribute library queues the summaries
- * and the flush sends them with the contributor token. Without a saved on
- * (a scan shared with --contribute) the library queues nothing, so the
+ * With contribution saved as on, the summaries are queued and the flush sends
+ * the queue in one batch to registryUrl, with the contributor token. Without
+ * a saved on (a scan shared with --contribute) nothing is queued, so the
  * summaries go at once, in one batch under the word "anonymous" as the scan
  * ping is, and a batch the registry does not accept is not kept.
  */
