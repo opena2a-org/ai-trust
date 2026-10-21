@@ -400,8 +400,11 @@ export function registerCheckCommand(program: Command): void {
           // the package name, as the registry was asked.
           const tier = classify({ name: pkg.name, packageType: result.packageType }).tier;
           if (tier === "unrelated") {
-            // Registry-confirmed library. Show the trust data alongside an
-            // out-of-scope note so the user still sees everything we know.
+            // Registry-confirmed library. ai-trust does not score
+            // general-purpose libraries: the text output is the package name,
+            // the out-of-scope notice and the `hackmyagent check` step, with
+            // no trust score, trust level or verdict, and `--json` nests the
+            // registry's answer under `registryData` beside `scored: false`.
             printLibraryWithTrust(result, globalOpts.json, ecosystem);
             // Out of scope is informational (exit 0) UNLESS the registry has
             // actually flagged this library as blocked/warning — policy
