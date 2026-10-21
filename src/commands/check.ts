@@ -960,12 +960,13 @@ function narrativeLookup(target: RichTarget): { name: string; version?: string }
 }
 
 /**
- * Print a registry-confirmed library result. Per the v0.3 spec
- * (ai-trust/CLAUDE.md "UX philosophy v0.3"), Tier 3 libraries get
- * ONLY the out-of-scope notice + HMA CTA \u2014 no trust block. Rendering
- * the trust block on top would surface a misleading "Scan failed \u2014
- * score is unreliable" line on errored library scans (AI-TRUST-1).
- * The full trust read for libraries lives in `hackmyagent check`.
+ * Print a registry-confirmed library result. ai-trust does not score
+ * general-purpose libraries, so a library the registry classifies as one
+ * (Tier 3) gets ONLY the out-of-scope notice + the `hackmyagent check`
+ * step \u2014 no trust block. Rendering the trust block on top would
+ * surface a misleading "Scan failed \u2014 score is unreliable" line on
+ * errored library scans (AI-TRUST-1). The full trust read for libraries
+ * lives in `hackmyagent check`.
  */
 function printLibraryWithTrust(
   result: TrustAnswer,
@@ -974,7 +975,7 @@ function printLibraryWithTrust(
 ): void {
   if (asJson) {
     // Out-of-scope JSON must AGREE with the human output, which shows no trust
-    // block for libraries (v0.3 spec). Previously this spread `...result`, so
+    // block for libraries. Previously this spread `...result`, so
     // the top level carried `trustScore` / `trustLevel` / `verdict` — a script
     // reading those used them as an ai-trust verdict even though ai-trust does
     // not score general-purpose libraries. Lead with scope, mark `scored:
