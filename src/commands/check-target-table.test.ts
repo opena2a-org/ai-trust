@@ -587,6 +587,8 @@ const ROWS: Row[] = [
   // Kept as observed, though wrong: the not-found block and the --json
   // nextSteps suggest `ai-trust check table-py-agent`, without the pip:
   // prefix, a command that checks the npm package of that name.
+  // With --no-scan the trust registry is asked twice: with ecosystem=pypi,
+  // and, as it has no PyPI package by the name, by the bare name (#246).
   {
     form: "pip:name, no registry data",
     target: "pip:table-py-agent",
@@ -599,7 +601,7 @@ const ROWS: Row[] = [
       "--no-scan": {
         exit: 2,
         shows: ["Package not found: table-py-agent (pypi)", "→ Scan locally  ai-trust check table-py-agent"],
-        requests: ["trust table-py-agent"],
+        requests: ["trust table-py-agent", "trust table-py-agent"],
       },
       "--json": {
         exit: 2,
@@ -610,13 +612,14 @@ const ROWS: Row[] = [
       "--no-scan --json": {
         exit: 2,
         json: {"name": "table-py-agent", "ecosystem": "pypi", "found": false, "nextSteps": ["ai-trust check table-py-agent", "npx hackmyagent secure <project-dir>"], "error": "Package \"table-py-agent\" not found in the OpenA2A Registry."},
-        requests: ["trust table-py-agent"],
+        requests: ["trust table-py-agent", "trust table-py-agent"],
       },
     },
   },
   // The registry is asked about a versioned pip: target by the package name;
   // PyPI is asked for that release, then for the project to tell a missing
-  // release from a missing project (#224).
+  // release from a missing project (#224). With --no-scan the trust registry
+  // is asked with ecosystem=pypi, then by the bare name (#246).
   {
     form: "pip:name@version, no registry data",
     target: "pip:table-py-agent@2.0.0",
@@ -629,7 +632,7 @@ const ROWS: Row[] = [
       "--no-scan": {
         exit: 2,
         shows: ["Package not found: table-py-agent@2.0.0 (pypi)"],
-        requests: ["trust table-py-agent"],
+        requests: ["trust table-py-agent", "trust table-py-agent"],
       },
       "--json": {
         exit: 2,
@@ -640,7 +643,7 @@ const ROWS: Row[] = [
       "--no-scan --json": {
         exit: 2,
         json: {"name": "table-py-agent@2.0.0", "ecosystem": "pypi", "found": false, "error": "Package \"table-py-agent@2.0.0\" not found in the OpenA2A Registry."},
-        requests: ["trust table-py-agent"],
+        requests: ["trust table-py-agent", "trust table-py-agent"],
       },
     },
   },
@@ -911,7 +914,8 @@ const ROWS: Row[] = [
       },
     },
   },
-  // Same missing pip: prefix in the suggested command as the pip: row above.
+  // Same missing pip: prefix in the suggested command as the pip: row above,
+  // and the same two trust queries with --no-scan.
   {
     form: "skill: naming a pip: target, no narrative",
     target: "skill:pip:table-py-agent",
@@ -924,7 +928,7 @@ const ROWS: Row[] = [
       "--no-scan": {
         exit: 2,
         shows: ["Package not found: table-py-agent (pypi)", "→ Scan locally  ai-trust check table-py-agent"],
-        requests: ["narrative skill:pip:table-py-agent", "trust table-py-agent"],
+        requests: ["narrative skill:pip:table-py-agent", "trust table-py-agent", "trust table-py-agent"],
       },
       "--json": {
         exit: 2,
@@ -935,7 +939,7 @@ const ROWS: Row[] = [
       "--no-scan --json": {
         exit: 2,
         json: {"name": "table-py-agent", "ecosystem": "pypi", "found": false, "nextSteps": ["ai-trust check table-py-agent", "npx hackmyagent secure <project-dir>"], "error": "Package \"table-py-agent\" not found in the OpenA2A Registry."},
-        requests: ["narrative skill:pip:table-py-agent", "trust table-py-agent"],
+        requests: ["narrative skill:pip:table-py-agent", "trust table-py-agent", "trust table-py-agent"],
       },
     },
   },
