@@ -1,11 +1,18 @@
 /**
- * Tracked files cite no document the repository does not carry (#124).
+ * Tracked files cite no document the repository does not carry (#124, #264).
  *
  * Source comments and changelog entries pointed readers at planning
  * documents under a `briefs` directory that was never part of this
  * repository, so the rule a comment relied on could not be read by anyone
  * working from a clone. A comment states the rule itself, or cites a file
  * that is tracked here.
+ *
+ * A changelog entry and a source comment also cited a section of an
+ * instructions file the repository does not track (#264), by the file's name
+ * and the section's quoted title. A Markdown document cited that way, its path
+ * and then the quoted title with an optional version such as v0.3 between
+ * them, is a file the repository tracks, named by its path from the
+ * repository root.
  *
  * The changelog is checked whole, its released sections included: an entry
  * there also states the rule it followed instead of citing the document
@@ -18,10 +25,13 @@
 import { describe, it, expect } from "vitest";
 import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, posix, resolve } from "node:path";
 
 const ROOT = resolve(__dirname, "..");
 const CITATION = /\bbriefs\//;
+// A section citation: a Markdown document's path, then the section's title in
+// straight or curly quotes, with an optional version such as v0.3 between them.
+const SECTION_CITATION = /([\w./-]+\.md)`?(?: +v\d+(?:\.\d+)*)? +["“][^"”]+["”]/g;
 // Not part of the source tree: dependencies, build and coverage output, git.
 const UNTRACKED_DIRS = new Set(["node_modules", "dist", "coverage", ".git"]);
 
@@ -64,6 +74,11 @@ function checkedText(path: string): string | null {
   return text.includes("\0") ? null : text;
 }
 
+/** The documents a line cites a section of, each as a path from ROOT. */
+function sectionCitations(line: string): string[] {
+  return [...line.matchAll(SECTION_CITATION)].map((match) => posix.normalize(match[1]));
+}
+
 describe("document citations", () => {
   it("lists tracked files", () => {
     expect(trackedFiles()).toContain("CHANGELOG.md");
@@ -97,6 +112,34 @@ describe("document citations", () => {
       if (text === null) continue;
       text.split("\n").forEach((line, i) => {
         if (CITATION.test(line)) citing.push(`${path}:${i + 1}`);
+      });
+    }
+    expect(citing).toEqual([]);
+  });
+
+  it("reads the document out of a section citation, with or without a version", () => {
+    expect(sectionCitations('Per `docs/commands.md` v0.3 "Exit codes", ...')).toEqual([
+      "docs/commands.md",
+    ]);
+    expect(sectionCitations('(./docs/commands.md "Exit codes v0.3")')).toEqual([
+      "docs/commands.md",
+    ]);
+    expect(sectionCitations("see docs/commands.md “Exit codes”")).toEqual(["docs/commands.md"]);
+    // A file name in code is not a section citation.
+    expect(sectionCitations('join(dir, "SKILL.md"), "x"')).toEqual([]);
+  });
+
+  it("cites a section only of a Markdown document the repository tracks", () => {
+    const files = trackedFiles();
+    const tracked = new Set(files);
+    const citing: string[] = [];
+    for (const path of files) {
+      const text = checkedText(path);
+      if (text === null) continue;
+      text.split("\n").forEach((line, i) => {
+        for (const document of sectionCitations(line)) {
+          if (!tracked.has(document)) citing.push(`${path}:${i + 1} ${document}`);
+        }
       });
     }
     expect(citing).toEqual([]);

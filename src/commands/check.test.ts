@@ -2298,7 +2298,7 @@ describe("check command", () => {
       await program.parseAsync(["node", "test", "check", "express", "--no-scan"]);
 
       expect(mockCheckTrust).toHaveBeenCalledWith("express", undefined);
-      // AI-TRUST-1: per v0.3 spec, libraries get out-of-scope only — no
+      // AI-TRUST-1: libraries get out-of-scope only — no
       // trust block. Showing both surfaced a misleading "Scan failed —
       // score is unreliable" line on errored library scans on top of the
       // out-of-scope CTA.
@@ -2412,7 +2412,7 @@ describe("check command", () => {
     });
 
     it("AI-TRUST-1: registry-confirmed library renders ONLY out-of-scope CTA, not the trust block", async () => {
-      // Per v0.3 spec, Tier 3 libraries are out of ai-trust's scope and
+      // Tier 3 libraries are out of ai-trust's scope and
       // get the redirect to HMA. The earlier behavior rendered
       // formatCheckResult on top, which on errored scans surfaced
       // "Scan failed — score is unreliable" stacked on the out-of-scope
