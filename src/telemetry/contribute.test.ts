@@ -5,7 +5,9 @@
  *   - Legacy payload structure matches server-side schema (backward compat)
  *   - No PII (file paths, line numbers, descriptions, fix text) in payload
  *   - Contributor token is a 64-char hex SHA256
- *   - queueScanResult delegates to @opena2a/contribute with correct summary
+ *   - queueScanResult queues the correct summary with the library's
+ *     queueEvent, never with contribute.scanResult, which sends the queue
+ *     on its own
  *   - flushQueue delegates to @opena2a/contribute
  *   - submitContribution queues each scan's summary when contribution is
  *     saved as on and sends it at once otherwise, flushes, sends each scan,
@@ -191,14 +193,35 @@ describe("buildContributionPayload (legacy)", () => {
 describe("queueScanResult", () => {
   beforeEach(() => {
     vi.mocked(contribute.scanResult).mockClear();
+    vi.mocked(queueEvent).mockReset();
+    vi.mocked(isContributeEnabled).mockReturnValue(true);
   });
 
-  it("delegates to contribute.scanResult with correct summary", () => {
+  /** The event the call at `index` queued, its package and summary fields at the top. */
+  function queued(index = 0) {
+    const event = vi.mocked(queueEvent).mock.calls[index][0];
+    return {
+      type: event.type,
+      tool: event.tool,
+      toolVersion: event.toolVersion,
+      packageName: event.package?.name,
+      packageVersion: event.package?.version,
+      ecosystem: event.package?.ecosystem,
+      ...event.scanSummary,
+    };
+  }
+
+  // contribute.scanResult sends the queue on its own whenever it holds 10 or
+  // more events, to https://api.oa2a.org when it is passed no registryUrl
+  // (#271).
+  it("queues the summary with the library's queueEvent, not contribute.scanResult", () => {
     queueScanResult("test-pkg", scanOf(makeSampleFindings()));
 
-    expect(contribute.scanResult).toHaveBeenCalledOnce();
-    const args = vi.mocked(contribute.scanResult).mock.calls[0][0];
+    expect(contribute.scanResult).not.toHaveBeenCalled();
+    expect(queueEvent).toHaveBeenCalledOnce();
+    const args = queued();
 
+    expect(args.type).toBe("scan_result");
     expect(args.tool).toBe("ai-trust");
     expect(args.toolVersion).toBeTruthy();
     expect(args.packageName).toBe("test-pkg");
@@ -211,12 +234,10 @@ describe("queueScanResult", () => {
     expect(args.low).toBe(0);
   });
 
-  it("does not include file paths or descriptions in the call", () => {
+  it("does not include file paths or descriptions in the queued event", () => {
     queueScanResult("test-pkg", scanOf(makeSampleFindings()));
 
-    const serialized = JSON.stringify(
-      vi.mocked(contribute.scanResult).mock.calls[0][0]
-    );
+    const serialized = JSON.stringify(vi.mocked(queueEvent).mock.calls[0][0]);
     expect(serialized).not.toContain("src/config.ts");
     expect(serialized).not.toContain(".mcp/config.json");
     expect(serialized).not.toContain("Found hardcoded API key");
@@ -228,22 +249,36 @@ describe("queueScanResult", () => {
   it("passes the package version through when one is known", () => {
     queueScanResult("test-pkg", scanOf(makeSampleFindings(), {}, "0.9.1"), "pypi");
 
-    const args = vi.mocked(contribute.scanResult).mock.calls[0][0];
+    const args = queued();
     expect(args.packageVersion).toBe("0.9.1");
     expect(args.ecosystem).toBe("pypi");
   });
 
-  it("calls scanResult for each invocation", () => {
+  it("queues one event for each invocation", () => {
     queueScanResult("pkg-a", scanOf(makeSampleFindings()));
     queueScanResult("pkg-b", scanOf([]));
 
-    expect(contribute.scanResult).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(contribute.scanResult).mock.calls[0][0].packageName).toBe(
-      "pkg-a"
-    );
-    expect(vi.mocked(contribute.scanResult).mock.calls[1][0].packageName).toBe(
-      "pkg-b"
-    );
+    expect(queueEvent).toHaveBeenCalledTimes(2);
+    expect(queued(0).packageName).toBe("pkg-a");
+    expect(queued(1).packageName).toBe("pkg-b");
+  });
+
+  it("queues nothing when contribution is not saved as on", () => {
+    vi.mocked(isContributeEnabled).mockReturnValueOnce(false);
+
+    queueScanResult("test-pkg", scanOf(makeSampleFindings()));
+
+    expect(queueEvent).not.toHaveBeenCalled();
+    expect(contribute.scanResult).not.toHaveBeenCalled();
+  });
+
+  it("does not throw when the queue cannot be written", () => {
+    vi.mocked(queueEvent).mockImplementationOnce(() => {
+      throw new Error("EACCES: permission denied");
+    });
+
+    expect(() => queueScanResult("test-pkg", scanOf(makeSampleFindings()))).not.toThrow();
+    expect(queueEvent).toHaveBeenCalledOnce();
   });
 
   // The scanner's findings list only the checks that failed: a score and
@@ -252,21 +287,21 @@ describe("queueScanResult", () => {
   it("sends the scanner's score, not a share of the listed findings", () => {
     queueScanResult("test-pkg", scanOf(makeSampleFindings(), { score: 40 }));
 
-    const args = vi.mocked(contribute.scanResult).mock.calls[0][0];
+    const args = queued();
     expect(args.score).toBe(40);
   });
 
   it("sends the score out of 100 when the scanner's maximum is another number", () => {
     queueScanResult("test-pkg", scanOf([], { score: 45, maxScore: 50, checksPassed: 9 }));
 
-    const args = vi.mocked(contribute.scanResult).mock.calls[0][0];
+    const args = queued();
     expect(args.score).toBe(90);
   });
 
   it("counts the passed checks from the scanner's report for a scan with no failures", () => {
     queueScanResult("empty-pkg", scanOf([], { score: 100, checksEvaluated: 35, checksPassed: 27 }));
 
-    const args = vi.mocked(contribute.scanResult).mock.calls[0][0];
+    const args = queued();
     expect(args).toMatchObject({
       totalChecks: 27,
       passed: 27,
@@ -283,7 +318,7 @@ describe("queueScanResult", () => {
     const failed = makeSampleFindings().filter((f) => !f.passed);
     queueScanResult("test-pkg", scanOf(failed, { score: 60, checksPassed: 20 }));
 
-    const args = vi.mocked(contribute.scanResult).mock.calls[0][0];
+    const args = queued();
     expect(args).toMatchObject({
       totalChecks: 22,
       passed: 20,
@@ -349,10 +384,11 @@ describe("submitContribution", () => {
       type: "mcp_server",
     });
 
-    expect(vi.mocked(contribute.scanResult).mock.calls.map(([e]) => [e.packageName, e.packageVersion, e.ecosystem])).toEqual([
+    expect(vi.mocked(queueEvent).mock.calls.map(([e]) => [e.package?.name, e.package?.version, e.package?.ecosystem])).toEqual([
       ["pkg-a", "1.0.0", "pypi"],
       ["pkg-b", "2.0.0", "pypi"],
     ]);
+    expect(contribute.scanResult).not.toHaveBeenCalled();
     expect(contribute.flush).toHaveBeenCalledOnce();
     expect(contribute.flush).toHaveBeenCalledWith("http://localhost:1", undefined);
     expect(submitBatch).not.toHaveBeenCalled();
@@ -436,9 +472,9 @@ describe("submitContribution", () => {
 
   // #129: the queued event carried verdict "pass" whatever the findings were.
   function queuedVerdict(findings: HmaFinding[]): string | undefined {
-    vi.mocked(contribute.scanResult).mockClear();
+    vi.mocked(queueEvent).mockClear();
     queueScanResult("test-pkg", scanOf(findings));
-    return vi.mocked(contribute.scanResult).mock.calls[0][0].verdict;
+    return vi.mocked(queueEvent).mock.calls[0][0].scanSummary?.verdict;
   }
 
   function finding(severity: string, passed: boolean): HmaFinding {
