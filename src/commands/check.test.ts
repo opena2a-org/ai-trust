@@ -2443,6 +2443,94 @@ describe("check command", () => {
       expect(formatCheckResult).not.toHaveBeenCalled();
     });
 
+    describe("the --no-scan library branch prints what the comment above it says (#267)", () => {
+      // A registry answer for a library that carries a trust score, a trust
+      // level and a verdict.
+      const answer = {
+        name: "chalk",
+        found: true,
+        verdict: "passed",
+        trustLevel: 3,
+        trustScore: 0.82,
+        packageType: "library",
+      };
+
+      function stdoutLines(): string[] {
+        return consoleSpy.mock.calls
+          .map((args) => args.join(" "))
+          .join("\n")
+          .replace(/\x1b\[[0-9;]*m/g, "")
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => line !== "");
+      }
+
+      beforeEach(() => {
+        vi.mocked(RegistryClient).mockImplementation(
+          function () {
+            return {
+              checkTrust: vi.fn().mockResolvedValue(answer),
+              batchQuery: vi.fn(),
+              publishScan: vi.fn(),
+            } as any;
+          }
+        );
+      });
+
+      it("prints the package name, the out-of-scope notice and the hackmyagent check step, and no trust score, trust level or verdict", async () => {
+        await createProgram().parseAsync(["node", "test", "check", "chalk", "--no-scan"]);
+
+        expect(stdoutLines()).toEqual([
+          "chalk  library (registry-classified)",
+          "Out of scope for ai-trust — the registry classifies this as a general-purpose library.",
+          "For a thorough security audit:",
+          "npx hackmyagent check chalk",
+        ]);
+        expect(formatCheckResult).not.toHaveBeenCalled();
+        expect(process.exitCode).toBeUndefined();
+      });
+
+      it("--json nests the registry's answer under registryData beside scored: false", async () => {
+        await createProgram().parseAsync(["node", "test", "--json", "check", "chalk", "--no-scan"]);
+
+        expect(JSON.parse(String(consoleSpy.mock.calls.at(-1)?.[0]))).toEqual({
+          name: "chalk",
+          ecosystem: "npm",
+          packageType: "library",
+          found: true,
+          outOfScope: true,
+          scored: false,
+          outOfScopeReason: "registry-classified as general-purpose library",
+          nextSteps: ["npx hackmyagent check chalk"],
+          registryData: answer,
+        });
+      });
+
+      it("the comment above the call names that output and does not say trust data is shown", () => {
+        const lines = readFileSync(
+          resolve(dirname(fileURLToPath(import.meta.url)), "check.ts"),
+          "utf8",
+        ).split("\n");
+        const call = lines.findIndex(
+          (line) => line.trim() === "printLibraryWithTrust(result, globalOpts.json, ecosystem);",
+        );
+        expect(call).toBeGreaterThan(0);
+        let start = call;
+        while (lines[start - 1].trim().startsWith("//")) start -= 1;
+        const comment = lines
+          .slice(start, call)
+          .map((line) => line.trim().replace(/^\/\/ ?/, ""))
+          .join(" ");
+
+        expect(comment).toContain(
+          "the package name, the out-of-scope notice and the `hackmyagent check` step",
+        );
+        expect(comment).toContain("no trust score, trust level or verdict");
+        expect(comment).toContain("`registryData` beside `scored: false`");
+        expect(comment).not.toMatch(/trust data/i);
+      });
+    });
+
     describe("the hackmyagent hint keeps the pip: prefix of a PyPI target (#132)", () => {
       // The out-of-scope notice goes to stdout (#218).
       function stdoutText(): string {
