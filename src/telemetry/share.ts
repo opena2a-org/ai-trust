@@ -4,6 +4,7 @@
  */
 
 import chalk from "chalk";
+import { measuredNothing } from "../scanner/hma.js";
 import type { ScanResult } from "../scanner/index.js";
 import { confirm } from "../utils/prompt.js";
 import { sendScanPing, submitContribution } from "./contribute.js";
@@ -59,11 +60,16 @@ export async function shareScans(
   };
   let decision = decideContribution(inputs);
 
+  // A scan that measured nothing has no score to share: the registry would
+  // record it as a pass. It is left out of the ping, the summary and the
+  // per-check results.
+  const measured = scans.filter(({ scanResult }) => !measuredNothing(scanResult));
+
   // The scan ping names the package, its verdict and score, so it is sent
   // only with the consent the full contribution needs, and never on an
   // answer given after it.
   if (decision.send) {
-    for (const { name, scanResult } of scans) {
+    for (const { name, scanResult } of measured) {
       sendScanPing(
         name,
         scanResult.verdict,
@@ -87,8 +93,8 @@ export async function shareScans(
     if (tip) process.stderr.write(tip + "\n");
   }
 
-  if (decision.send) {
-    await submitContribution(scans, opts.registryUrl, {
+  if (decision.send && measured.length > 0) {
+    await submitContribution(measured, opts.registryUrl, {
       ecosystem: opts.ecosystem,
       type: opts.type,
     });

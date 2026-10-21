@@ -59,7 +59,7 @@ ai-trust check mcp-server-xyz --contribute                     # download + scan
 ai-trust check server-filesystem --no-scan                     # registry lookup only, no download
 ```
 
-With `--no-scan`, a package the registry does not have exits 2 and points at the plain `check` command to scan it. `--scan-if-missing` is accepted for compatibility and changes nothing, since every package is scanned.
+With `--no-scan`, a package the registry does not have exits 2 and points at the plain `check` command to scan it. `--scan-if-missing` is accepted for compatibility and changes nothing, since every in-scope package is scanned.
 
 The registry's answer names the date of the registry's scan in its header (`scanned 228 days ago (stale)`), or says `scan date not recorded` when the answer carries no date, or `not scanned` when it carries no date and its scan status names no scan. When the answer carries a date but its scan status is not a finished one, the Trust line shows no score and says why, with that date (`Trust     score not shown: the registry's scan status is pending · last recorded scan 231 days ago (stale)`), and the `Scan locally` next step is the command that measures the package now. The answer carries counts of critical and high findings, not the findings themselves, so a count above zero says so (`Findings  0 critical · 1 high (details not returned) · scan status warnings`), and the `Fresh scan` next step is the command that measures the package now (`ai-trust check openai`, or `ai-trust check pip:<name>` for a PyPI package).
 

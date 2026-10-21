@@ -1,14 +1,18 @@
 /**
  * A run that shares sends the summaries still queued from earlier runs,
- * with the contributor token, whatever the saved choice is.
+ * with the contributor token, whatever the saved choice is, and a summary
+ * of its own scan.
  *
  * The contribute library queues a scan's summary (the check counts) in
  * ~/.opena2a/contribute-queue.json only when contribution is saved as on,
- * and a summary stays queued when its upload failed. submitContribution
+ * and a summary stays queued when its upload failed. Without a saved on,
+ * `check --contribute` sends its scan's summary at once, under the word
+ * `anonymous` as the scan ping is, and queues nothing. submitContribution
  * flushes the whole queue on every run that shares, so `check --contribute`
- * with contribution saved off sends a summary an earlier run left queued,
- * and the batch that carries it carries the contributor token. The README
- * and docs/use-cases/contribute-scans.md say so; this file holds them to it.
+ * with contribution saved off also sends a summary an earlier run left
+ * queued, and the batch that carries it carries the contributor token. The
+ * README and docs/use-cases/contribute-scans.md say so; this file holds them
+ * to it.
  *
  * Each case runs the built `dist/index.js` with its own HOME against one
  * local server that plays both registries, as the decision table does: the
@@ -34,6 +38,9 @@ const HEX_64 = /^[0-9a-f]{64}$/;
 /** Contribution saved as off, as `ai-trust config contribute off` saves it. */
 const SAVED_OFF = `{"contribute":{"enabled":false,"decidedAt":"${SEEDED_AT}"}}\n`;
 
+/** Contribution saved as on, as `ai-trust config contribute on` saves it. */
+const SAVED_ON = `{"contribute":{"enabled":true,"decidedAt":"${SEEDED_AT}"}}\n`;
+
 /** A summary an earlier run queued while contribution was saved as on. */
 const QUEUED_SUMMARY = {
   type: "scan_result",
@@ -57,6 +64,15 @@ const QUEUED_SUMMARY = {
 interface ContributeEvent {
   type?: string;
   package?: { name?: string };
+  scanSummary?: {
+    totalChecks: number;
+    passed: number;
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+    score: number;
+  };
 }
 
 interface Batch {
@@ -71,6 +87,8 @@ interface Observed {
   published: boolean;
   /** The queue file after the run, or null when there is none. */
   queue: { events: unknown[] } | null;
+  /** The scan's `--json` result. */
+  result: { score?: number };
 }
 
 let scratch: string;
@@ -153,11 +171,11 @@ function cellEnv(home: string): NodeJS.ProcessEnv {
   return env;
 }
 
-/** `check <package> --no-deep --json --contribute` with the saved choice off and the given queue. */
-function runCheck(prefix: string, queued: unknown[]): Promise<Observed> {
+/** `check <package> --no-deep --json --contribute` with the given saved choice and queue. */
+function runCheck(prefix: string, queued: unknown[], saved = SAVED_OFF): Promise<Observed> {
   const home = join(scratch, "cases", prefix);
   mkdirSync(join(home, ".opena2a"), { recursive: true });
-  writeFileSync(join(home, ".opena2a", "config.json"), SAVED_OFF);
+  writeFileSync(join(home, ".opena2a", "config.json"), saved);
   const queuePath = join(home, ".opena2a", "contribute-queue.json");
   if (queued.length > 0) writeFileSync(queuePath, JSON.stringify({ events: queued }));
 
@@ -181,6 +199,7 @@ function runCheck(prefix: string, queued: unknown[]): Promise<Observed> {
         batches: captured.get(prefix) ?? [],
         published: published.has(prefix),
         queue: existsSync(queuePath) ? (JSON.parse(readFileSync(queuePath, "utf-8")) as { events: unknown[] }) : null,
+        result: JSON.parse(stdout) as { score?: number },
       });
     });
     child.stdin.end();
@@ -189,6 +208,13 @@ function runCheck(prefix: string, queued: unknown[]): Promise<Observed> {
 
 function eventsOfType(batches: Batch[], type: string): ContributeEvent[] {
   return batches.flatMap((b) => (b.events ?? []).filter((e) => e.type === type));
+}
+
+/** The contributor token of the batch that carries the summary of `name`. */
+function tokenOfSummary(batches: Batch[], name: string): string | undefined {
+  return batches.find((b) =>
+    (b.events ?? []).some((e) => e.type === "scan_result" && e.package?.name === name),
+  )?.contributorToken;
 }
 
 beforeAll(async () => {
@@ -223,16 +249,14 @@ describe("check --contribute with contribution saved off", () => {
     expect(existsSync(CLI_PATH)).toBe(true);
   });
 
-  it("sends a summary an earlier run left queued, with the contributor token, and queues none for this scan", async () => {
+  it("sends a summary an earlier run left queued with the contributor token, and this scan's summary as anonymous", async () => {
     if (!existsSync(CLI_PATH)) return;
     const run = await runCheck("q1", [QUEUED_SUMMARY]);
 
     const summaries = eventsOfType(run.batches, "scan_result");
-    expect(summaries.map((e) => e.package?.name)).toEqual([EARLIER_PACKAGE]);
-
-    const carrying = run.batches.filter((b) => (b.events ?? []).some((e) => e.type === "scan_result"));
-    expect(carrying).toHaveLength(1);
-    expect(carrying[0].contributorToken).toMatch(HEX_64);
+    expect(summaries.map((e) => e.package?.name).sort()).toEqual([EARLIER_PACKAGE, PACKAGE].sort());
+    expect(tokenOfSummary(run.batches, EARLIER_PACKAGE)).toMatch(HEX_64);
+    expect(tokenOfSummary(run.batches, PACKAGE)).toBe("anonymous");
 
     // The scan itself still sends its ping, as `anonymous`, and its per-check results.
     expect(eventsOfType(run.batches, "scan_ping").map((e) => e.package?.name)).toEqual([PACKAGE]);
@@ -243,14 +267,43 @@ describe("check --contribute with contribution saved off", () => {
     expect(run.queue?.events ?? []).toEqual([]);
   }, 120000);
 
-  it("sends no summary and no contributor token when nothing is queued", async () => {
+  // #123: the summary of a scan shared with --contribute alone was never sent.
+  it("sends this scan's summary as anonymous, no contributor token, and queues nothing when nothing is queued", async () => {
     if (!existsSync(CLI_PATH)) return;
     const run = await runCheck("q2", []);
 
-    expect(eventsOfType(run.batches, "scan_result")).toEqual([]);
-    expect(run.batches.map((b) => b.contributorToken)).toEqual(["anonymous"]);
+    expect(eventsOfType(run.batches, "scan_result").map((e) => e.package?.name)).toEqual([PACKAGE]);
+    expect(run.batches.map((b) => b.contributorToken)).toEqual(["anonymous", "anonymous"]);
     expect(eventsOfType(run.batches, "scan_ping").map((e) => e.package?.name)).toEqual([PACKAGE]);
     expect(run.published).toBe(true);
     expect(run.queue).toBeNull();
+  }, 120000);
+});
+
+describe("check --contribute with contribution saved on", () => {
+  // #123: the summary's counts and score were computed from the scanner's
+  // findings, which list only the checks that failed: 0 checks and a score
+  // of 0 for a scan the terminal and the published scan score 100.
+  it("sends this scan's summary with the contributor token, the scan's score and its passed checks", async () => {
+    if (!existsSync(CLI_PATH)) return;
+    const run = await runCheck("q3", [], SAVED_ON);
+
+    const summaries = eventsOfType(run.batches, "scan_result");
+    expect(summaries.map((e) => e.package?.name)).toEqual([PACKAGE]);
+    expect(tokenOfSummary(run.batches, PACKAGE)).toMatch(HEX_64);
+
+    const summary = summaries[0].scanSummary;
+    expect(typeof run.result.score).toBe("number");
+    expect(summary?.score).toBe(run.result.score);
+    expect(summary?.passed).toBeGreaterThan(0);
+    expect(summary?.totalChecks).toBe(
+      (summary?.passed ?? 0) +
+        (summary?.critical ?? 0) +
+        (summary?.high ?? 0) +
+        (summary?.medium ?? 0) +
+        (summary?.low ?? 0),
+    );
+    expect(run.published).toBe(true);
+    expect(run.queue?.events ?? []).toEqual([]);
   }, 120000);
 });

@@ -7,14 +7,17 @@
  * Endpoint:   POST api.oa2a.org/api/v1/contribute
  *
  * PRIVACY: Only summary statistics are sent (package name and version,
- * totalChecks, passed, severity counts, score, verdict) with the
- * pseudonymous contributor token. No file paths, no source code, no raw
- * finding descriptions, no PII.
+ * totalChecks, passed, severity counts, score, verdict), with the
+ * pseudonymous contributor token when contribution is saved as on and with
+ * the word "anonymous" in its place otherwise. No file paths, no source
+ * code, no raw finding descriptions, no PII.
  */
 
 import {
   contribute,
   getContributorToken,
+  isContributeEnabled,
+  submitBatch,
   type ContributionEvent as SharedContributionEvent,
   type ContributionBatch as SharedContributionBatch,
 } from "@opena2a/contribute";
@@ -108,52 +111,70 @@ function computeVerdict(findings: HmaFinding[]): string {
 // Queue a scan result (delegates to @opena2a/contribute)
 // ---------------------------------------------------------------------------
 
+type ScanSummary = NonNullable<SharedContributionEvent["scanSummary"]>;
+
 /**
- * Queue a scan result as a ContributionEvent.
+ * A scan's summary: check counts by severity, score and verdict, with no
+ * file paths or descriptions. The scanner's findings list only the checks
+ * that failed, so the passed count is read from its report, and the score
+ * is the scanner's, out of 100, as the terminal shows it.
+ */
+function summarize(scanResult: ScanResult): ScanSummary {
+  const { findings, score, maxScore, checksPassed } = scanResult.scan;
+  const failed = findings.filter((f) => !f.passed);
+  const passed = checksPassed ?? findings.filter((f) => f.passed).length;
+  return {
+    totalChecks: passed + failed.length,
+    passed,
+    critical: failed.filter((f) => f.severity === "critical").length,
+    high: failed.filter((f) => f.severity === "high").length,
+    medium: failed.filter((f) => f.severity === "medium").length,
+    low: failed.filter((f) => f.severity === "low").length,
+    score: maxScore > 0 ? Math.round((score / maxScore) * 100) : score,
+    verdict: computeVerdict(findings),
+    durationMs: 0,
+  };
+}
+
+/**
+ * Queue a scan's summary as a ContributionEvent.
  *
  * Delegates to @opena2a/contribute for queue management and batch
- * submission. Converts the detailed finding list into an anonymized
- * summary: only counts and severity distribution, no file paths or
- * descriptions.
+ * submission. The library queues nothing unless contribution is saved as on.
  */
 export function queueScanResult(
   packageName: string,
-  findings: HmaFinding[],
-  durationMs = 0,
+  scanResult: ScanResult,
   ecosystem: "npm" | "pypi" | "github" = "npm",
-  packageVersion?: string
 ): void {
-  const total = findings.length;
-  const passed = findings.filter((f) => f.passed).length;
-  const failed = findings.filter((f) => !f.passed);
-
-  const critical = failed.filter((f) => f.severity === "critical").length;
-  const high = failed.filter((f) => f.severity === "high").length;
-  const medium = failed.filter((f) => f.severity === "medium").length;
-  const low = failed.filter((f) => f.severity === "low").length;
-  const score = total > 0 ? Math.round((passed / total) * 100) : 0;
-  const verdict = computeVerdict(findings);
-
   // Delegate to @opena2a/contribute -- fire-and-forget since the
   // shared library handles queue persistence internally.
   contribute.scanResult({
     tool: "ai-trust",
     toolVersion: VERSION,
     packageName,
-    packageVersion,
+    packageVersion: scanResult.packageVersion,
     ecosystem,
-    totalChecks: total,
-    passed,
-    critical,
-    high,
-    medium,
-    low,
-    score,
-    verdict,
-    durationMs,
+    ...summarize(scanResult),
   }).catch(() => {
     // Non-fatal: contribution should never crash the scan
   });
+}
+
+/** A scan's summary as the scan_result event the contribute library queues. */
+function scanResultEvent(
+  packageName: string,
+  scanResult: ScanResult,
+  ecosystem: "npm" | "pypi",
+): SharedContributionEvent {
+  return {
+    type: "scan_result",
+    tool: "ai-trust",
+    toolVersion: VERSION,
+    timestamp: new Date().toISOString(),
+    package: { name: packageName, version: scanResult.packageVersion, ecosystem },
+    scanSummary: summarize(scanResult),
+  };
 }
 
 const SCAN_PING_TIMEOUT_MS = 5000;
@@ -253,9 +274,15 @@ export async function flushQueue(
 }
 
 /**
- * Share scans the user consented to share: queue each scan's summary and
+ * Share scans the user consented to share: send each scan's summary and
  * flush the queue, then send each scan's per-check results to the registry's
  * publish endpoint. Nothing is printed. Never throws.
+ *
+ * With contribution saved as on, the contribute library queues the summaries
+ * and the flush sends them with the contributor token. Without a saved on
+ * (a scan shared with --contribute) the library queues nothing, so the
+ * summaries go at once, in one batch under the word "anonymous" as the scan
+ * ping is, and a batch the registry does not accept is not kept.
  */
 export async function submitContribution(
   scans: { name: string; scanResult: ScanResult }[],
@@ -263,8 +290,19 @@ export async function submitContribution(
   opts: { ecosystem: "npm" | "pypi"; type?: string }
 ): Promise<void> {
   try {
-    for (const { name, scanResult } of scans) {
-      queueScanResult(name, scanResult.scan.findings, 0, opts.ecosystem, scanResult.packageVersion);
+    if (isContributeEnabled()) {
+      for (const { name, scanResult } of scans) {
+        queueScanResult(name, scanResult, opts.ecosystem);
+      }
+    } else {
+      await submitBatch(
+        {
+          contributorToken: "anonymous",
+          events: scans.map(({ name, scanResult }) => scanResultEvent(name, scanResult, opts.ecosystem)),
+          submittedAt: new Date().toISOString(),
+        },
+        registryUrl,
+      );
     }
     await flushQueue(registryUrl);
   } catch {

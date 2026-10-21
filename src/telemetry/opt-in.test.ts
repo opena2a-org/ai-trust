@@ -457,7 +457,30 @@ describe("recordScanAndMaybeShowTip", () => {
     const tip = recordScanAndMaybeShowTip(); // scan 3
     expect(tip).toBeTruthy();
     expect(tip).toContain("Tip:");
-    expect(tip).toContain("npx ai-trust check --contribute");
+    expect(tip).toContain("ai-trust config contribute on");
+  });
+
+  // `check` needs a package name: `ai-trust check --contribute` stops with
+  // "missing required argument 'name'" (#123).
+  it("cites the one-scan command with a package name", () => {
+    recordScanAndMaybeShowTip(); // scan 1
+    recordScanAndMaybeShowTip(); // scan 2
+    const tip = recordScanAndMaybeShowTip(); // scan 3
+    expect(tip).toContain("ai-trust check <package> --contribute");
+    expect(tip).not.toContain("check --contribute");
+  });
+
+  it("cites the one-scan command under the prefix opena2a-cli sets", () => {
+    process.env.AI_TRUST_CLI_PREFIX = "opena2a registry";
+    try {
+      recordScanAndMaybeShowTip(); // scan 1
+      recordScanAndMaybeShowTip(); // scan 2
+      const tip = recordScanAndMaybeShowTip(); // scan 3
+      expect(tip).toContain("opena2a registry <package> --contribute");
+      expect(tip).not.toContain("ai-trust check");
+    } finally {
+      delete process.env.AI_TRUST_CLI_PREFIX;
+    }
   });
 
   it("calls shared results pseudonymous, not anonymized (#141)", () => {

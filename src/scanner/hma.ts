@@ -80,6 +80,12 @@ export interface HmaScanResult {
    */
   checksEvaluated?: number;
   /**
+   * Number of executed checks that passed: the records of HMA's
+   * `allFindings` with `passed: true`. A not-applicable record carries no
+   * `passed` and is not counted. Unset when the report has no `allFindings`.
+   */
+  checksPassed?: number;
+  /**
    * Number of files HMA read in the target, from HMA's
    * `coverage.filesExamined`. 0 means there was nothing to scan: the checks
    * that still ran report files that are absent, so the score measures
@@ -332,6 +338,23 @@ export function nothingToScan(scan: Pick<HmaScanResult, "filesExamined" | "unrea
 }
 
 /**
+ * Whether a scan measured nothing, the scans formatScanResult prints with no
+ * score: it read no file and found none it could not read (nothingToScan),
+ * or it executed no check and found nothing, static or semantic. Its score
+ * is not a measurement, so it is not shared. A count the report did not give
+ * is not read as 0.
+ */
+export function measuredNothing(result: {
+  scan: HmaScanResult;
+  semanticFindings?: SemanticFinding[];
+}): boolean {
+  const { scan } = result;
+  if (nothingToScan(scan)) return true;
+  const semantic = result.semanticFindings?.length ?? scan.semanticFindings?.length ?? 0;
+  return scan.checksEvaluated === 0 && !scan.findings.some((f) => !f.passed) && semantic === 0;
+}
+
+/**
  * The command that reinstalls the pinned scanner for the way this copy of
  * ai-trust was installed: `npm install -g ai-trust` for a global install,
  * `npm install` in the project that depends on it, and the reinstall of the
@@ -572,6 +595,14 @@ export async function runHmaScan(
         }
         return result;
       } catch (err: unknown) {
+        // A scanner without --no-contribute would decide about contribution
+        // from the saved choice, so the scan is not run again without it.
+        if (isUnknownOptionError(err, "--no-contribute")) {
+          throw new HmaScanError(
+            "the scanner does not accept --no-contribute, which ai-trust passes so that only ai-trust decides what a scan shares; ai-trust does not scan without it. " +
+              `Reinstall the hackmyagent version ai-trust pins: ${reinstallCommand()}`,
+          );
+        }
         // If an optional flag caused "unknown option", retry without it (older HMA version)
         const rejected = OPTIONAL_HMA_FLAGS.find(
           (flag) => attemptArgs.includes(flag) && isUnknownOptionError(err, flag)
@@ -589,7 +620,10 @@ export async function runHmaScan(
   });
 }
 
-/** Flags that older HMA versions may not recognise; the scan retries without them. */
+/**
+ * Flags that older HMA versions may not recognise; the scan retries without
+ * them. `--no-contribute` is not one: runHmaScan fails without it.
+ */
 const OPTIONAL_HMA_FLAGS = ["--static-only", "--analm"];
 
 /**
@@ -798,6 +832,9 @@ function parseHmaOutput(stdout: string): HmaScanResult {
     score: raw.score ?? 0,
     maxScore: raw.maxScore ?? 100,
     checksEvaluated,
+    ...(Array.isArray(raw.allFindings)
+      ? { checksPassed: executed.filter((f) => f?.passed === true).length }
+      : {}),
     staticChecksEvaluated,
     // The text of a finding can quote the scanned files, a key in them
     // included.

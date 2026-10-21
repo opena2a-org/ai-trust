@@ -41,7 +41,7 @@ It needs Node.js ^20.19 or 22.12+ and no account.
 npx ai-trust check @modelcontextprotocol/server-filesystem
 ```
 
-Without `--no-scan`, `check` downloads the package to a temporary directory and scans it with the bundled HackMyAgent, which takes longer. A general-purpose library gets an out-of-scope notice instead.
+Without `--no-scan`, `check` downloads the package to a temporary directory and scans it with the bundled HackMyAgent. A general-purpose library gets an out-of-scope notice instead. Deep scans download their model from huggingface.co to `~/.nanomind/models` once; `--no-deep` does not.
 
 `check` exits 0 for a safe or out-of-scope package, 1 on an operational error, and 2 for a warning or blocked verdict or a package not found.
 
@@ -71,7 +71,7 @@ On Linux x64, npm also runs the install script of `onnxruntime-node`, a scanner 
 ```bash
 npm install -g opena2a-cli
 opena2a registry @modelcontextprotocol/server-filesystem
-opena2a review                              # full security dashboard
+opena2a review
 ```
 
 ## Telemetry
@@ -87,7 +87,7 @@ ai-trust telemetry status         # the current state and install ID
 
 Sharing scan results is opt-in: `ai-trust config contribute on`, or `--contribute` for one scan; `audit` on a terminal asks. A shared scan sends the registry the package name, version and ecosystem, score, verdict and per-check results, not file paths or source code; a pseudonymous contributor token goes with saved consent or summaries queued earlier.
 
-The bundled scanner sends no telemetry or scan results, and no file to any LLM provider: ai-trust runs it without your saved choices, its telemetry or `ANTHROPIC_API_KEY`. The choice, in `~/.opena2a/config.json`, is shared by OpenA2A tools; `ai-trust config contribute off` turns it off. The [contribution guide](docs/use-cases/contribute-scans.md) lists every field.
+The bundled scanner sends no telemetry or scan results, and no file to any LLM provider: ai-trust runs it without your saved choices, its telemetry or `ANTHROPIC_API_KEY`. The choice, in `~/.opena2a/config.json`, is shared by OpenA2A tools; `ai-trust config contribute off` turns it off.
 
 ## Documentation
 

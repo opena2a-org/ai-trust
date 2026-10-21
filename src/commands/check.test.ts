@@ -69,12 +69,17 @@ vi.mock("../telemetry/contribute.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../telemetry/contribute.js")>()),
   sendScanPing: vi.fn(),
 }));
+// isContributeEnabled is the library's read of a saved on, which no test
+// here saves: a scan shared with --contribute sends its summary through
+// submitBatch, and contribute.scanResult would queue nothing.
 vi.mock("@opena2a/contribute", () => ({
   contribute: {
     scanResult: vi.fn().mockResolvedValue(undefined),
     flush: vi.fn().mockResolvedValue(false),
   },
   getContributorToken: vi.fn().mockReturnValue("a".repeat(64)),
+  isContributeEnabled: vi.fn().mockReturnValue(false),
+  submitBatch: vi.fn().mockResolvedValue(true),
 }));
 
 import {
@@ -100,7 +105,14 @@ import type { AnalystLayerStatus, ScanResult } from "../scanner/index.js";
 import { confirm } from "../utils/prompt.js";
 import { sendScanPing } from "../telemetry/contribute.js";
 import { readContributeChoice } from "../telemetry/opt-in.js";
-import { contribute } from "@opena2a/contribute";
+import { contribute, submitBatch } from "@opena2a/contribute";
+
+/** The package of each scan summary sent at once, in the order sent. */
+function sentSummaryPackages(): unknown[] {
+  return vi
+    .mocked(submitBatch)
+    .mock.calls.flatMap(([batch]) => batch.events.map((event) => event.package));
+}
 
 function createProgram(): Command {
   const program = new Command();
@@ -488,6 +500,8 @@ describe("check command", () => {
       expect(formatNotFound).toHaveBeenCalledWith(
         expect.objectContaining({ pkg: "unknown-pkg", ecosystem: "npm" })
       );
+      // No scan ran, so the block keeps its scan step (#123).
+      expect(vi.mocked(formatNotFound).mock.calls[0][0].scanned).toBeUndefined();
     });
 
     it("points a --json registry miss at the default scan, not the no-op --scan-if-missing (#98)", async () => {
@@ -516,7 +530,7 @@ describe("check command", () => {
       expect(process.exitCode).toBe(2);
       const out = JSON.parse(consoleSpy.mock.calls[0][0] as string);
       // Dropping --no-scan is what scans the package; --scan-if-missing
-      // changes nothing because every package is scanned by default.
+      // changes nothing because every in-scope package is scanned by default.
       expect(out.nextSteps[0]).toBe("ai-trust check unknown-pkg");
       for (const step of out.nextSteps) {
         expect(step).not.toContain("--scan-if-missing");
@@ -1363,9 +1377,9 @@ describe("check command", () => {
       expect(sendScanPing).toHaveBeenCalledWith(
         "server-py", "safe", 90, "https://api.test.com", "pypi"
       );
-      expect(contribute.scanResult).toHaveBeenCalledWith(
-        expect.objectContaining({ packageName: "server-py", ecosystem: "pypi", packageVersion: "0.9.1" })
-      );
+      expect(sentSummaryPackages()).toEqual([
+        { name: "server-py", version: "0.9.1", ecosystem: "pypi" },
+      ]);
       expect(mockPublishScan).toHaveBeenCalledOnce();
       expect(mockPublishScan.mock.calls[0][0]).toMatchObject({
         name: "server-py",
@@ -1412,14 +1426,78 @@ describe("check command", () => {
       expect(sendScanPing).toHaveBeenCalledWith(
         "my-pkg", "safe", 90, "https://api.test.com", "npm"
       );
-      expect(contribute.scanResult).toHaveBeenCalledWith(
-        expect.objectContaining({ packageName: "my-pkg", ecosystem: "npm", packageVersion: "1.2.3" })
-      );
+      expect(sentSummaryPackages()).toEqual([
+        { name: "my-pkg", version: "1.2.3", ecosystem: "npm" },
+      ]);
       expect(mockPublishScan).toHaveBeenCalledOnce();
       expect(mockPublishScan.mock.calls[0][0]).toMatchObject({
         name: "my-pkg",
         version: "1.2.3",
         ecosystem: "npm",
+      });
+    });
+
+    describe("the published scan (#123)", () => {
+      function registryWithout(name: string): ReturnType<typeof vi.fn> {
+        const mockPublishScan = vi.fn().mockResolvedValue({ accepted: true });
+        vi.mocked(RegistryClient).mockImplementation(function () {
+          return {
+            checkTrust: vi.fn().mockRejectedValue(new PackageNotFoundError(name)),
+            publishScan: mockPublishScan,
+          } as any;
+        });
+        vi.mocked(isHmaAvailable).mockResolvedValue(true);
+        return mockPublishScan;
+      }
+
+      function scanned(checksEvaluated: number): ScanResult {
+        return {
+          packageName: "mcp-hello-world",
+          packageVersion: "1.0.0",
+          scan: {
+            score: 100,
+            maxScore: 100,
+            checksEvaluated,
+            filesExamined: 3,
+            findings: [],
+            projectType: "mcp",
+            timestamp: "2026-10-21T00:00:00Z",
+          },
+          trustScore: 1,
+          trustLevel: 3,
+          verdict: "safe",
+        };
+      }
+
+      it("carries the --type the package was checked with", async () => {
+        const mockPublishScan = registryWithout("mcp-hello-world");
+        vi.mocked(scanPackage).mockResolvedValue(scanned(12));
+
+        await createProgram().parseAsync([
+          "node", "test", "check", "mcp-hello-world", "--contribute", "--type", "mcp_server",
+        ]);
+
+        expect(mockPublishScan).toHaveBeenCalledOnce();
+        expect(mockPublishScan.mock.calls[0][0]).toMatchObject({
+          name: "mcp-hello-world",
+          type: "mcp_server",
+          projectType: "mcp",
+        });
+      });
+
+      // The terminal prints "No analyzable surfaces — not scored" for a scan
+      // that executed no check; the registry would record its 100 as a pass.
+      it("is not sent, with no ping and no summary, for a scan that executed no check", async () => {
+        const mockPublishScan = registryWithout("mcp-hello-world");
+        vi.mocked(scanPackage).mockResolvedValue(scanned(0));
+
+        await createProgram().parseAsync(["node", "test", "check", "mcp-hello-world", "--contribute"]);
+
+        expect(formatScanResult).toHaveBeenCalledOnce();
+        expect(mockPublishScan).not.toHaveBeenCalled();
+        expect(sendScanPing).not.toHaveBeenCalled();
+        expect(submitBatch).not.toHaveBeenCalled();
+        expect(contribute.scanResult).not.toHaveBeenCalled();
       });
     });
 
@@ -1565,12 +1643,15 @@ describe("check command", () => {
         await program.parseAsync(["node", "test", "check", "anthropic/code-review"]);
 
         expect(process.exitCode).toBe(2);
+        // `scanned`: the block offers no scan of the package it just
+        // tried to download (#123).
         expect(formatNotFound).toHaveBeenCalledWith(
           expect.objectContaining({
             pkg: "anthropic/code-review",
             ecosystem: "npm",
             errorHint: expect.stringContaining('did you mean "@anthropic/code-review"'),
             suggestions: ["@anthropic/code-review"],
+            scanned: true,
           })
         );
         expect(consoleErrSpy).not.toHaveBeenCalledWith(
@@ -2002,7 +2083,7 @@ describe("check command", () => {
         "--contribute",
       ]);
 
-      expect(contribute.scanResult).toHaveBeenCalled();
+      expect(sentSummaryPackages()).toEqual([{ name: "scan-me", ecosystem: "npm" }]);
     });
 
     it("publishes check IDs and results only, never finding names or messages, and sends the package version (#97)", async () => {
@@ -2075,9 +2156,9 @@ describe("check command", () => {
           attackClass: "SCOPE-ESCALATION",
         },
       ]);
-      expect(contribute.scanResult).toHaveBeenCalledWith(
-        expect.objectContaining({ packageName: "scan-me", ecosystem: "npm", packageVersion: "1.2.3" })
-      );
+      expect(sentSummaryPackages()).toEqual([
+        { name: "scan-me", version: "1.2.3", ecosystem: "npm" },
+      ]);
     });
 
     it("contributes silently once consent is given (no per-scan contribution line)", async () => {
@@ -2130,7 +2211,7 @@ describe("check command", () => {
       }
 
       // The contribution still happens...
-      expect(contribute.scanResult).toHaveBeenCalled();
+      expect(sentSummaryPackages()).toEqual([{ name: "scan-me", ecosystem: "npm" }]);
       expect(contribute.flush).toHaveBeenCalled();
       expect(mockPublishScan).toHaveBeenCalled();
       // ...but nothing about it is printed.
@@ -2509,6 +2590,14 @@ describe("check command", () => {
       expect(help).not.toMatch(/ai-trust check \S+ --scan-if-missing/);
     });
 
+    // A package the registry classifies as a library gets the out-of-scope
+    // notice and no scan, so the help does not say every package is scanned.
+    it("says every in-scope package is scanned by default (#123)", () => {
+      const help = checkHelp().replace(/\s+/g, " ");
+      expect(help).toContain("--scan-if-missing deprecated (every in-scope package is scanned by default)");
+      expect(help).not.toContain("every package is scanned");
+    });
+
     it("describes --scan-path by what it does for the user, not by the test corpus it serves (#177)", () => {
       const help = checkHelp().replace(/\s+/g, " ");
       expect(help).not.toContain("adversarial-corpus");
@@ -2813,7 +2902,7 @@ describe("check command", () => {
 
       expect(stderrLines()).toEqual(
         expect.arrayContaining([
-          "  Note: --scan-if-missing is deprecated. Every package is scanned by default.",
+          "  Note: --scan-if-missing is deprecated. Every in-scope package is scanned by default.",
           "  Note: --rescan is deprecated. Local scan is now the default.",
         ]),
       );
@@ -2829,7 +2918,7 @@ describe("check command", () => {
       await createProgram().parseAsync(["node", "test", "check", "my-pkg", "--no-scan", "--scan-if-missing"]);
 
       expect(stderrLines()).toContain(
-        "  Note: --scan-if-missing is deprecated. Every package is scanned by default.",
+        "  Note: --scan-if-missing is deprecated. Every in-scope package is scanned by default.",
       );
     });
   });

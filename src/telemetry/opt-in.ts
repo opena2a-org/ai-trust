@@ -14,6 +14,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join, dirname } from "path";
 import { homedir } from "os";
 import { createRequire } from "node:module";
+import { checkCitation } from "../utils/cli-prefix.js";
 
 const require = createRequire(import.meta.url);
 
@@ -323,7 +324,7 @@ export function recordScanAndMaybeShowTip(): string | null {
     "",
     "  Tip: Your scans help build community trust data for MCP servers and AI agents.",
     "  Share pseudonymous results so other developers can make informed security decisions.",
-    "  Enable: npx ai-trust check --contribute  (or: ai-trust config contribute on)",
+    `  Enable: ai-trust config contribute on  (or for one scan: ${checkCitation()} <package> --contribute)`,
     "",
   ].join("\n");
 }

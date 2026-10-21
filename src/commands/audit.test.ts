@@ -62,12 +62,17 @@ vi.mock("../telemetry/contribute.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../telemetry/contribute.js")>()),
   sendScanPing: vi.fn(),
 }));
+// isContributeEnabled is the library's read of a saved on, which no test
+// here saves: a scan shared with --contribute sends its summary through
+// submitBatch, and contribute.scanResult would queue nothing.
 vi.mock("@opena2a/contribute", () => ({
   contribute: {
     scanResult: vi.fn().mockResolvedValue(undefined),
     flush: vi.fn().mockResolvedValue(false),
   },
   getContributorToken: vi.fn().mockReturnValue("a".repeat(64)),
+  isContributeEnabled: vi.fn().mockReturnValue(false),
+  submitBatch: vi.fn().mockResolvedValue(true),
 }));
 
 import { RegistryClient } from "@opena2a/registry-client";
@@ -76,7 +81,14 @@ import { formatBatchResults } from "../output/formatter.js";
 import { isHmaAvailable, scanPackage, scannerNodeVersionProblem } from "../scanner/index.js";
 import { sendScanPing } from "../telemetry/contribute.js";
 import { readContributeChoice, saveContributeChoice } from "../telemetry/opt-in.js";
-import { contribute } from "@opena2a/contribute";
+import { contribute, submitBatch } from "@opena2a/contribute";
+
+/** The package of each scan summary sent at once, in the order sent. */
+function sentSummaryPackages(): unknown[] {
+  return vi
+    .mocked(submitBatch)
+    .mock.calls.flatMap(([batch]) => batch.events.map((event) => event.package));
+}
 import { confirm } from "../utils/prompt.js";
 
 function createProgram(): Command {
@@ -1244,9 +1256,9 @@ describe("audit command", () => {
         attackClass: "SCOPE-ESCALATION",
       },
     ]);
-    expect(contribute.scanResult).toHaveBeenCalledWith(
-        expect.objectContaining({ packageName: "leaky-pkg", ecosystem: "npm", packageVersion: "4.5.6" })
-      );
+    expect(sentSummaryPackages()).toEqual([
+      { name: "leaky-pkg", version: "4.5.6", ecosystem: "npm" },
+    ]);
   });
 
   it("publishes a requirements.txt scan with ecosystem pypi, so the registry does not record it as npm", async () => {
@@ -1292,9 +1304,9 @@ describe("audit command", () => {
       version: "0.9.1",
       ecosystem: "pypi",
     });
-    expect(contribute.scanResult).toHaveBeenCalledWith(
-        expect.objectContaining({ packageName: "py-pkg", ecosystem: "pypi", packageVersion: "0.9.1" })
-      );
+    expect(sentSummaryPackages()).toEqual([
+      { name: "py-pkg", version: "0.9.1", ecosystem: "pypi" },
+    ]);
   });
 
   it("does not download a name the registry answered with when the dependency file does not list it", async () => {
@@ -1423,6 +1435,7 @@ describe("audit command", () => {
       expect(confirm).not.toHaveBeenCalled();
       expect(saveContributeChoice).not.toHaveBeenCalled();
       expect(contribute.scanResult).not.toHaveBeenCalled();
+      expect(submitBatch).not.toHaveBeenCalled();
       expect(mockPublishScan).not.toHaveBeenCalled();
       expect(sendScanPing).not.toHaveBeenCalled();
     });
@@ -1445,6 +1458,7 @@ describe("audit command", () => {
       expect(confirm).not.toHaveBeenCalled();
       expect(saveContributeChoice).not.toHaveBeenCalled();
       expect(contribute.scanResult).not.toHaveBeenCalled();
+      expect(submitBatch).not.toHaveBeenCalled();
       expect(mockPublishScan).not.toHaveBeenCalled();
       expect(sendScanPing).not.toHaveBeenCalled();
     });
@@ -1497,7 +1511,7 @@ describe("audit command", () => {
     }
 
     // The contribution still happens...
-    expect(contribute.scanResult).toHaveBeenCalled();
+    expect(sentSummaryPackages()).toEqual([{ name: "quiet-pkg", ecosystem: "npm" }]);
     expect(contribute.flush).toHaveBeenCalled();
     expect(mockPublishScan).toHaveBeenCalled();
     // ...but nothing about it is printed.

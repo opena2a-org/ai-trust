@@ -726,6 +726,11 @@ export interface NotFoundInput extends NotFoundBlockInput {
    * type, so the header names it beside the ecosystem: `(npm, type a2a_agent)`.
    */
   type?: string;
+  /**
+   * A scan of the package was just attempted and could not download it. The
+   * block then offers no scan of it, which would run the same command again.
+   */
+  scanned?: boolean;
 }
 
 /**
@@ -733,7 +738,7 @@ export interface NotFoundInput extends NotFoundBlockInput {
  * Closes F2 (divergent not-found shapes) and F3 (raw git exit codes).
  */
 export function formatNotFound(input: NotFoundInput): string {
-  const { type, ...block } = input;
+  const { type, scanned, ...block } = input;
   const qualifiers = [block.ecosystem, type ? `type ${type}` : undefined]
     .filter((part) => part !== undefined && part !== "")
     .join(", ");
@@ -755,21 +760,25 @@ export function formatNotFound(input: NotFoundInput): string {
       }
     }
   }
-  out.push(divider("Next Steps"));
   // A PyPI miss keeps its pip: prefix, so the scan is of the same package and
   // not of the npm package of that name.
   const target = input.ecosystem === "pypi" ? `pip:${input.pkg}` : input.pkg;
-  const ctas: NextStepsCta[] = [
-    {
+  const ctas: NextStepsCta[] = [];
+  if (!scanned) {
+    ctas.push({
       label: "Scan locally",
       // check scans by default; --scan-if-missing is a no-op.
       command: `${checkCitation()} ${shellArg(target)}`,
       primary: true,
-    },
-  ];
+    });
+  }
   const audit = auditCta();
   if (audit) ctas.push(audit);
-  out.push(...renderNextStepsLines(ctas));
+  // No Next Steps section without a step in it.
+  if (ctas.length > 0) {
+    out.push(divider("Next Steps"));
+    out.push(...renderNextStepsLines(ctas));
+  }
   out.push("");
   return out.join("\n");
 }
