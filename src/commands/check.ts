@@ -794,8 +794,9 @@ function handleNoScanNotFound(
       ecosystem,
       error: `Package "${name}" not found in the OpenA2A Registry${asType}.`,
       nextSteps: [
-        // Without --no-scan, check downloads and scans the package.
-        `${checkCitation()} ${shellArg(name)}`,
+        // Without --no-scan, check downloads and scans the package. A PyPI
+        // target keeps its pip: prefix.
+        `${checkCitation()} ${shellArg(targetArgument(target))}`,
         `npx hackmyagent secure <project-dir>`,
       ],
     })));

@@ -550,6 +550,36 @@ describe("check command", () => {
       expect(out.nextSteps[0]).toBe("ai-trust check 'shell-lib; echo injected'");
     });
 
+    it("keeps the pip: prefix in --json nextSteps for a PyPI registry miss (#114)", async () => {
+      vi.mocked(RegistryClient).mockImplementation(
+        function () {
+          return {
+            checkTrust: vi
+              .fn()
+              .mockRejectedValue(new PackageNotFoundError("smolagents")),
+            batchQuery: vi.fn(),
+            publishScan: vi.fn(),
+          } as any;
+        }
+      );
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node",
+        "test",
+        "check",
+        "pip:smolagents",
+        "--no-scan",
+        "--json",
+      ]);
+
+      expect(process.exitCode).toBe(2);
+      const out = JSON.parse(consoleSpy.mock.calls[0][0] as string);
+      expect(out.ecosystem).toBe("pypi");
+      // Without the prefix the command checks the npm package of that name.
+      expect(out.nextSteps[0]).toBe("ai-trust check pip:smolagents");
+    });
+
     describe("a failed registry lookup names the registry and the scan that runs without it", () => {
       function registryFails(err: Error): ReturnType<typeof vi.fn> {
         const checkTrust = vi.fn().mockRejectedValue(err);

@@ -2851,6 +2851,18 @@ describe("formatNotFound", () => {
     expect(output).not.toContain("--scan-if-missing");
   });
 
+  it("keeps the pip: prefix in the scan command for a PyPI miss (#114)", () => {
+    const output = formatNotFound({ pkg: "smolagents", ecosystem: "pypi" });
+    expect(output).toContain("Package not found: smolagents (pypi)");
+    expect(output).toContain("ai-trust check pip:smolagents");
+    expect(output).not.toMatch(/ai-trust check smolagents/);
+  });
+
+  it("keeps the pip: prefix and the version for a versioned PyPI miss (#114)", () => {
+    const output = formatNotFound({ pkg: "smolagents@1.0.0", ecosystem: "pypi" });
+    expect(output).toContain("ai-trust check pip:smolagents@1.0.0");
+  });
+
   it("includes did-you-mean suggestions when provided", () => {
     const output = formatNotFound({
       pkg: "code-revie",
