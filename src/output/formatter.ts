@@ -46,6 +46,7 @@ import { classify, tierLabel } from "@opena2a/ai-classifier";
 import type { Tier } from "@opena2a/ai-classifier";
 import type { TrustAnswer, BatchResponse } from "@opena2a/registry-client";
 import type { ScanResult } from "../scanner/index.js";
+import { decayScore, type DecayScoredFinding } from "../scanner/decay-score.js";
 import { nothingToScan } from "../scanner/hma.js";
 import { findAuditFile } from "../utils/audit-file.js";
 import { checkCitation } from "../utils/cli-prefix.js";
@@ -1453,6 +1454,32 @@ function notCountedLine(result: ScanResult): string | null {
   return `Not counted: ${list} (local-setup checks a downloaded package is not scored on; --scan-path counts them)`;
 }
 
+/**
+ * Points by which a scan's score may differ from the one decayScore gives
+ * for its failed findings and still be read as following from them.
+ */
+const PROJECTION_TOLERANCE = 1;
+
+/**
+ * The score decayScore gives for a scan's failed findings once every
+ * critical and high one is fixed, for the Path forward line. Undefined when
+ * the scan's score does not follow from its failed findings: decayScore
+ * gives a score more than PROJECTION_TOLERANCE away from it (the scanner
+ * weighs some findings below their severity), or the score is 0, which any
+ * large enough weighted sum gives. A number projected from those findings
+ * need not then be the score a rescan prints.
+ */
+function scoreAfterFixingCriticalAndHigh(
+  score: number,
+  failed: readonly DecayScoredFinding[],
+): number | undefined {
+  // Written so that a score that is not a number gives no projection either.
+  if (!(score > 0) || !(Math.abs(decayScore(failed) - score) <= PROJECTION_TOLERANCE)) {
+    return undefined;
+  }
+  return decayScore(failed.filter((f) => f.severity !== "critical" && f.severity !== "high"));
+}
+
 export function formatScanResult(result: ScanResult, opts: FormatScanResultOptions = {}): string {
   const remote = opts.remote === true;
   const vc = verdictColor(result.verdict);
@@ -1704,18 +1731,19 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
       );
     }
 
-    // Path forward
+    // Path forward: the score once the critical and high findings are
+    // fixed, when the scan's score follows from its findings; otherwise
+    // what to fix, with no number.
     if (critical > 0 || high > 0) {
       const recoveryParts: string[] = [];
       if (critical > 0) recoveryParts.push(`${critical} critical`);
       if (high > 0) recoveryParts.push(`${high} high`);
-      const estRecovery = Math.min(
-        100,
-        result.scan.score + critical * 15 + high * 8
-      );
+      const projected = scoreAfterFixingCriticalAndHigh(result.scan.score, failed);
       lines.push("");
       lines.push(
-        `  ${chalk.cyan.bold("Path forward:")} ${chalk.cyan(String(result.scan.score))} ${chalk.dim("->")} ${chalk.green.bold(String(estRecovery))} ${chalk.cyan(`by fixing ${recoveryParts.join(" + ")}`)}`
+        projected === undefined
+          ? `  ${chalk.cyan.bold("Path forward:")} ${chalk.cyan(`fix ${recoveryParts.join(" + ")}, then rescan to measure`)}`
+          : `  ${chalk.cyan.bold("Path forward:")} ${chalk.cyan(String(result.scan.score))} ${chalk.dim("->")} ${chalk.green.bold(String(projected))} ${chalk.cyan(`by fixing ${recoveryParts.join(" + ")}`)}`
       );
     }
   } else {

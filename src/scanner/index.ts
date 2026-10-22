@@ -25,6 +25,7 @@ export type {
 
 import { lstat, readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { decayScore } from "./decay-score.js";
 import { downloadPackage } from "./downloader.js";
 import { runHmaScan } from "./hma.js";
 import type { HmaScanResult, SemanticFinding, AnalystFinding, HmaScanOptions } from "./hma.js";
@@ -147,24 +148,7 @@ export async function scanPackage(
 
     // Recalculate score if findings were filtered
     if (filteredCount < originalCount && scan.maxScore > 0) {
-      // Use the same exponential decay formula as HMA's calculateScore()
-      const SEVERITY_WEIGHTS: Record<string, number> = {
-        critical: 25,
-        high: 15,
-        medium: 8,
-        low: 3,
-      };
-      let weightedSum = 0;
-      for (const f of scan.findings) {
-        if (!f.passed) {
-          weightedSum += SEVERITY_WEIGHTS[f.severity] ?? 8;
-        }
-      }
-      const DECAY_CONSTANT = 150;
-      scan.score =
-        weightedSum === 0
-          ? 100
-          : Math.round(100 * Math.exp(-weightedSum / DECAY_CONSTANT));
+      scan.score = decayScore(scan.findings);
     }
 
     const trustScore = scan.score / scan.maxScore;

@@ -3055,6 +3055,85 @@ describe("formatScanResult", () => {
       expect(output).not.toContain("more findings");
     });
   });
+
+  // The line added 15 points per critical and 8 per high finding to the
+  // score, up to 100: a downloaded package whose only finding was one high
+  // printed "90 -> 98", and a copy of the kitchen-sink fixture "0 -> 100"
+  // with 25 medium findings and one low left.
+  describe("the Path forward line", () => {
+    function scored(
+      score: number,
+      counts: Partial<Record<HmaFinding["severity"], number>>,
+    ): ScanResult {
+      const findings: HmaFinding[] = [];
+      for (const severity of ["critical", "high", "medium", "low"] as const) {
+        for (let i = 1; i <= (counts[severity] ?? 0); i++) {
+          findings.push({
+            checkId: `TEST-${severity.toUpperCase()}-${i}`,
+            name: `A ${severity} finding ${i}`,
+            description: "",
+            category: "test",
+            severity,
+            passed: false,
+            message: "",
+          });
+        }
+      }
+      return makeScanResult({
+        trustScore: score / 100,
+        scan: {
+          score,
+          maxScore: 100,
+          checksEvaluated: 40,
+          findings,
+          projectType: "node",
+          timestamp: "2026-10-21T00:00:00Z",
+        },
+      });
+    }
+    const pathForward = (result: ScanResult): string[] =>
+      formatScanResult(result).split("\n").filter((l) => l.includes("Path forward"));
+
+    it("projects the score the formula gives once the critical and high findings are fixed", () => {
+      // One high finding weighs 15: round(100 * exp(-15 / 150)) = 90.
+      expect(pathForward(scored(90, { high: 1 }))).toEqual([
+        "  Path forward: 90 -> 100 by fixing 1 high",
+      ]);
+      // One critical and one medium weigh 33 (80); the medium alone 8 (95).
+      expect(pathForward(scored(80, { critical: 1, medium: 1 }))).toEqual([
+        "  Path forward: 80 -> 95 by fixing 1 critical",
+      ]);
+    });
+
+    it("projects from a score within 1 point of the formula's", () => {
+      expect(pathForward(scored(91, { high: 1 }))).toEqual([
+        "  Path forward: 91 -> 100 by fixing 1 high",
+      ]);
+      expect(pathForward(scored(89, { high: 1 }))).toEqual([
+        "  Path forward: 89 -> 100 by fixing 1 high",
+      ]);
+    });
+
+    it("prints no number when the formula does not give the scan's score", () => {
+      for (const score of [86, 88]) {
+        const lines = pathForward(scored(score, { high: 1 }));
+        expect(lines).toEqual(["  Path forward: fix 1 high, then rescan to measure"]);
+        expect(lines[0]).not.toContain("->");
+      }
+    });
+
+    it("prints no number at a score of 0, which any large enough weighted sum gives", () => {
+      const lines = pathForward(scored(0, { critical: 30, high: 50, medium: 25, low: 1 }));
+      expect(lines).toEqual([
+        "  Path forward: fix 30 critical + 50 high, then rescan to measure",
+      ]);
+      expect(lines[0]).not.toContain("->");
+    });
+
+    it("prints no Path forward line without a critical or high finding", () => {
+      expect(pathForward(scored(93, { medium: 1, low: 1 }))).toEqual([]);
+    });
+  });
 });
 
 describe("formatNotFound", () => {
