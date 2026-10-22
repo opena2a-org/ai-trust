@@ -67,6 +67,27 @@ describe("parseDependencyFile", () => {
       expect(result).toEqual([{ name: "vitest" }]);
     });
 
+    it("skips a leading UTF-8 byte order mark, as npm does", async () => {
+      // readFile(..., "utf-8") keeps the mark as the character U+FEFF.
+      mockReadFile.mockResolvedValue(
+        "﻿" + JSON.stringify({ dependencies: { chalk: "^5.3.0" } })
+      );
+
+      const result = await parseDependencyFile("/fake/package.json");
+
+      expect(result).toEqual([{ name: "chalk" }]);
+    });
+
+    it("still refuses a byte order mark that is not at the start", async () => {
+      mockReadFile.mockResolvedValue(
+        "{﻿" + JSON.stringify({ dependencies: { chalk: "^5.3.0" } }).slice(1)
+      );
+
+      await expect(
+        parseDependencyFile("/fake/package.json")
+      ).rejects.toThrow(/package\.json is not valid JSON/);
+    });
+
     it("throws on invalid JSON", async () => {
       mockReadFile.mockResolvedValue("not valid json{{{");
 

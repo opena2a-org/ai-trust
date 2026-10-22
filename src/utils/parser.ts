@@ -61,7 +61,9 @@ function notADependencyFile(fileName: string, problem: string): Error {
 function parsePackageJson(content: string, fileName = "package.json"): PackageQuery[] {
   let pkg: unknown;
   try {
-    pkg = JSON.parse(content);
+    // A UTF-8 byte order mark is read as U+FEFF, which JSON.parse refuses;
+    // npm skips a leading one, so it is dropped here too.
+    pkg = JSON.parse(content.startsWith("﻿") ? content.slice(1) : content);
   } catch (err) {
     // A bare parser message ("Expected property name … at position 2") is not
     // actionable. Wrap it with the file context and a concrete fix so the
