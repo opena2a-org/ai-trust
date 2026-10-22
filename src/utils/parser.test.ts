@@ -84,6 +84,73 @@ describe("parseDependencyFile", () => {
         parseDependencyFile("/fake/package.json")
       ).rejects.toThrow(/package\.json is not valid JSON.*Validate it with/s);
     });
+
+    it("refuses a dependencies value that is a string instead of reading its indices as names", async () => {
+      // Object.keys("oops") is ["0", "1", "2", "3"].
+      mockReadFile.mockResolvedValue(JSON.stringify({ name: "x", dependencies: "oops" }));
+
+      await expect(parseDependencyFile("/fake/package.json")).rejects.toThrow(
+        'package.json is not a dependency file: "dependencies" is a string, not an object of package names. Fix it, then re-run.'
+      );
+    });
+
+    it.each([
+      [{ dependencies: ["a"] }, '"dependencies" is an array'],
+      [{ dependencies: true }, '"dependencies" is a boolean'],
+      [{ dependencies: "" }, '"dependencies" is a string'],
+      [{ devDependencies: 3 }, '"devDependencies" is a number'],
+      [{ devDependencies: 0 }, '"devDependencies" is a number'],
+      [{ dependencies: { chalk: "^5.3.0" }, devDependencies: false }, '"devDependencies" is a boolean'],
+    ])("refuses %j, naming the field and the type found", async (manifest, problem) => {
+      mockReadFile.mockResolvedValue(JSON.stringify(manifest));
+
+      await expect(parseDependencyFile("/fake/package.json")).rejects.toThrow(
+        `package.json is not a dependency file: ${problem}, not an object of package names. Fix it, then re-run.`
+      );
+    });
+
+    it.each([
+      ["[]", "an array"],
+      ['["chalk"]', "an array"],
+      ['"oops"', "a string"],
+      ["5", "a number"],
+      ["true", "a boolean"],
+      ["null", "null"],
+    ])("refuses a top level of %s, naming the top level", async (content, kind) => {
+      mockReadFile.mockResolvedValue(content);
+
+      await expect(parseDependencyFile("/fake/package.json")).rejects.toThrow(
+        `package.json is not a dependency file: the top level is ${kind}, not an object. Fix it, then re-run.`
+      );
+    });
+
+    it("reads a dependencies or devDependencies of null as absent", async () => {
+      mockReadFile.mockResolvedValue(JSON.stringify({ dependencies: null }));
+      await expect(parseDependencyFile("/fake/package.json")).resolves.toEqual([]);
+
+      mockReadFile.mockResolvedValue(
+        JSON.stringify({ dependencies: { chalk: "^5.3.0" }, devDependencies: null })
+      );
+      await expect(parseDependencyFile("/fake/package.json")).resolves.toEqual([
+        { name: "chalk" },
+      ]);
+    });
+
+    it("reads the names of dependencies whose version is not a string", async () => {
+      // Only the names are read.
+      mockReadFile.mockResolvedValue(
+        JSON.stringify({
+          dependencies: { chalk: 5, commander: null },
+          devDependencies: { typescript: { version: "5.3.0" } },
+        })
+      );
+
+      await expect(parseDependencyFile("/fake/package.json")).resolves.toEqual([
+        { name: "chalk" },
+        { name: "commander" },
+        { name: "typescript" },
+      ]);
+    });
   });
 
   describe("requirements.txt parsing", () => {

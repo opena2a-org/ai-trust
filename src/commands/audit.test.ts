@@ -595,6 +595,54 @@ describe("audit command", () => {
       expect(text.split("\n")).toContain("  │ child_process");
       expect(process.exitCode).toBe(2);
     });
+
+    describe("a package.json whose dependencies is a string", () => {
+      const refusal =
+        'package.json is not a dependency file: "dependencies" is a string, not an object of package names. Fix it, then re-run.';
+      let manifest: string;
+      let mockBatchQuery: ReturnType<typeof vi.fn>;
+
+      beforeEach(async () => {
+        manifest = join(dir, "package.json");
+        writeFileSync(manifest, JSON.stringify({ name: "x", dependencies: "oops" }));
+        await useRealParser();
+        // A registry that has none of the names it is asked about, so a
+        // lookup would end the audit with exit 2.
+        mockBatchQuery = vi.fn(async (packages: Array<{ name: string }>) => ({
+          results: packages.map((p) => ({ name: p.name, found: false, trustLevel: 0, verdict: "unknown" })),
+          meta: { total: packages.length, found: 0, notFound: packages.length },
+        }));
+        vi.mocked(RegistryClient).mockImplementation(function () {
+          return { checkTrust: vi.fn(), batchQuery: mockBatchQuery } as any;
+        });
+      });
+
+      it("is refused with exit 1 before anything is looked up", async () => {
+        await createProgram().parseAsync(["node", "test", "audit", manifest]);
+
+        expect(stderrLines()).toEqual([`Error: ${refusal}`]);
+        expect(consoleSpy).not.toHaveBeenCalled();
+        expect(process.exitCode).toBe(1);
+        expect(RegistryClient).not.toHaveBeenCalled();
+        expect(mockBatchQuery).not.toHaveBeenCalled();
+        expect(fetchSpy).not.toHaveBeenCalled();
+      });
+
+      it("is refused as the --json error object", async () => {
+        await createProgram().parseAsync(["node", "test", "--json", "audit", manifest]);
+
+        expect(consoleSpy).toHaveBeenCalledTimes(1);
+        expect(JSON.parse(String(consoleSpy.mock.calls[0][0]))).toEqual({
+          file: manifest,
+          error: refusal,
+        });
+        expect(consoleErrSpy).not.toHaveBeenCalled();
+        expect(process.exitCode).toBe(1);
+        expect(RegistryClient).not.toHaveBeenCalled();
+        expect(mockBatchQuery).not.toHaveBeenCalled();
+        expect(fetchSpy).not.toHaveBeenCalled();
+      });
+    });
   });
 
   describe("file not found: what audit reads and the next command", () => {

@@ -43,11 +43,23 @@ export function detectEcosystem(filePath: string): "npm" | "pypi" {
   return isRequirementsFile(filePath) ? "pypi" : "npm";
 }
 
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** A JSON value that is not an object, as a refusal names it: "a string", "an array", "null". */
+function jsonValueKind(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "an array";
+  return `a ${typeof value}`;
+}
+
+function notADependencyFile(fileName: string, problem: string): Error {
+  return new Error(`${fileName} is not a dependency file: ${problem}. Fix it, then re-run.`);
+}
+
 function parsePackageJson(content: string, fileName = "package.json"): PackageQuery[] {
-  let pkg: {
-    dependencies?: Record<string, string>;
-    devDependencies?: Record<string, string>;
-  };
+  let pkg: unknown;
   try {
     pkg = JSON.parse(content);
   } catch (err) {
@@ -62,11 +74,28 @@ function parsePackageJson(content: string, fileName = "package.json"): PackageQu
     );
   }
 
+  // Only the names are read: the keys of the dependencies and devDependencies
+  // objects, whatever their versions are. A file not shaped that way is
+  // refused before anything is looked up, since Object.keys reads the indices
+  // of a string or an array ("0", "1", ...) as package names and finds none
+  // in a number or a boolean.
+  if (!isJsonObject(pkg)) {
+    throw notADependencyFile(fileName, `the top level is ${jsonValueKind(pkg)}, not an object`);
+  }
+
   const packages: PackageQuery[] = [];
   const seen = new Set<string>();
 
-  for (const deps of [pkg.dependencies, pkg.devDependencies]) {
-    if (!deps) continue;
+  for (const field of ["dependencies", "devDependencies"] as const) {
+    const deps = pkg[field];
+    // A field set to null is read as absent, as a missing one is.
+    if (deps === undefined || deps === null) continue;
+    if (!isJsonObject(deps)) {
+      throw notADependencyFile(
+        fileName,
+        `"${field}" is ${jsonValueKind(deps)}, not an object of package names`
+      );
+    }
     for (const name of Object.keys(deps)) {
       if (!seen.has(name)) {
         seen.add(name);
