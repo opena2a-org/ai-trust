@@ -33,9 +33,19 @@ describe("parseMinTrust", () => {
 
   it("names an empty value, or one with a space or a control character in it, as a JSON string", () => {
     expect(parseMinTrust("")).toEqual({ problem: `${REFUSAL} ""` });
-    expect(parseMinTrust("   ")).toEqual({ problem: `${REFUSAL} ""` });
+    expect(parseMinTrust("   ")).toEqual({ problem: `${REFUSAL} "   "` });
     expect(parseMinTrust("2 3")).toEqual({ problem: `${REFUSAL} "2 3"` });
     expect(parseMinTrust("\u001b[31m3")).toEqual({ problem: `${REFUSAL} "\\u001b[31m3"` });
     expect(parseMinTrust("2\n3")).toEqual({ problem: `${REFUSAL} "2\\n3"` });
+  });
+
+  // The refusal named the value with the whitespace around it dropped: " 9"
+  // as 9, "\t5" as 5 and "   " as "" (#282).
+  it("names a value with whitespace before or after it as given, the whitespace included", () => {
+    expect(parseMinTrust(" 9")).toEqual({ problem: `${REFUSAL} " 9"` });
+    expect(parseMinTrust("9 ")).toEqual({ problem: `${REFUSAL} "9 "` });
+    expect(parseMinTrust("\t5")).toEqual({ problem: `${REFUSAL} "\\t5"` });
+    expect(parseMinTrust("5\n")).toEqual({ problem: `${REFUSAL} "5\\n"` });
+    expect(parseMinTrust(" 2.5 ")).toEqual({ problem: `${REFUSAL} " 2.5 "` });
   });
 });
