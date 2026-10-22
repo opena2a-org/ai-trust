@@ -5,7 +5,7 @@
 
 import chalk from "chalk";
 import type { Command } from "commander";
-import type { TrustAnswer } from "@opena2a/registry-client";
+import type { BatchResponse, TrustAnswer } from "@opena2a/registry-client";
 import {
   createRegistryClient,
   registryErrorMessage,
@@ -115,7 +115,17 @@ export function registerAuditCommand(program: Command): void {
         const ecosystem = detectEcosystem(file);
 
         if (packages.length === 0) {
-          console.log("No dependencies found in the specified file.");
+          // With --json stdout is the `results` and `meta` of an audit, as
+          // for a file that lists packages: no results and counts of 0.
+          if (globalOpts.json) {
+            const noPackages: BatchResponse = {
+              results: [],
+              meta: { total: 0, found: 0, notFound: 0 },
+            };
+            console.log(formatJson(noPackages));
+          } else {
+            console.log("No dependencies found in the specified file.");
+          }
           return;
         }
 
