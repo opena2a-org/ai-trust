@@ -4,7 +4,9 @@
  * material in docs/ and CONTRIBUTING.md.
  *
  * These checks hold that form: the word, section and paragraph budgets; no
- * version numbers or dates in the README (the capture sidecar records them);
+ * version numbers or dates in the README (the capture sidecar records them),
+ * but in the caption of an embedded recording, which its render writes from
+ * the recording's sidecar and src/recording-sidecar.test.ts holds to it;
  * AIM named in full where it first appears; a Telemetry section that does not call the telemetry anonymous and whose
  * commands run; use-case guides that do not call contributed scans anonymous; links and anchors that resolve, and no external link to a
  * host a link checker cannot fetch; each reference section at
@@ -33,6 +35,7 @@ const QUICK_START = "npx ai-trust check @modelcontextprotocol/server-filesystem 
 const CAPTURE = "docs/captures/quick-start.txt";
 const SIDECAR = "docs/captures/quick-start.json";
 const VERSION_OR_DATE = /v?[0-9]+\.[0-9]+\.[0-9]+|20[0-9]{2}-[0-9]{2}-[0-9]{2}/;
+const RECORDING_CAPTION = /^Recorded with \S+ [0-9]+\.[0-9]+\.[0-9]+ on 20[0-9]{2}-[0-9]{2}-[0-9]{2}$/;
 const ANONYMOUS_CLASS = /anonymi[sz]ed|anonymous|irreversible|no personal data|does not identify/i;
 const AIM_FIRST_USE = "OpenA2A AIM (Agent Identity Management)";
 // npmjs.com package pages answer 403 to any client without a browser session,
@@ -60,6 +63,21 @@ function paragraphs(text: string): string[] {
   }
   if (current.length) out.push(current.join("\n"));
   return out;
+}
+
+/**
+ * Indexes of the recording captions: lines in the form the record script
+ * writes, between a <!-- demo:<name>:start --> and its end marker.
+ */
+function recordingCaptions(lines: string[]): Set<number> {
+  const captions = new Set<number>();
+  let open = false;
+  lines.forEach((line, i) => {
+    const marker = line.trim().match(/^<!-- demo:[a-z0-9-]+:(start|end) -->$/);
+    if (marker) open = marker[1] === "start";
+    else if (open && RECORDING_CAPTION.test(line)) captions.add(i);
+  });
+  return captions;
 }
 
 /** The anchor GitHub gives a heading. */
@@ -108,8 +126,11 @@ describe("README: short form", () => {
     expect(counts.filter((n) => n > LONG_PARAGRAPH_WORDS).length).toBeLessThanOrEqual(MAX_LONG_PARAGRAPHS);
   });
 
-  it("carries no version number or date", () => {
-    const hits = LINES.map((l, i) => `${i + 1}: ${l}`).filter((l) => VERSION_OR_DATE.test(l.replace(/^\d+: /, "")));
+  it("carries no version number or date, but in a recording's caption", () => {
+    const captions = recordingCaptions(LINES);
+    const hits = LINES.map((l, i) => `${i + 1}: ${l}`).filter(
+      (l, i) => !captions.has(i) && VERSION_OR_DATE.test(l.replace(/^\d+: /, "")),
+    );
     expect(hits).toEqual([]);
   });
 

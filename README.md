@@ -91,13 +91,19 @@ The bundled scanner sends no telemetry or scan results, and no file to any LLM p
 
 ## Documentation
 
-- [Command reference](docs/commands.md): options, MCP server shorthand, trust levels, exit codes
-- [Install from source and verify a release](docs/install.md)
-- [Use cases](docs/USE-CASES.md): step-by-step guides
+- [Command reference](docs/commands.md): options, trust levels, exit codes
+- [Use cases](docs/USE-CASES.md)
 - [Contributing](CONTRIBUTING.md) and security reports
-- [ai-trust check: an MCP server, then audit package.json](docs/vhs/check.gif) ([capture](docs/vhs/check-capture.txt), [provenance](docs/vhs/check.json))
 - [Website](https://opena2a.org/ai-trust), [Discord](https://discord.gg/uRZa3KXgEn)
 - Other OpenA2A tools: [OpenA2A CLI](https://github.com/opena2a-org/opena2a), [HackMyAgent](https://github.com/opena2a-org/hackmyagent), [Secretless](https://github.com/opena2a-org/secretless-ai), [OpenA2A AIM (Agent Identity Management)](https://github.com/opena2a-org/agent-identity-management), [Browser Guard](https://github.com/opena2a-org/AI-BrowserGuard), [DVAA](https://github.com/opena2a-org/damn-vulnerable-ai-agent), [aicomply](https://github.com/opena2a-org/aicomply)
+
+<!-- demo:check:start -->
+![ai-trust check on an MCP server, then audit package.json](docs/vhs/check.gif)
+
+Recorded with ai-trust 0.7.6 on 2026-10-22
+
+[capture](docs/vhs/check-capture.txt), [provenance](docs/vhs/check.json)
+<!-- demo:check:end -->
 
 ## License
 

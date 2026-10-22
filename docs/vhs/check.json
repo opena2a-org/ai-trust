@@ -1,53 +1,89 @@
 {
-  "tape": "docs/vhs/check.tape",
-  "tapeSha256": "8fbea1754c3a2b7031c5e05017c745f907f8b453ec58893a28f8e8e0527ea2bf",
-  "scriptSha256": "8fbea1754c3a2b7031c5e05017c745f907f8b453ec58893a28f8e8e0527ea2bf",
+  "schema": "demo-sidecar/2",
+  "surfaceClass": "terminal",
+  "tool": "ai-trust",
+  "version": "0.7.6",
+  "prerelease": false,
+  "script": "docs/vhs/check.tape",
+  "scriptSha256": "b1aebf870267966da6fa5bda2e7c8ef7235025ef20b589dedfaf66d4393d0f1f",
+  "recorder": {
+    "name": "vhs",
+    "version": "v0.12.0+render-context-patch",
+    "container": "docs/vhs/docker/Dockerfile"
+  },
   "commands": [
     "npx ai-trust check @modelcontextprotocol/server-filesystem --no-scan",
     "npx ai-trust audit package.json"
   ],
-  "tool": "ai-trust",
-  "version": "0.7.6",
-  "npmIntegrity": "sha512-ngLGYSebe5mlqDl9kOhvy4WjpFvwcESTO1ReTAyPfADo074gUZpXwXu+6+s0KwRTED6pYwhkrIT4FJJdSpWliw==",
-  "ranAtUtc": "2026-10-13T17:33:00Z",
-  "registryHost": "api.oa2a.org",
+  "steps": [
+    {
+      "id": "s1",
+      "title": "Look up an MCP server in the registry",
+      "anchorFrame": "docs/vhs/check-s1.png"
+    },
+    {
+      "id": "s2",
+      "title": "Audit the dependencies in package.json",
+      "anchorFrame": "docs/vhs/check-s2.png"
+    }
+  ],
   "fixture": "docs/demo, the sample project",
   "fixtureSha": "48a64fda9a868f7c46671895f891ace6d94ec8aaa584bf5f4cced7bed8345e5e",
   "fixtureUncommittedChanges": 0,
-  "fixturePath": "/work/demo",
-  "hostname": "laptop",
-  "columns": 120,
-  "rows": 40,
-  "framerate": 10,
-  "gifsicle": "-O3 --lossy=40 --batch",
-  "gifFrames": 52,
-  "gifFullScreenFrames": 0,
-  "renderedPixelSize": {
-    "width": 1150,
-    "height": 774
-  },
+  "ranAtUtc": "2026-10-22T12:59:59Z",
+  "durationSeconds": 31.3,
   "outputs": {
     "gif": {
       "path": "docs/vhs/check.gif",
-      "bytes": 102180,
-      "sha256": "ad7af90a693600757ca520c29d51bda97bd93a649c13513b18cd900aab646504"
+      "bytes": 122357,
+      "sha256": "b48c1bc2a2559cf8c7331a58d225a7d7e8648aa2945b5ebe5f4b7a43f2d35dcc",
+      "width": 1146,
+      "height": 564,
+      "frames": 107
     },
     "mp4": {
       "path": "docs/vhs/out/check.mp4",
-      "bytes": 199343,
-      "sha256": "2bdc62d6e863ade69a1b41092a0464d46dcd01ff4a17e19cea3bd8b0a3b86e86",
-      "committed": false
+      "bytes": 173818,
+      "sha256": "d3bc139cf3464a07cf0c580d6809ddf020cb13302bdbed405533782de72c6834",
+      "committed": false,
+      "faststart": true
     },
-    "frames": [],
+    "frames": [
+      "docs/vhs/check-s1.png",
+      "docs/vhs/check-s2.png"
+    ],
     "capture": "docs/vhs/check-capture.txt"
   },
-  "durationSeconds": 21.2,
-  "wallClockSeconds": 32.1,
-  "meteredCostUsd": 0,
+  "capture": "docs/vhs/check-capture.txt",
+  "narration": "docs/vhs/check.narration.json",
+  "pace": {
+    "typingSpeedMs": 120,
+    "preEnterHoldMs": 800,
+    "minHoldSeconds": 3,
+    "maxLineChars": 72
+  },
   "exitCodes": [
     0,
     0
   ],
+  "meteredCostUsd": 0,
+  "tape": "docs/vhs/check.tape",
+  "tapeSha256": "b1aebf870267966da6fa5bda2e7c8ef7235025ef20b589dedfaf66d4393d0f1f",
+  "npmIntegrity": "sha512-ngLGYSebe5mlqDl9kOhvy4WjpFvwcESTO1ReTAyPfADo074gUZpXwXu+6+s0KwRTED6pYwhkrIT4FJJdSpWliw==",
+  "registryHost": "api.oa2a.org",
+  "fixturePath": "/work/demo",
+  "hostname": "laptop",
+  "columns": 120,
+  "rows": 28,
+  "framerate": 10,
+  "gifsicle": "-O3 --lossy=40 --batch",
+  "gifFrames": 107,
+  "gifFullScreenFrames": 1,
+  "renderedPixelSize": {
+    "width": 1146,
+    "height": 564
+  },
+  "wallClockSeconds": 48.1,
   "vhsPatchSha256": "c4b812056b2e16f046ea705f617906c30136ff20f19de5bf2f8bf5e3b38035a0",
   "edits": [
     "setup not shown"
