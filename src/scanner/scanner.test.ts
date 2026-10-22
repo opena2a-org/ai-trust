@@ -359,6 +359,50 @@ describe("scanPackage", () => {
     expect(result.scan.score).toBe(95);
   });
 
+  it("recomputes the score from the failed findings it keeps: critical 25, high 15, medium 8, low 3, any other 8, round(100 * exp(-sum / 150))", async () => {
+    const failed = (severity: string, checkId = `TEST-${severity}`) => ({
+      checkId,
+      name: checkId,
+      description: "",
+      category: "security",
+      severity: severity as "critical" | "high" | "medium" | "low",
+      passed: false,
+      message: checkId,
+    });
+    const scoreKeeping = async (kept: ReturnType<typeof failed>[]): Promise<number> => {
+      setupDownload("@modelcontextprotocol/server-filesystem");
+      vi.mocked(runHmaScan).mockResolvedValue({
+        score: 50,
+        maxScore: 100,
+        // GIT-001 is left out, so the score is recomputed from the others.
+        findings: [{ ...failed("medium", "GIT-001"), category: "git" }, ...kept],
+        projectType: "mcp",
+        timestamp: "2026-10-21T00:00:00Z",
+      });
+      return (await scanPackage("@modelcontextprotocol/server-filesystem")).scan.score;
+    };
+
+    // 25 + 15 + 8 + 3 = 51.
+    expect(await scoreKeeping([failed("critical"), failed("high"), failed("medium"), failed("low")])).toBe(71);
+    expect(await scoreKeeping([failed("high")])).toBe(90);
+    expect(await scoreKeeping([failed("critical"), failed("medium")])).toBe(80);
+    expect(await scoreKeeping([failed("info")])).toBe(95);
+    expect(await scoreKeeping([{ ...failed("critical"), passed: true }])).toBe(100);
+    // 30 critical, 48 high, 25 medium and 1 low weigh 1673.
+    expect(
+      await scoreKeeping([
+        ...Array.from({ length: 30 }, () => failed("critical")),
+        ...Array.from({ length: 48 }, () => failed("high")),
+        ...Array.from({ length: 25 }, () => failed("medium")),
+        failed("low"),
+      ]),
+    ).toBe(0);
+    // 25 medium and 1 low weigh 203.
+    expect(
+      await scoreKeeping([...Array.from({ length: 25 }, () => failed("medium")), failed("low")]),
+    ).toBe(26);
+  });
+
   it("cleans up even when scan fails", async () => {
     setupDownload("crash-pkg");
     vi.mocked(runHmaScan).mockRejectedValue(new Error("scan crashed"));

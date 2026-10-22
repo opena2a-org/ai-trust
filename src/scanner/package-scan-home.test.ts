@@ -52,6 +52,7 @@ const SRC_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
 const SCANNER_SOURCES = [
   "scanner/index.ts",
   "scanner/hma.ts",
+  "scanner/decay-score.ts",
   "scanner/downloader.ts",
   "scanner/mask-secrets.ts",
   "scanner/signal-cleanup.ts",
