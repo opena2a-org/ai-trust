@@ -17,7 +17,7 @@ import {
   readSecurityProfile,
   type RegistrySecurityProfile,
 } from "./security-profile.js";
-import { verifyCommand } from "./finding-location.js";
+import { runnableFix, verifyCommand } from "./finding-location.js";
 
 /** A single security finding surfaced in the JSON output. */
 export interface CheckJsonFinding {
@@ -35,7 +35,13 @@ export interface CheckJsonFinding {
   file?: string;
   /** 1-based line in `file`; present only when the scanner reported one. */
   line?: number;
-  /** The scanner's fix for the finding, when it supplied one. */
+  /**
+   * The scanner's fix for the finding, when it supplied one. With `check
+   * --scan-path` it is the text output's Fix line: a command of another
+   * OpenA2A CLI is in the `npx <package>` form, and a fix that is only
+   * `secure --fix` names the scanned directory
+   * (`npx hackmyagent secure <directory> --fix`).
+   */
   fix?: string;
   /**
    * The command that prints `line` of `file` in the scanned directory, as the
@@ -202,7 +208,12 @@ function mapFinding(f: {
   // A line that is not a number (absent, or null in the scanner's JSON) is
   // no line, so the field is omitted rather than written as null.
   if (typeof f.line === "number") out.line = f.line;
-  if (typeof f.fix === "string" && f.fix !== "") out.fix = f.fix;
+  // After --scan-path the fix is the text output's Fix line, so a bare
+  // `secure --fix` names the scanned directory instead of acting on the one
+  // the command is run in.
+  if (typeof f.fix === "string" && f.fix !== "") {
+    out.fix = scanned ? runnableFix(f.fix, scanned.scanPath) : f.fix;
+  }
   const verify = scanned ? verifyCommand(scanned.scanPath, f, scanned.absentFiles) : undefined;
   if (verify !== undefined) out.verify = verify;
   return out;

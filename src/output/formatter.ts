@@ -7,6 +7,7 @@
  *   - Actionable next steps
  */
 
+import { join } from "node:path";
 import chalk from "chalk";
 import {
   scoreMeter,
@@ -32,14 +33,13 @@ import {
   type NotFoundTone,
 } from "@opena2a/cli-ui";
 import { buildScoreAwareVerdict, type LeadFinding } from "./score-aware-verdict.js";
-import { verifyCommand } from "./finding-location.js";
+import { pathArg, runnableFix, secureFixCommand, verifyCommand } from "./finding-location.js";
 import {
   hasRecordedIssues,
   readSecurityProfile,
   type RegistrySecurityProfile,
 } from "./security-profile.js";
 import { capLength, sanitizeRegistryValue, stripControlCharacters } from "./sanitize.js";
-import { citeCommandsInText } from "./registry-command.js";
 import { trustGate, type TrustGate } from "./trust-gate.js";
 import { mapScanStatusForMeter } from "@opena2a/check-core";
 import { classify, tierLabel } from "@opena2a/ai-classifier";
@@ -263,34 +263,27 @@ function typeMismatchCommands(excluded: TrustAnswer[]): string[] {
   );
 }
 
-/**
- * The scanner's fix text names each OpenA2A CLI by its command
- * (`hackmyagent secure --fix`, `opena2a protect .`). A global install of
- * ai-trust puts none of them on PATH, so show the `npx <package> ...` form the
- * Verdict and Next Steps lines already use (`npx opena2a-cli protect .`).
- */
-function runnableFix(fix: string): string {
-  return citeCommandsInText(fix);
-}
-
 /** "Fix: ", the label the later lines of a fix are indented past. */
 const FIX_LABEL_WIDTH = "Fix: ".length;
 
 /**
- * The Fix lines of a finding, each inside the finding's gutter. The scanner
- * writes some fixes on several lines: a command, the lines to add to a file
- * and a closing `Verify:` command. The first line follows "Fix:", each later
- * line is indented under it, and an empty line is the gutter alone. A fix of
- * several lines that a finding printed above already printed is not printed
- * again: the line names that finding. `shown` holds the fixes of several
- * lines printed so far, each with the finding that printed it.
+ * The Fix lines of a finding, each inside the finding's gutter. The fix is
+ * written by runnableFix, for `scanPath`, the directory `check --scan-path`
+ * scanned, when there is one. The scanner writes some fixes on several
+ * lines: a command, the lines to add to a file and a closing `Verify:`
+ * command. The first line follows "Fix:", each later line is indented under
+ * it, and an empty line is the gutter alone. A fix of several lines that a
+ * finding printed above already printed is not printed again: the line names
+ * that finding. `shown` holds the fixes of several lines printed so far, each
+ * with the finding that printed it.
  */
 function fixLines(
   finding: { name: string; checkId: string; file?: string; line?: number; fix: string },
   gutter: string,
   shown: Map<string, string>,
+  scanPath: string | undefined,
 ): string[] {
-  const text = runnableFix(finding.fix).split(/\r?\n/);
+  const text = runnableFix(finding.fix, scanPath).split(/\r?\n/);
   while (text.length > 1 && text[0].trim() === "") text.shift();
   while (text.length > 1 && text[text.length - 1].trim() === "") text.pop();
   const label = `  ${gutter} ${chalk.cyan("Fix:")}`;
@@ -579,13 +572,17 @@ function hasNoAnalyzableSurfaces(result: ScanResult): boolean {
 }
 
 /**
- * The "Full project audit" next step, or null when the current directory
- * holds no file `audit` reads: a command that would fail is not a next step.
+ * The "Full project audit" next step, or null when the directory holds no
+ * file `audit` reads: a command that would fail is not a next step. The
+ * directory is the current one, or `scanPath`, the one `check --scan-path`
+ * scanned, as the user gave it. Its file is then named by its path from the
+ * current directory, as a Verify command names a finding's file.
  */
-function auditCta(): NextStepsCta | null {
-  const file = findAuditFile();
+function auditCta(scanPath?: string): NextStepsCta | null {
+  const file = findAuditFile(scanPath);
   if (!file) return null;
-  return { label: "Full project audit", command: `ai-trust audit ${file}` };
+  const target = scanPath === undefined ? file : pathArg(join(stripControlCharacters(scanPath), file));
+  return { label: "Full project audit", command: `ai-trust audit ${target}` };
 }
 
 function renderNextStepsLines(ctas: NextStepsCta[]): string[] {
@@ -1406,7 +1403,9 @@ export interface FormatScanResultOptions {
   /**
    * The directory `check --scan-path` scanned, as the user gave it. Named in
    * the notice for a scan that read 0 files, with a command that lists it,
-   * and in the Verify command of each finding with a file and a line.
+   * in the Verify command of each finding with a file and a line, and in the
+   * commands that act on the scanned tree: `npx hackmyagent secure <dir>
+   * --fix` and the `ai-trust audit` of its dependency file.
    */
   scanPath?: string;
   /**
@@ -1541,13 +1540,17 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
   // The scanner's `mcp` reads "MCP server", the name the check header and
   // the batch table give the registry's mcp_server.
   const projectLabel = rawKind && rawKind !== "unknown" ? scanKindName(rawKind) : "package";
+  // The fix commands name the scanned directory, so they act on it and not
+  // on the directory check ran in. Control characters are removed, as in
+  // the Verify command of a scan that read 0 files.
+  const fixDirectory = opts.scanPath === undefined ? undefined : stripControlCharacters(opts.scanPath);
   const scoreAwareVerdict = noAnalyzableSurfaces
     ? null
     : buildScoreAwareVerdict(
         result.verdict,
         { critical, high, medium, low, total },
         verdictFindings,
-        { kind: projectLabel, remote },
+        { kind: projectLabel, remote, scanPath: fixDirectory },
       );
   const verdictText = scoreAwareVerdict
     ? scoreAwareVerdict.headline
@@ -1712,7 +1715,7 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
         if (verify) lines.push(`  ${sevColor("\u2502")} ${chalk.cyan("Verify:")} ${verify}`);
       }
       if (f.fix) {
-        lines.push(...fixLines({ ...f, fix: f.fix }, sevColor("\u2502"), fixesShown));
+        lines.push(...fixLines({ ...f, fix: f.fix }, sevColor("\u2502"), fixesShown, fixDirectory));
       } else if (opts.scanPath !== undefined) {
         lines.push(`  ${sevColor("\u2502")} ${chalk.cyan("Fix:")} ${noFixSupplied(f.checkId)}`);
       }
@@ -1836,15 +1839,16 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
     // For a downloaded third-party package the findings live in code the user
     // does not own, so `secure --fix` is the wrong action — the action is to
     // pin a vetted version or pick an alternative. Keep `secure --fix` only
-    // for local scans (the user's own tree). Stays consistent with the
-    // cli-ui remote-aware Verdict line above.
+    // for local scans (the user's own tree), naming the scanned directory.
+    // Stays consistent with the cli-ui remote-aware Verdict line above.
     nextSteps.push(
       remote
         ? `  ${chalk.cyan("Next:")}              Pin a vetted version or choose an alternative — these findings are in the package's own code`
-        : `  ${chalk.cyan("Auto-fix:")}          npx hackmyagent secure --fix`
+        : `  ${chalk.cyan("Auto-fix:")}          ${secureFixCommand(fixDirectory)}`
     );
   }
-  const audit = auditCta();
+  // After --scan-path the step audits the scanned directory, not the current one.
+  const audit = auditCta(opts.scanPath);
   if (audit) {
     nextSteps.push(`  ${chalk.cyan(`${audit.label}:`)} ${audit.command}`);
   }

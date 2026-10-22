@@ -407,6 +407,34 @@ describe("buildCheckJsonFromScan (scan path)", () => {
     });
   });
 
+  describe("fix (--scan-path)", () => {
+    const withFix = (fix: string): ScanResult => withFinding({ checkId: "GIT-001", file: ".gitignore", fix });
+    const local = { scanPath: "./kitchen-sink", absentFiles: new Set([".gitignore"]) };
+    const fixOf = (json: ReturnType<typeof buildCheckJsonFromScan>): string | undefined => json.findings![0].fix;
+
+    it("is the Fix line's command: a fix that is only `secure --fix` names the scanned directory", () => {
+      expect(fixOf(buildCheckJsonFromScan(withFix("hackmyagent secure --fix"), undefined, local))).toBe(
+        "npx hackmyagent secure ./kitchen-sink --fix",
+      );
+      expect(fixOf(buildCheckJson({ kind: "scan", scan: withFix("hackmyagent secure --fix"), ...local }))).toBe(
+        "npx hackmyagent secure ./kitchen-sink --fix",
+      );
+    });
+
+    it("names another CLI in the npx form of its package, and keeps a fix that names none", () => {
+      expect(
+        fixOf(buildCheckJsonFromScan(withFix("Run: hackmyagent scan-soul to generate one."), undefined, local)),
+      ).toBe("Run: npx hackmyagent scan-soul to generate one.");
+      expect(fixOf(buildCheckJsonFromScan(withFix("Pin the version in package.json"), undefined, local))).toBe(
+        "Pin the version in package.json",
+      );
+    });
+
+    it("is the scanner's text for a downloaded package, which has no directory to name", () => {
+      expect(fixOf(buildCheckJsonFromScan(withFix("hackmyagent secure --fix")))).toBe("hackmyagent secure --fix");
+    });
+  });
+
   it("records the number of files the scanner read", () => {
     const json = buildCheckJsonFromScan({
       ...baseScan,

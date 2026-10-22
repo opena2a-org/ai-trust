@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -2556,6 +2556,93 @@ describe("formatScanResult", () => {
     expect(output).not.toMatch(/(?<!npx hackmyagent )secure --fix/);
   });
 
+  // `secure --fix` with no directory acts on the directory check ran in, not
+  // on the one --scan-path scanned.
+  describe("`secure --fix` after a --scan-path scan names the scanned directory", () => {
+    const finding = (checkId: string, severity: "high" | "low", fix?: string): HmaFinding => ({
+      checkId,
+      name: checkId,
+      description: checkId,
+      category: "git",
+      severity,
+      passed: false,
+      message: `${checkId} message`,
+      ...(fix === undefined ? {} : { fix }),
+    });
+
+    function resultWith(verdict: ScanResult["verdict"], findings: HmaFinding[]): ScanResult {
+      return makeScanResult({
+        verdict,
+        scan: {
+          score: 84,
+          maxScore: 100,
+          checksEvaluated: 30,
+          findings,
+          projectType: "library",
+          timestamp: "2026-10-21T00:00:00Z",
+        },
+      });
+    }
+
+    it("in the verdict and the Auto-fix step of a scan with a high finding", () => {
+      const output = formatScanResult(resultWith("warning", [finding("CRED-001", "high")]), {
+        remote: false,
+        scanPath: "./kitchen-sink",
+      });
+
+      expect(output).toContain("  Auto-fix:          npx hackmyagent secure ./kitchen-sink --fix\n");
+      expect(output).toContain(
+        "Usable with caveats. CRED-001. Run `npx hackmyagent secure ./kitchen-sink --fix` to auto-remediate where possible, then rescan.",
+      );
+      expect(output).not.toContain("secure --fix");
+    });
+
+    it("in the verdict of a scan with minor findings", () => {
+      const output = formatScanResult(resultWith("safe", [finding("GIT-001", "low")]), {
+        remote: false,
+        scanPath: "./kitchen-sink",
+      });
+
+      expect(output).toContain(
+        "Looks safe to use. GIT-001. Minor findings — run `npx hackmyagent secure ./kitchen-sink --fix` to auto-remediate where possible.",
+      );
+      expect(output).not.toContain("secure --fix");
+    });
+
+    it("in a finding's Fix line that is only `secure --fix`, and keeps any other fix as the scanner wrote it", () => {
+      const output = formatScanResult(
+        resultWith("safe", [
+          // The form the scanner writes, and the npx form.
+          finding("GIT-001", "low", "hackmyagent secure --fix"),
+          finding("SKILL-004", "low", "npx hackmyagent secure --fix"),
+          finding("DEP-002", "low", "Pin the version in package.json"),
+        ]),
+        { remote: false, scanPath: "./kitchen-sink" },
+      );
+
+      expect(output.match(/│ Fix: npx hackmyagent secure \.\/kitchen-sink --fix\n/g)).toHaveLength(2);
+      expect(output).toContain("│ Fix: Pin the version in package.json\n");
+      expect(output).not.toContain("secure --fix");
+    });
+
+    it("quotes a directory with shell syntax, makes one that starts with - an operand, and prints no control character", () => {
+      const result = resultWith("warning", [finding("CRED-001", "high", "hackmyagent secure --fix")]);
+
+      const spaced = formatScanResult(result, { remote: false, scanPath: "/tmp/my dir;rm" });
+      expect(spaced).toContain("│ Fix: npx hackmyagent secure '/tmp/my dir;rm' --fix\n");
+      expect(spaced).toContain("Auto-fix:          npx hackmyagent secure '/tmp/my dir;rm' --fix\n");
+      expect(spaced).toContain("Run `npx hackmyagent secure '/tmp/my dir;rm' --fix` to auto-remediate");
+
+      const dashed = formatScanResult(result, { remote: false, scanPath: "-tree" });
+      expect(dashed).toContain("│ Fix: npx hackmyagent secure ./-tree --fix\n");
+      expect(dashed).toContain("Auto-fix:          npx hackmyagent secure ./-tree --fix\n");
+
+      const escaped = formatScanResult(result, { remote: false, scanPath: "/tmp/my dir\u001b[31m;rm" });
+      expect(escaped).toContain("Auto-fix:          npx hackmyagent secure '/tmp/my dir[31m;rm' --fix\n");
+      expect(escaped).not.toContain("\u001b");
+    });
+  });
+
   it("gives the finding's Fix line the same `npx hackmyagent` form as the Verdict", () => {
     // The scanner's own fix text names its CLI bare (`hackmyagent secure
     // --fix`); the Verdict names the npx form. One form in both places.
@@ -3315,6 +3402,92 @@ describe("Full project audit next step", () => {
       expect(output).toContain("Next Steps");
       expect(output).toContain("Full project audit: ai-trust audit package.json");
     });
+  });
+});
+
+// After a --scan-path scan the audit step is for the scanned directory: it
+// names that directory's dependency file by its path from the directory
+// check ran in, which here holds a requirements.txt of its own.
+describe("Full project audit next step after a --scan-path scan", () => {
+  let root: string;
+  let startDir: string;
+
+  const cleanScan = (): ScanResult => ({
+    packageName: "kitchen-sink",
+    trustScore: 0.85,
+    trustLevel: 3,
+    verdict: "safe",
+    scan: {
+      score: 85,
+      maxScore: 100,
+      findings: [],
+      projectType: "node",
+      timestamp: "2026-10-21T00:00:00Z",
+    },
+  });
+
+  /** A directory under the temp root holding `files`. */
+  function scannedDir(name: string, ...files: string[]): string {
+    const dir = join(root, name);
+    mkdirSync(dir, { recursive: true });
+    for (const f of files) writeFileSync(join(dir, f), "");
+    return dir;
+  }
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "ai-trust-scan-path-cta-"));
+    scannedDir("cwd", "requirements.txt");
+    startDir = process.cwd();
+    process.chdir(join(root, "cwd"));
+  });
+
+  afterEach(() => {
+    process.chdir(startDir);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("names the scanned directory's package.json, not the current directory's requirements.txt", () => {
+    const dir = scannedDir("kitchen-sink", "package.json");
+    const output = formatScanResult(cleanScan(), { remote: false, scanPath: dir });
+
+    expect(output).toContain(`  Full project audit: ai-trust audit ${dir}/package.json\n`);
+    expect(output).not.toContain("requirements.txt");
+  });
+
+  it("names the requirements.txt of a scanned directory that has no package.json", () => {
+    const dir = scannedDir("py-agent", "requirements.txt");
+    const output = formatScanResult(cleanScan(), { remote: false, scanPath: dir });
+
+    expect(output).toContain(`  Full project audit: ai-trust audit ${dir}/requirements.txt\n`);
+  });
+
+  it("names the file of a relative directory from the directory check ran in", () => {
+    scannedDir("cwd/kitchen-sink", "package.json");
+    const output = formatScanResult(cleanScan(), { remote: false, scanPath: "./kitchen-sink" });
+
+    expect(output).toContain("  Full project audit: ai-trust audit kitchen-sink/package.json\n");
+  });
+
+  it("quotes a path with shell syntax", () => {
+    const dir = scannedDir("my dir;rm", "package.json");
+    const output = formatScanResult(cleanScan(), { remote: false, scanPath: dir });
+
+    expect(output).toContain(`  Full project audit: ai-trust audit '${dir}/package.json'\n`);
+  });
+
+  it("is omitted when the scanned directory holds neither file, whatever the current directory holds", () => {
+    const dir = scannedDir("none", "a.js");
+    const output = formatScanResult(cleanScan(), { remote: false, scanPath: dir });
+
+    expect(output).not.toContain("Full project audit");
+    expect(output).not.toContain("ai-trust audit");
+    expect(output).not.toContain("Next Steps");
+  });
+
+  it("still reads the current directory for a downloaded package", () => {
+    const output = formatScanResult(cleanScan(), { remote: true });
+
+    expect(output).toContain("  Full project audit: ai-trust audit requirements.txt\n");
   });
 });
 
