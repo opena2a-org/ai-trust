@@ -644,6 +644,48 @@ describe("audit command", () => {
         expect(fetchSpy).not.toHaveBeenCalled();
       });
     });
+
+    // With --json, a file that lists no package printed a sentence, not JSON.
+    describe("a file that lists no dependencies (#279)", () => {
+      const files = [
+        { name: "package.json", content: JSON.stringify({ name: "x" }) },
+        { name: "requirements.txt", content: "# only a comment\n" },
+      ];
+
+      for (const { name, content } of files) {
+        it(`${name}: says no dependencies were found, with exit 0 and no lookup`, async () => {
+          const manifest = join(dir, name);
+          writeFileSync(manifest, content);
+          await useRealParser();
+
+          await createProgram().parseAsync(["node", "test", "audit", manifest]);
+
+          expect(consoleSpy.mock.calls).toEqual([["No dependencies found in the specified file."]]);
+          expect(consoleErrSpy).not.toHaveBeenCalled();
+          expect(process.exitCode).toBeUndefined();
+          expect(RegistryClient).not.toHaveBeenCalled();
+          expect(fetchSpy).not.toHaveBeenCalled();
+        });
+
+        it(`${name}: --json prints the results and meta of an audit, empty, with exit 0`, async () => {
+          const manifest = join(dir, name);
+          writeFileSync(manifest, content);
+          await useRealParser();
+
+          await createProgram().parseAsync(["node", "test", "--json", "audit", manifest]);
+
+          expect(consoleSpy).toHaveBeenCalledTimes(1);
+          expect(JSON.parse(String(consoleSpy.mock.calls[0][0]))).toEqual({
+            results: [],
+            meta: { total: 0, found: 0, notFound: 0 },
+          });
+          expect(consoleErrSpy).not.toHaveBeenCalled();
+          expect(process.exitCode).toBeUndefined();
+          expect(RegistryClient).not.toHaveBeenCalled();
+          expect(fetchSpy).not.toHaveBeenCalled();
+        });
+      }
+    });
   });
 
   describe("file not found: what audit reads and the next command", () => {
