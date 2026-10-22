@@ -186,4 +186,28 @@ describe("local remediation names a command the user can run", () => {
     expect(v.message).toContain("npx hackmyagent secure --fix");
     expect(v.message).not.toMatch(bareSecureFix);
   });
+
+  // Without the directory the command acts on the current directory, which
+  // is not the one `check --scan-path` scanned.
+  it("names the directory a --scan-path scan read, as one shell word", () => {
+    const warning = buildScoreAwareVerdict("warning", counts({ high: 1 }), [finding()], {
+      kind: "repo",
+      remote: false,
+      scanPath: "./kitchen-sink",
+    });
+    expect(warning.message).toContain(
+      "Run `npx hackmyagent secure ./kitchen-sink --fix` to auto-remediate where possible, then rescan.",
+    );
+    expect(warning.message).not.toContain("secure --fix");
+
+    const safe = buildScoreAwareVerdict(
+      "safe",
+      counts({ low: 1 }),
+      [finding({ severity: "low", name: "Missing .gitignore", file: ".gitignore" })],
+      { kind: "library", remote: false, scanPath: "/tmp/my dir" },
+    );
+    expect(safe.message).toContain(
+      "Minor findings — run `npx hackmyagent secure '/tmp/my dir' --fix` to auto-remediate where possible.",
+    );
+  });
 });
