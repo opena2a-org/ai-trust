@@ -62,6 +62,9 @@ describe("citeCommandsInText", () => {
     ["Run npx opena2a review again", "Run npx opena2a-cli review again"],
     ["Run npx -y opena2a review", "Run npx -y opena2a-cli review"],
     ["hackmyagent harden-soul . (adds the missing sections)", "npx hackmyagent harden-soul . (adds the missing sections)"],
+    ["Rotate the project's key, then run opena2a protect .", "Rotate the project's key, then run npx opena2a-cli protect ."],
+    ["grep -n \"x\" a.js && opena2a protect .", "grep -n \"x\" a.js && npx opena2a-cli protect ."],
+    ["Run 'hackmyagent secure . to fix", "Run 'npx hackmyagent secure . to fix"],
   ];
   for (const [sent, printed] of rewritten) {
     it(`prints "${sent}" as "${printed}"`, () => {
@@ -81,6 +84,12 @@ describe("citeCommandsInText", () => {
     "Install @opena2a/cli-ui first",
     "See node_modules/hackmyagent dist for the rules",
     "Add .env to .gitignore to prevent committing secrets",
+    "xxd 'hackmyagent check.js' | grep -iE \"e280[8-9a-e]|efbb|efb8|f3a0\"",
+    "xxd 'opena2a protect.js'",
+    "xxd 'src/x hackmyagent check.js'",
+    "xxd 'it'\\''s hackmyagent check.js'",
+    "cat \"secretless-ai scan.js\"",
+    "cat \"a \\\" hackmyagent check.js\"",
     "",
   ];
   for (const text of kept) {
@@ -88,6 +97,12 @@ describe("citeCommandsInText", () => {
       expect(citeCommandsInText(text)).toBe(text);
     });
   }
+
+  it("keeps a quoted file name and rewrites the command after it", () => {
+    expect(citeCommandsInText("cat 'opena2a protect.js' | hackmyagent secure --stdin")).toBe(
+      "cat 'opena2a protect.js' | npx hackmyagent secure --stdin",
+    );
+  });
 });
 
 describe("citeRegistryCommands", () => {

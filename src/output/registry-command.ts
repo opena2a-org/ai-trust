@@ -50,16 +50,45 @@ const OTHER_CLI_IN_TEXT =
   /(?<![\w./@-])(?:npx\s+(?:(?:-y|--yes)\s+)?)?(?:hackmyagent|opena2a|secretless-ai)(?![\w-])(?=[ \t]+([a-z.<-][^\s`"')]*))/g;
 
 /**
+ * The `[start, end)` offsets of each shell-quoted string in `text`: `'...'`,
+ * and `"..."` with `\` escapes inside it. A `\` outside a string escapes the
+ * character after it, so `'it'\''s'` is two strings. A quote right after a
+ * letter, digit or `_` is an apostrophe of prose (`the project's key`), and a
+ * quote that is never closed starts no string.
+ */
+function quotedSpans(text: string): Array<[number, number]> {
+  const spans: Array<[number, number]> = [];
+  for (let i = 0; i < text.length; i++) {
+    const quote = text[i];
+    if (quote === "\\") {
+      i++;
+      continue;
+    }
+    if ((quote !== "'" && quote !== '"') || /\w/.test(text[i - 1] ?? "")) continue;
+    let end = i + 1;
+    while (end < text.length && text[end] !== quote) end += quote === '"' && text[end] === "\\" ? 2 : 1;
+    if (end >= text.length) continue;
+    spans.push([i, end + 1]);
+    i = end;
+  }
+  return spans;
+}
+
+/**
  * `text` with each command of another OpenA2A CLI in it written as
  * `npx <package> <arguments>`. A name counts as a command when it starts a
  * word and the word after it looks like an argument (lower case, `.`, `-` or
  * `<`): `Run: hackmyagent scan-soul to generate one.` A name followed by an
  * English word (`hackmyagent is ...`) is the subject of a sentence and is
- * kept. Each command found is rewritten by citeRegistryCommand.
+ * kept. A name inside a shell-quoted string is an argument, such as the file
+ * name in `xxd 'hackmyagent check.js'`, and is kept. Each command found is
+ * rewritten by citeRegistryCommand.
  */
 export function citeCommandsInText(text: string): string {
-  return text.replace(OTHER_CLI_IN_TEXT, (command: string, argument: string) =>
-    !command.startsWith("npx") && SENTENCE_WORDS.has(argument.toLowerCase())
+  const quoted = quotedSpans(text);
+  return text.replace(OTHER_CLI_IN_TEXT, (command: string, argument: string, offset: number) =>
+    quoted.some(([start, end]) => offset > start && offset < end) ||
+    (!command.startsWith("npx") && SENTENCE_WORDS.has(argument.toLowerCase()))
       ? command
       : citeRegistryCommand(command),
   );

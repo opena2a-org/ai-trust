@@ -430,6 +430,14 @@ describe("buildCheckJsonFromScan (scan path)", () => {
       );
     });
 
+    it("keeps a quoted file name that holds a CLI name as the scanner wrote it (#287)", () => {
+      const fix = `xxd 'hackmyagent check.js' | grep -iE "e280[8-9a-e]|efbb|efb8|f3a0"`;
+      expect(fixOf(buildCheckJsonFromScan(withFix(fix), undefined, local))).toBe(fix);
+      expect(fixOf(buildCheckJsonFromScan(withFix("xxd 'opena2a protect.js'"), undefined, local))).toBe(
+        "xxd 'opena2a protect.js'",
+      );
+    });
+
     it("is the scanner's text for a downloaded package, which has no directory to name", () => {
       expect(fixOf(buildCheckJsonFromScan(withFix("hackmyagent secure --fix")))).toBe("hackmyagent secure --fix");
     });
