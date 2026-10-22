@@ -37,12 +37,21 @@ export function parseMinTrust(value: string): { level: number } | { problem: str
   return { problem: `--min-trust must be a whole number between 0 and 4, not ${shownValue(value)}` };
 }
 
+/** DEL and the C1 controls, which JSON.stringify writes as they are. */
+const DEL_AND_C1_CONTROLS = /[\u007f-\u009f]/g;
+
 /**
  * A refused value as the usage error names it: as given when it is printable
  * ASCII without spaces, such as `2.5` or `abc`, otherwise as a JSON string,
  * which shows an empty value as `""` and writes a tab, a line break or an
- * escape character in it as a JSON escape.
+ * escape character in it as a JSON escape. JSON.stringify leaves DEL and the
+ * C1 controls (U+007F to U+009F, among them the one-character CSI U+009B) as
+ * they are, so those are written as `\u007f` to `\u009f` escapes here.
  */
 function shownValue(text: string): string {
-  return /^[!-~]+$/.test(text) ? text : JSON.stringify(text);
+  if (/^[!-~]+$/.test(text)) return text;
+  return JSON.stringify(text).replace(
+    DEL_AND_C1_CONTROLS,
+    (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
 }
