@@ -48,4 +48,24 @@ describe("parseMinTrust", () => {
     expect(parseMinTrust("5\n")).toEqual({ problem: `${REFUSAL} "5\\n"` });
     expect(parseMinTrust(" 2.5 ")).toEqual({ problem: `${REFUSAL} " 2.5 "` });
   });
+
+  // JSON.stringify escapes U+0000 to U+001F but not DEL or the C1 controls,
+  // so the refusal wrote them, the one-character CSI U+009B among them, as
+  // they were (#289).
+  it("writes DEL in a refused value as \\u007f", () => {
+    expect(parseMinTrust("\u007f9")).toEqual({ problem: `${REFUSAL} "\\u007f9"` });
+    expect(parseMinTrust("9\u007f")).toEqual({ problem: `${REFUSAL} "9\\u007f"` });
+  });
+
+  it("writes each C1 control in a refused value, U+0080 to U+009F, as its \\u escape", () => {
+    expect(parseMinTrust("\u009b31m9")).toEqual({ problem: `${REFUSAL} "\\u009b31m9"` });
+    for (let code = 0x80; code <= 0x9f; code++) {
+      const char = String.fromCharCode(code);
+      const escape = `\\u00${code.toString(16)}`;
+      const result = parseMinTrust(`${char}9`);
+      expect(result, escape).toEqual({ problem: `${REFUSAL} "${escape}9"` });
+      expect("problem" in result && /[\u007f-\u009f]/.test(result.problem), escape).toBe(false);
+    }
+    expect(parseMinTrust(" 9")).toEqual({ problem: `${REFUSAL} " 9"` });
+  });
 });
