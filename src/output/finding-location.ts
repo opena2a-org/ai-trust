@@ -63,6 +63,17 @@ export function runnableFix(fix: string, scanPath?: string): string {
 const DISPLAY_HAZARD = /[\u{0}-\u{1f}\u{7f}-\u{9f}\u{2028}\u{2029}\p{Cf}]/u;
 
 /**
+ * True when `path` holds a character the terminal would act on or hide. A
+ * command naming such a path is not shown as it would run: printed as it is,
+ * the line does not show the command that runs, and with the character
+ * removed, the command names another path. The Verify commands, and the fix
+ * and audit commands of the text output, are left out for such a path.
+ */
+export function hasDisplayHazard(path: string): boolean {
+  return DISPLAY_HAZARD.test(path);
+}
+
+/**
  * The command that prints the line a finding names, in the form the
  * scanner's own report prints: `sed -n '<line>p' <directory>/<file>`. There
  * is none for a finding with no line, for a file that is not in the
@@ -79,6 +90,6 @@ export function verifyCommand(
   if (typeof file !== "string" || file === "" || absentFiles.has(file)) return undefined;
   if (typeof line !== "number" || !Number.isInteger(line) || line < 1) return undefined;
   const path = findingPath(scanPath, file);
-  if (DISPLAY_HAZARD.test(path)) return undefined;
+  if (hasDisplayHazard(path)) return undefined;
   return `sed -n '${line}p' ${pathArg(path)}`;
 }

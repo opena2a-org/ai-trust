@@ -19,7 +19,7 @@
  * (option a).
  */
 import type { VerdictStatus, VerdictFinding } from "@opena2a/cli-ui";
-import { secureFixCommand } from "./finding-location.js";
+import { hasDisplayHazard, secureFixCommand } from "./finding-location.js";
 
 /** The score-aware enum produced by `deriveVerdict` (scanner/index.ts). */
 export type ScoreAwareVerdictLevel = "safe" | "warning" | "blocked";
@@ -85,8 +85,10 @@ function countSuffix(counts: VerdictCounts): string {
  * score-aware enum, so ai-trust's human output never contradicts its `--json`
  * verdict. The lead finding is named to keep the message action-oriented.
  * `surface.scanPath` is the directory `check --scan-path` scanned, as the
- * text output prints it: the remediation command of a local scan names it,
- * so the command acts on that directory and not on the one the user is in.
+ * user gave it: the remediation command of a local scan names it, so the
+ * command acts on that directory and not on the one the user is in. A
+ * directory whose name holds a character the terminal would act on or hide
+ * is named in no command, so the guidance for it gives none.
  */
 export function buildScoreAwareVerdict(
   verdict: ScoreAwareVerdictLevel,
@@ -95,7 +97,10 @@ export function buildScoreAwareVerdict(
   surface: { kind: string; remote: boolean; scanPath?: string },
 ): ScoreAwareVerdict {
   const remote = surface.remote === true;
-  const fixCommand = secureFixCommand(surface.scanPath);
+  const fixCommand =
+    surface.scanPath !== undefined && hasDisplayHazard(surface.scanPath)
+      ? undefined
+      : secureFixCommand(surface.scanPath);
   // Worst-severity-first lead, matching buildVerdict's selection.
   const leadSeverity =
     counts.critical > 0
@@ -131,7 +136,9 @@ export function buildScoreAwareVerdict(
     // remote scans are third-party code the user does not own → review/avoid.
     const guidance = remote
       ? "Review before depending on it, or choose a vetted version."
-      : `Run \`${fixCommand}\` to auto-remediate where possible, then rescan.`;
+      : fixCommand === undefined
+        ? "Fix the findings, then rescan."
+        : `Run \`${fixCommand}\` to auto-remediate where possible, then rescan.`;
     return {
       status: "needs-fix",
       headline: `Usable with caveats${countSuffix(counts)}`,
@@ -144,7 +151,9 @@ export function buildScoreAwareVerdict(
   if (counts.total > 0) {
     const guidance = remote
       ? "Minor findings in the package's own code — review at your discretion."
-      : `Minor findings — run \`${fixCommand}\` to auto-remediate where possible.`;
+      : fixCommand === undefined
+        ? "Minor findings — fix them where needed."
+        : `Minor findings — run \`${fixCommand}\` to auto-remediate where possible.`;
     return {
       status: "safe",
       headline: `Looks safe — ${counts.total} minor finding${counts.total > 1 ? "s" : ""}`,
