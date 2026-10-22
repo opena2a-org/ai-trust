@@ -269,7 +269,7 @@ export async function isHmaAvailable(): Promise<boolean> {
   _versionCheckStderr = "";
   try {
     const hma = resolveHma();
-    await withScannerEnv((env) =>
+    await withScannerEnv({ models: false }, (env) =>
       stopOnSignal(
         execFileAsync(hma.cmd, [...hma.prefixArgs, "--version"], {
           timeout: 15_000,
@@ -471,24 +471,32 @@ export function scannerTempDirProblem(): string | null {
  * set to off and ORT_DISABLE_TELEMETRY set, so the onnxruntime-node its deep
  * scan loads keeps no telemetry database under Library/Application Support/
  * Microsoft/DeveloperTools/.onnxruntime in that home; every decision ai-trust
- * made reaches it as a flag. The model
- * directories are linked into that directory, so a deep scan finds its
- * models, and keeps one it downloads, where it did before. The scanner runs
- * without SCANNER_PROVIDER_VARS, so a deep scan, the default, sends no file
- * to an LLM provider.
+ * made reaches it as a flag. With `models`, for a deep scan, the model
+ * directories are linked into that directory, so the scan finds its models,
+ * and keeps one it downloads, where it did before. Without it, for a static
+ * scan and the `--version` check, which load no model, nothing is linked, so
+ * the integrity event log the scanner writes when it starts,
+ * ~/.nanomind/integrity-events.jsonl, stays in the temporary home and is
+ * removed with it. The scanner runs without SCANNER_PROVIDER_VARS, so a deep
+ * scan, the default, sends no file to an LLM provider.
  */
-async function withScannerEnv<T>(fn: (env: NodeJS.ProcessEnv) => Promise<T>): Promise<T> {
+async function withScannerEnv<T>(
+  { models }: { models: boolean },
+  fn: (env: NodeJS.ProcessEnv) => Promise<T>,
+): Promise<T> {
   const home = createScannerHome();
   const links: string[] = [];
   try {
-    try {
-      // The scanner creates ~/.nanomind on every run; creating it here first
-      // keeps a model it downloads in the user's home.
-      mkdirSync(join(homedir(), ".nanomind"), { recursive: true });
-    } catch {
-      // A home it cannot write to: the scan runs without a model cache.
+    if (models) {
+      try {
+        // The scanner creates ~/.nanomind when it starts; creating it here
+        // first keeps a model a deep scan downloads in the user's home.
+        mkdirSync(join(homedir(), ".nanomind"), { recursive: true });
+      } catch {
+        // A home it cannot write to: the scan runs without a model cache.
+      }
     }
-    for (const dir of SCANNER_MODEL_DIRS) {
+    for (const dir of models ? SCANNER_MODEL_DIRS : []) {
       const target = join(homedir(), dir);
       if (!existsSync(target)) continue;
       const link = join(home, dir);
@@ -597,7 +605,7 @@ export async function runHmaScan(
   }
   args.push(targetDir);
 
-  return withScannerEnv(async (env) => {
+  return withScannerEnv({ models: deep }, async (env) => {
     let attemptArgs = args;
     for (;;) {
       try {

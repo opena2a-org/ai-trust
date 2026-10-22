@@ -252,7 +252,7 @@ const ROWS: Row[] = [
       },
       "--no-scan --json": {
         exit: 2,
-        json: {"name": "table-missing", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check table-missing", "npx hackmyagent secure <project-dir>"], "error": "Package \"table-missing\" not found in the OpenA2A Registry."},
+        json: {"name": "table-missing", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check table-missing"], "error": "Package \"table-missing\" not found in the OpenA2A Registry."},
         requests: ["trust table-missing"],
       },
     },
@@ -279,7 +279,7 @@ const ROWS: Row[] = [
       },
       "--no-scan --json": {
         exit: 2,
-        json: {"name": "table-scan-pkg", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check table-scan-pkg", "npx hackmyagent secure <project-dir>"], "error": "Package \"table-scan-pkg\" not found in the OpenA2A Registry."},
+        json: {"name": "table-scan-pkg", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check table-scan-pkg"], "error": "Package \"table-scan-pkg\" not found in the OpenA2A Registry."},
         requests: ["trust table-scan-pkg"],
       },
     },
@@ -307,7 +307,7 @@ const ROWS: Row[] = [
       },
       "--no-scan --json": {
         exit: 2,
-        json: {"name": "@table/agent", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check @table/agent", "npx hackmyagent secure <project-dir>"], "error": "Package \"@table/agent\" not found in the OpenA2A Registry."},
+        json: {"name": "@table/agent", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check @table/agent"], "error": "Package \"@table/agent\" not found in the OpenA2A Registry."},
         requests: ["trust @table/agent"],
       },
     },
@@ -366,7 +366,7 @@ const ROWS: Row[] = [
       },
       "--no-scan --json": {
         exit: 2,
-        json: {"name": "@table/agent@2.0.0", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check @table/agent@2.0.0", "npx hackmyagent secure <project-dir>"], "error": "Package \"@table/agent@2.0.0\" not found in the OpenA2A Registry."},
+        json: {"name": "@table/agent@2.0.0", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check @table/agent@2.0.0"], "error": "Package \"@table/agent@2.0.0\" not found in the OpenA2A Registry."},
         requests: ["trust @table/agent"],
       },
     },
@@ -395,7 +395,7 @@ const ROWS: Row[] = [
       },
       "--no-scan --json": {
         exit: 2,
-        json: {"name": "table-scan-pkg@1.0.0", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check table-scan-pkg@1.0.0", "npx hackmyagent secure <project-dir>"], "error": "Package \"table-scan-pkg@1.0.0\" not found in the OpenA2A Registry."},
+        json: {"name": "table-scan-pkg@1.0.0", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check table-scan-pkg@1.0.0"], "error": "Package \"table-scan-pkg@1.0.0\" not found in the OpenA2A Registry."},
         requests: ["trust table-scan-pkg"],
       },
     },
@@ -422,7 +422,7 @@ const ROWS: Row[] = [
       },
       "--no-scan --json": {
         exit: 2,
-        json: {"name": "table-scan-pkg@9.9.9", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check table-scan-pkg@9.9.9", "npx hackmyagent secure <project-dir>"], "error": "Package \"table-scan-pkg@9.9.9\" not found in the OpenA2A Registry."},
+        json: {"name": "table-scan-pkg@9.9.9", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check table-scan-pkg@9.9.9"], "error": "Package \"table-scan-pkg@9.9.9\" not found in the OpenA2A Registry."},
         requests: ["trust table-scan-pkg"],
       },
     },
@@ -451,7 +451,7 @@ const ROWS: Row[] = [
       },
       "--no-scan --json": {
         exit: 2,
-        json: {"name": "table-scan-pkg@latest", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check table-scan-pkg@latest", "npx hackmyagent secure <project-dir>"], "error": "Package \"table-scan-pkg@latest\" not found in the OpenA2A Registry."},
+        json: {"name": "table-scan-pkg@latest", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check table-scan-pkg@latest"], "error": "Package \"table-scan-pkg@latest\" not found in the OpenA2A Registry."},
         requests: ["trust table-scan-pkg"],
       },
     },
@@ -478,7 +478,7 @@ const ROWS: Row[] = [
       },
       "--no-scan --json": {
         exit: 2,
-        json: {"name": "table-scan-pkg@1.x", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check table-scan-pkg@1.x", "npx hackmyagent secure <project-dir>"], "error": "Package \"table-scan-pkg@1.x\" not found in the OpenA2A Registry."},
+        json: {"name": "table-scan-pkg@1.x", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check table-scan-pkg@1.x"], "error": "Package \"table-scan-pkg@1.x\" not found in the OpenA2A Registry."},
         requests: ["trust table-scan-pkg"],
       },
     },
@@ -537,7 +537,7 @@ const ROWS: Row[] = [
       },
       "--no-scan --json": {
         exit: 2,
-        json: {"name": "table-scan-pkg@npm:table-tool", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check table-scan-pkg@npm:table-tool", "npx hackmyagent secure <project-dir>"], "error": "Package \"table-scan-pkg@npm:table-tool\" not found in the OpenA2A Registry."},
+        json: {"name": "table-scan-pkg@npm:table-tool", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check table-scan-pkg@npm:table-tool"], "error": "Package \"table-scan-pkg@npm:table-tool\" not found in the OpenA2A Registry."},
         requests: ["trust table-scan-pkg"],
       },
     },
@@ -626,7 +626,7 @@ const ROWS: Row[] = [
       },
       "--no-scan --json": {
         exit: 2,
-        json: {"name": "table-py-agent", "ecosystem": "pypi", "found": false, "nextSteps": ["ai-trust check pip:table-py-agent", "npx hackmyagent secure <project-dir>"], "error": "Package \"table-py-agent\" not found in the OpenA2A Registry."},
+        json: {"name": "table-py-agent", "ecosystem": "pypi", "found": false, "nextSteps": ["ai-trust check pip:table-py-agent"], "error": "Package \"table-py-agent\" not found in the OpenA2A Registry."},
         requests: ["trust table-py-agent", "trust table-py-agent"],
       },
     },
@@ -816,7 +816,7 @@ const ROWS: Row[] = [
       },
       "--no-scan --json": {
         exit: 2,
-        json: {"name": "table-owner/table-repo", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check table-owner/table-repo", "npx hackmyagent secure <project-dir>"], "error": "Package \"table-owner/table-repo\" not found in the OpenA2A Registry."},
+        json: {"name": "table-owner/table-repo", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check table-owner/table-repo"], "error": "Package \"table-owner/table-repo\" not found in the OpenA2A Registry."},
         requests: ["trust table-owner/table-repo"],
       },
     },
@@ -958,7 +958,7 @@ const ROWS: Row[] = [
       },
       "--no-scan --json": {
         exit: 2,
-        json: {"name": "table-py-agent", "ecosystem": "pypi", "found": false, "nextSteps": ["ai-trust check pip:table-py-agent", "npx hackmyagent secure <project-dir>"], "error": "Package \"table-py-agent\" not found in the OpenA2A Registry."},
+        json: {"name": "table-py-agent", "ecosystem": "pypi", "found": false, "nextSteps": ["ai-trust check pip:table-py-agent"], "error": "Package \"table-py-agent\" not found in the OpenA2A Registry."},
         requests: ["narrative skill:pip:table-py-agent", "trust table-py-agent", "trust table-py-agent"],
       },
     },
@@ -1012,7 +1012,7 @@ const ROWS: Row[] = [
       },
       "--no-scan --json": {
         exit: 2,
-        json: {"name": "table-zero-id", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check table-zero-id", "npx hackmyagent secure <project-dir>"], "error": "Package \"table-zero-id\" not found in the OpenA2A Registry."},
+        json: {"name": "table-zero-id", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check table-zero-id"], "error": "Package \"table-zero-id\" not found in the OpenA2A Registry."},
         requests: ["trust table-zero-id"],
       },
     },
@@ -1153,7 +1153,7 @@ const ROWS: Row[] = [
       },
       "--no-scan --json": {
         exit: 2,
-        json: {"name": "Table-Tool", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check Table-Tool", "npx hackmyagent secure <project-dir>"], "error": "Package \"Table-Tool\" not found in the OpenA2A Registry."},
+        json: {"name": "Table-Tool", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check Table-Tool"], "error": "Package \"Table-Tool\" not found in the OpenA2A Registry."},
         requests: ["trust Table-Tool"],
       },
     },
@@ -1180,7 +1180,7 @@ const ROWS: Row[] = [
       },
       "--no-scan --json": {
         exit: 2,
-        json: {"name": "https://github.com/table-owner/table-repo", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check https://github.com/table-owner/table-repo", "npx hackmyagent secure <project-dir>"], "error": "Package \"https://github.com/table-owner/table-repo\" not found in the OpenA2A Registry."},
+        json: {"name": "https://github.com/table-owner/table-repo", "ecosystem": "npm", "found": false, "nextSteps": ["ai-trust check https://github.com/table-owner/table-repo"], "error": "Package \"https://github.com/table-owner/table-repo\" not found in the OpenA2A Registry."},
         requests: ["trust https://github.com/table-owner/table-repo"],
       },
     },

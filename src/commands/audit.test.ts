@@ -141,8 +141,9 @@ describe("audit command", () => {
       "abc",
     ]);
 
+    // The same words as for 2.5, naming the value (#276).
     expect(consoleErrSpy).toHaveBeenCalledWith(
-      "Error: --min-trust must be a number between 0 and 4"
+      "Error: --min-trust must be a whole number between 0 and 4, not abc"
     );
     expect(process.exitCode).toBe(1);
   });
@@ -202,7 +203,7 @@ describe("audit command", () => {
 
         expect(consoleSpy.mock.calls).toHaveLength(1);
         expect(JSON.parse(String(consoleSpy.mock.calls[0][0]))).toEqual({
-          error: "--min-trust must be a number between 0 and 4",
+          error: `--min-trust must be a whole number between 0 and 4, not ${value}`,
         });
         expect(consoleErrSpy).not.toHaveBeenCalled();
         expect(process.exitCode).toBe(1);

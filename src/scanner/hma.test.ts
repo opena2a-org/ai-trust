@@ -1427,6 +1427,68 @@ describe("scanner environment", () => {
     expect(existsSync(join(tempHome, ".nanomind"))).toBe(true);
   });
 
+  // A static scan loads no model. ai-trust created ~/.nanomind and linked it
+  // into the scanner's home for static scans and the --version check too, so
+  // the event log the scanner writes there when it starts was left in the
+  // user's home: two lines after one `check --scan-path <dir> --no-deep` (#276).
+  describe("a static scan and the --version check, which load no model (#276)", () => {
+    /** The scanner, writing its integrity event log under the home it is given. */
+    function scannerWritesEventLog(): void {
+      vi.mocked(execFile as any).mockImplementation(
+        async (_cmd: string, args: string[], opts: { env: NodeJS.ProcessEnv }) => {
+          const home = opts.env.HOME as string;
+          seen.push({ args, env: opts.env, models: [], savedChoice: false });
+          mkdirSync(join(home, ".nanomind"), { recursive: true });
+          writeFileSync(join(home, ".nanomind", "integrity-events.jsonl"), "{}\n", { flag: "a" });
+          return { stdout: args.includes("--version") ? "0.33.2\n" : scanJson, stderr: "" };
+        },
+      );
+    }
+
+    it("create no ~/.nanomind in the user's home", async () => {
+      await runHmaScan("/tmp/test-pkg", { deep: false });
+      expect(await isHmaAvailable()).toBe(true);
+
+      expect(seen.map((s) => s.args.includes("--static-only"))).toEqual([true, false]);
+      expect(existsSync(join(tempHome, ".nanomind"))).toBe(false);
+    });
+
+    it("link no model directory into the scanner's home", async () => {
+      mkdirSync(join(tempHome, ".nanomind", "models"), { recursive: true });
+      writeFileSync(join(tempHome, ".nanomind", "models", "a.onnx"), "model a");
+      mkdirSync(join(tempHome, ".opena2a", "nanomind", "models"), { recursive: true });
+      writeFileSync(join(tempHome, ".opena2a", "nanomind", "models", "b.onnx"), "model b");
+
+      await runHmaScan("/tmp/test-pkg", { deep: false });
+      expect(await isHmaAvailable()).toBe(true);
+
+      expect(seen.map((s) => s.models)).toEqual([[], []]);
+      expect(readFileSync(join(tempHome, ".nanomind", "models", "a.onnx"), "utf8")).toBe("model a");
+      expect(readFileSync(join(tempHome, ".opena2a", "nanomind", "models", "b.onnx"), "utf8")).toBe("model b");
+    });
+
+    it("leave the event log the scanner writes in its temporary home, which is removed", async () => {
+      scannerWritesEventLog();
+
+      await runHmaScan("/tmp/test-pkg", { deep: false });
+      expect(await isHmaAvailable()).toBe(true);
+
+      expect(seen).toHaveLength(2);
+      expect(existsSync(join(tempHome, ".nanomind"))).toBe(false);
+      for (const { env } of seen) expect(existsSync(env.HOME as string)).toBe(false);
+    });
+
+    it("while a deep scan writes the event log to the user's ~/.nanomind", async () => {
+      scannerWritesEventLog();
+
+      await runHmaScan("/tmp/test-pkg", { deep: true });
+
+      expect(seen[0].args).toContain("--deep");
+      expect(readFileSync(join(tempHome, ".nanomind", "integrity-events.jsonl"), "utf8")).toBe("{}\n");
+      expect(existsSync(seen[0].env.HOME as string)).toBe(false);
+    });
+  });
+
   it("removes the temporary home when the scan fails", async () => {
     vi.mocked(execFile as any).mockImplementation(
       async (_cmd: string, args: string[], opts: { env: NodeJS.ProcessEnv }) => {

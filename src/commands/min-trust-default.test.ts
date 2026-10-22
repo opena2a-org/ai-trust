@@ -16,12 +16,16 @@ import { registerBatchCommand } from "./batch.js";
 
 const README_PATH = resolve(__dirname, "../../README.md");
 
-function minTrustDefault(commandName: string): unknown {
+function registeredCommand(commandName: string): Command | undefined {
   const program = new Command();
   registerAuditCommand(program);
   registerBatchCommand(program);
-  const command = program.commands.find((c) => c.name() === commandName);
-  return command?.options.find((o) => o.long === "--min-trust")?.defaultValue;
+  return program.commands.find((c) => c.name() === commandName);
+}
+
+function minTrustDefault(commandName: string): unknown {
+  return registeredCommand(commandName)?.options.find((o) => o.long === "--min-trust")
+    ?.defaultValue;
 }
 
 /** Every default the README states on a line that mentions `--min-trust`. */
@@ -45,6 +49,17 @@ describe("--min-trust default", () => {
   it("matches every default the README states", () => {
     for (const stated of readmeMinTrustDefaults()) {
       expect(stated).toBe(minTrustDefault("audit"));
+    }
+  });
+
+  // Commander printed the text default in quotes, `(default: "2")` (#276).
+  it("is printed in the help of audit and batch as the level 2, not in quotes", () => {
+    for (const commandName of ["audit", "batch"]) {
+      const line = registeredCommand(commandName)
+        ?.helpInformation()
+        .split("\n")
+        .find((l) => l.includes("--min-trust <level>"));
+      expect(line, commandName).toMatch(/\(0-4\) \(default: 2\)$/);
     }
   });
 });

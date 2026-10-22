@@ -65,7 +65,7 @@ The registry's answer names the date of the registry's scan in its header (`scan
 
 When the default `check` finds the package in the registry and the registry's trust score and the local scan's security score differ by more than 20 points out of 100, the scan output prints both scores with their dates, and does not say why they differ: `Registry 79/100 (scanned 228 days ago) vs this scan 100/100 (today)`.
 
-Local scans run HMA with NanoMind semantic analysis enabled by default. Pass `--no-deep` for static-only. The first deep scan downloads the scanner's classifier model from huggingface.co into `~/.nanomind/models`: `tokenizer.json`, `nanomind-tme.onnx` and `nanomind-tme.onnx.data`. A download from huggingface.co can be redirected to another Hugging Face host, such as `us.aws.cdn.hf.co`. Later deep scans do not download the model again, and a `--no-deep` scan does not download it.
+Local scans run HMA with NanoMind semantic analysis enabled by default. Pass `--no-deep` for static-only. The first deep scan downloads the scanner's classifier model from huggingface.co into `~/.nanomind/models`: `tokenizer.json`, `nanomind-tme.onnx` and `nanomind-tme.onnx.data`. A download from huggingface.co can be redirected to another Hugging Face host, such as `us.aws.cdn.hf.co`. Later deep scans do not download the model again, and a `--no-deep` scan does not download it. A deep scan also appends the scanner's integrity event log to `~/.nanomind/integrity-events.jsonl`; a `--no-deep` scan writes nothing under `~/.nanomind`.
 
 If the scanner cannot be started, `check` says why on stderr and exits 1, or 2 with `--scan-path`. With `--json`, the reason is the `"error"` of one object on stdout, with `"found": false`, as for a scan that fails; the object also names the package's `"ecosystem"`, except with `--scan-path`.
 
@@ -126,6 +126,8 @@ ai-trust batch react vue express lodash chalk
 Flags: `--type` (one of `mcp_server`, `a2a_agent`, `skill`, `ai_tool`, `llm`, `library`), `--min-trust` (trust level 0-4, default 2).
 
 Any other `--type` value stops `batch` before it looks anything up, with exit code 1, as for `check`. A package the registry has under a type other than the `--type` value is listed in a `Type mismatch` section under the type it is registered as (`This package is registered as mcp_server, not a2a_agent:`), with the `ai-trust batch <name> --type <registered type>` command that looks it up as that type, and `batch` exits 2. The Summary's `Audit failed` line names it, `1 dependency is excluded by --type a2a_agent: <name>`, and gives that command as the next step when no dependency is missing or below the level. In `--json` its result is the registry's answer, `"found": true` and `packageType` included, with `"excludedByType": true` added.
+
+In `--json`, a name the registry does not have is given as its `name` and `"found": false`, with no package id, trust level, score or verdict.
 
 ## Output options
 

@@ -26,12 +26,14 @@ vi.mock("@opena2a/registry-client", async (importOriginal) => {
 
 // Mock formatter (ecosystemSuffix is the real helper: it only builds a label;
 // showsRegistryScore is the real test of whether the scan output prints the
-// registry's score beside the scan's)
+// registry's score beside the scan's; notFoundNextSteps is the real list of
+// the not-found block's Next Steps, which --no-scan --json prints)
 vi.mock("../output/formatter.js", async (importOriginal) => {
   const real = await importOriginal<typeof import("../output/formatter.js")>();
   return {
     ecosystemSuffix: real.ecosystemSuffix,
     showsRegistryScore: real.showsRegistryScore,
+    notFoundNextSteps: real.notFoundNextSteps,
     formatCheckResult: vi.fn(() => "formatted-check-result"),
     formatScanResult: vi.fn(() => "formatted-scan-result"),
     formatJson: vi.fn((data: unknown) => JSON.stringify(data)),
@@ -592,6 +594,73 @@ describe("check command", () => {
       expect(out.ecosystem).toBe("pypi");
       // Without the prefix the command checks the npm package of that name.
       expect(out.nextSteps[0]).toBe("ai-trust check pip:smolagents");
+    });
+
+    // --json gave a second next step the text output does not print, with a
+    // placeholder in it: `npx hackmyagent secure <project-dir>` (#276).
+    describe("--json gives the next steps the text output prints (#276)", () => {
+      let dir: string;
+      let cwdSpy: ReturnType<typeof vi.spyOn>;
+
+      beforeEach(() => {
+        dir = mkdtempSync(join(tmpdir(), "ai-trust-not-found-steps-"));
+        // The Full project audit step names the file audit reads in the
+        // current directory.
+        cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(dir);
+        vi.mocked(RegistryClient).mockImplementation(function () {
+          return {
+            checkTrust: vi.fn().mockRejectedValue(new PackageNotFoundError("unknown-pkg")),
+            batchQuery: vi.fn(),
+            publishScan: vi.fn(),
+          } as any;
+        });
+      });
+
+      afterEach(() => {
+        cwdSpy.mockRestore();
+        rmSync(dir, { recursive: true, force: true });
+      });
+
+      /** The command of each Next Steps line of the text output. */
+      async function textNextSteps(): Promise<string[]> {
+        const real = await vi.importActual<typeof import("../output/formatter.js")>(
+          "../output/formatter.js",
+        );
+        vi.mocked(formatNotFound).mockImplementationOnce(real.formatNotFound);
+        consoleSpy.mockClear();
+        await createProgram().parseAsync(["node", "test", "check", "unknown-pkg", "--no-scan"]);
+        const lines = consoleSpy.mock.calls
+          .map((call) => String(call[0]))
+          .join("\n")
+          .replace(/\u001b\[[0-9;]*m/g, "")
+          .split("\n");
+        const start = lines.findIndex((line) => line.includes("Next Steps"));
+        return lines
+          .slice(start + 1)
+          .filter((line) => line.trim() !== "")
+          .map((line) => line.trim().split(/ {2,}/).pop() as string);
+      }
+
+      async function jsonNextSteps(): Promise<unknown> {
+        consoleSpy.mockClear();
+        await createProgram().parseAsync([
+          "node", "test", "check", "unknown-pkg", "--no-scan", "--json",
+        ]);
+        return JSON.parse(String(consoleSpy.mock.calls[0][0])).nextSteps;
+      }
+
+      it("with no file audit reads in the directory: the scan", async () => {
+        expect(await textNextSteps()).toEqual(["ai-trust check unknown-pkg"]);
+        expect(await jsonNextSteps()).toEqual(["ai-trust check unknown-pkg"]);
+        expect(process.exitCode).toBe(2);
+      });
+
+      it("with a package.json in the directory: the scan, then the audit of that file", async () => {
+        writeFileSync(join(dir, "package.json"), "{}\n");
+        const expected = ["ai-trust check unknown-pkg", "ai-trust audit package.json"];
+        expect(await textNextSteps()).toEqual(expected);
+        expect(await jsonNextSteps()).toEqual(expected);
+      });
     });
 
     describe("a failed registry lookup names the registry and the scan that runs without it", () => {
