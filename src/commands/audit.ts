@@ -13,7 +13,7 @@ import {
 } from "../utils/registry-client.js";
 import { parseDependencyFile, detectEcosystem } from "../utils/parser.js";
 import { findAuditFile } from "../utils/audit-file.js";
-import { parseMinTrust } from "../utils/min-trust.js";
+import { minTrustOption, parseMinTrust } from "../utils/min-trust.js";
 import { shellArg } from "../utils/shell-arg.js";
 import {
   capLength,
@@ -57,11 +57,7 @@ export function registerAuditCommand(program: Command): void {
     .description(
       "Audit dependencies from package.json or requirements.txt"
     )
-    .option(
-      "--min-trust <level>",
-      "minimum trust level threshold (0-4)",
-      "2"
-    )
+    .addOption(minTrustOption())
     .option(
       "--scan-missing",
       "download and scan the packages the registry has no data for"

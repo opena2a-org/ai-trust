@@ -276,7 +276,8 @@ describe("batch command", () => {
       ]);
 
       const out = JSON.parse(String(consoleSpy.mock.calls[0][0]));
-      expect(out.results).toEqual([miss]);
+      // The registry's level, score and verdict for a miss are left out (#276).
+      expect(out.results).toEqual([{ name: "unknown-agent", found: false }]);
       expect(out.meta).toEqual({ total: 1, found: 0, notFound: 1 });
       expect(process.exitCode).toBe(2);
     });
@@ -425,8 +426,9 @@ describe("batch command", () => {
   it("prints a --min-trust usage error as text on stderr without --json", async () => {
     await createProgram().parseAsync(["node", "test", "batch", "pkg-a", "--min-trust", "9"]);
 
+    // The same words as for 2.5, naming the value (#276).
     expect(consoleErrSpy).toHaveBeenCalledWith(
-      "Error: --min-trust must be a number between 0 and 4"
+      "Error: --min-trust must be a whole number between 0 and 4, not 9"
     );
     expect(consoleSpy).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(1);
@@ -443,7 +445,7 @@ describe("batch command", () => {
 
         expect(consoleSpy.mock.calls).toHaveLength(1);
         expect(JSON.parse(String(consoleSpy.mock.calls[0][0]))).toEqual({
-          error: "--min-trust must be a number between 0 and 4",
+          error: `--min-trust must be a whole number between 0 and 4, not ${value}`,
         });
         expect(consoleErrSpy).not.toHaveBeenCalled();
         expect(process.exitCode).toBe(1);
@@ -556,6 +558,52 @@ describe("batch command", () => {
     );
     expect(lines).toContain("  Next: ai-trust check nonexistent-xyz-999");
     expect(lines.join("\n")).not.toContain("meets minimum trust level");
+  });
+
+  // The registry's answer for a name it does not have carries an all-zero
+  // packageId, trust level 0 and verdict "unknown"; --json printed them
+  // beside found: false (#276).
+  it("prints a name the registry does not have in --json as its name and found: false, with no identifier or level", async () => {
+    const found = {
+      packageId: "11111111-2222-3333-4444-555555555555",
+      name: "my-mcp",
+      packageType: "mcp_server",
+      trustLevel: 3,
+      trustScore: 0.79,
+      verdict: "passed",
+      scanStatus: "warnings",
+      found: true,
+    };
+    const mockBatchQuery = vi.fn().mockResolvedValue({
+      results: [
+        found,
+        {
+          packageId: "00000000-0000-0000-0000-000000000000",
+          name: "nonexistent-xyz-999",
+          packageType: "",
+          trustLevel: 0,
+          trustScore: 0,
+          verdict: "unknown",
+          confidence: 0,
+          scanStatus: "",
+          found: false,
+        },
+      ],
+      meta: { total: 2, found: 1, notFound: 1 },
+    });
+    vi.mocked(RegistryClient).mockImplementation(function () {
+      return { checkTrust: vi.fn(), batchQuery: mockBatchQuery } as any;
+    });
+
+    await createProgram().parseAsync([
+      "node", "test", "--json", "batch", "my-mcp", "nonexistent-xyz-999",
+    ]);
+
+    const out = JSON.parse(String(consoleSpy.mock.calls[0][0]));
+    expect(out.results).toEqual([found, { name: "nonexistent-xyz-999", found: false }]);
+    expect(out.meta).toEqual({ total: 2, found: 1, notFound: 1 });
+    // The gate still reads the registry's answer: a missing name exits 2.
+    expect(process.exitCode).toBe(2);
   });
 
   it("sets exit code 1 on API error", async () => {

@@ -22,6 +22,7 @@ import {
   formatScanResult,
   formatJson,
   formatNotFound,
+  notFoundNextSteps,
   showsRegistryScore,
 } from "../output/formatter.js";
 import type { FormatScanResultOptions } from "../output/formatter.js";
@@ -584,9 +585,10 @@ async function handleNotFound(
         name,
         ecosystem,
         error: `Package "${name}" not found in the OpenA2A Registry.`,
+        // The commands the text below prints.
         nextSteps: [
           `${checkCitation()} ${name} --scan-if-missing`,
-          `npx hackmyagent secure <project-dir>`,
+          "npx hackmyagent secure .",
         ],
       })));
     } else {
@@ -798,12 +800,9 @@ function handleNoScanNotFound(
       name,
       ecosystem,
       error: `Package "${name}" not found in the OpenA2A Registry${asType}.`,
-      nextSteps: [
-        // Without --no-scan, check downloads and scans the package. A PyPI
-        // target keeps its pip: prefix.
-        `${checkCitation()} ${shellArg(targetArgument(target))}`,
-        `npx hackmyagent secure <project-dir>`,
-      ],
+      // The commands of the Next Steps the text output prints. Without
+      // --no-scan, check downloads and scans the package.
+      nextSteps: notFoundNextSteps({ pkg: name, ecosystem }).map((step) => step.command),
     })));
   } else {
     // Shared cli-ui renderNotFoundBlock output (F2 from the check-command-divergence brief).

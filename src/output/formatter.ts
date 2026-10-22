@@ -801,11 +801,30 @@ export function formatNotFound(input: NotFoundInput): string {
       }
     }
   }
+  const ctas = notFoundNextSteps(input);
+  // No Next Steps section without a step in it.
+  if (ctas.length > 0) {
+    out.push(divider("Next Steps"));
+    out.push(...renderNextStepsLines(ctas));
+  }
+  out.push("");
+  return out.join("\n");
+}
+
+/**
+ * The Next Steps of a not-found block, in the order formatNotFound prints
+ * them: the scan of the package, unless one was just attempted, then the
+ * full project audit when the current directory holds a file `audit` reads.
+ * `check --no-scan --json` gives their commands as its `nextSteps`.
+ */
+export function notFoundNextSteps(
+  input: Pick<NotFoundInput, "pkg" | "ecosystem" | "scanned">,
+): NextStepsCta[] {
   // A PyPI miss keeps its pip: prefix, so the scan is of the same package and
   // not of the npm package of that name.
   const target = input.ecosystem === "pypi" ? `pip:${input.pkg}` : input.pkg;
   const ctas: NextStepsCta[] = [];
-  if (!scanned) {
+  if (!input.scanned) {
     ctas.push({
       label: "Scan locally",
       // check scans by default; --scan-if-missing is a no-op.
@@ -815,13 +834,7 @@ export function formatNotFound(input: NotFoundInput): string {
   }
   const audit = auditCta();
   if (audit) ctas.push(audit);
-  // No Next Steps section without a step in it.
-  if (ctas.length > 0) {
-    out.push(divider("Next Steps"));
-    out.push(...renderNextStepsLines(ctas));
-  }
-  out.push("");
-  return out.join("\n");
+  return ctas;
 }
 
 /**

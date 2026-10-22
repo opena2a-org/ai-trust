@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { MIN_TRUST_RANGE_PROBLEM, parseMinTrust } from "./min-trust.js";
+import { parseMinTrust } from "./min-trust.js";
+
+const REFUSAL = "--min-trust must be a whole number between 0 and 4, not";
 
 describe("parseMinTrust", () => {
   it("reads each whole number from 0 to 4 as that level", () => {
@@ -21,9 +23,19 @@ describe("parseMinTrust", () => {
     });
   });
 
-  it("refuses a whole number outside 0-4 and text that is not a number", () => {
-    for (const value of ["5", "-1", "9", "abc", "2abc", ""]) {
-      expect(parseMinTrust(value), value).toEqual({ problem: MIN_TRUST_RANGE_PROBLEM });
+  // A whole number outside 0-4 and text that is not a number were refused as
+  // "--min-trust must be a number between 0 and 4", without the value (#276).
+  it("refuses a whole number outside 0-4 and text that is not a number in the same words, naming the value", () => {
+    for (const value of ["5", "-1", "9", "abc", "2abc"]) {
+      expect(parseMinTrust(value), value).toEqual({ problem: `${REFUSAL} ${value}` });
     }
+  });
+
+  it("names an empty value, or one with a space or a control character in it, as a JSON string", () => {
+    expect(parseMinTrust("")).toEqual({ problem: `${REFUSAL} ""` });
+    expect(parseMinTrust("   ")).toEqual({ problem: `${REFUSAL} ""` });
+    expect(parseMinTrust("2 3")).toEqual({ problem: `${REFUSAL} "2 3"` });
+    expect(parseMinTrust("\u001b[31m3")).toEqual({ problem: `${REFUSAL} "\\u001b[31m3"` });
+    expect(parseMinTrust("2\n3")).toEqual({ problem: `${REFUSAL} "2\\n3"` });
   });
 });

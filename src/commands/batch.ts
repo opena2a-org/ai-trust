@@ -19,7 +19,7 @@ import type { BatchAnswer } from "../output/formatter.js";
 import { redactUrlUserinfo, stripControlCharacters } from "../output/sanitize.js";
 import { trustGate } from "../output/trust-gate.js";
 import { packageTypeChoices, packageTypeProblem } from "../utils/package-type.js";
-import { parseMinTrust } from "../utils/min-trust.js";
+import { minTrustOption, parseMinTrust } from "../utils/min-trust.js";
 import { resolveAndLog } from "../utils/resolve.js";
 import { shellArg } from "../utils/shell-arg.js";
 import { createRequire } from "node:module";
@@ -64,6 +64,30 @@ async function withTypeMismatches(
   };
 }
 
+/** The `--json` result for a name the registry does not have. */
+interface NotFoundResult {
+  name: string;
+  found: false;
+}
+
+/**
+ * The batch answers as `--json` prints them. The registry answers a name it
+ * does not have with an all-zero packageId, trust level and score 0 and the
+ * verdict "unknown", and trust level 0 is the level of a blocked package:
+ * that result is printed as its name and `found: false` alone.
+ */
+function jsonBatch(response: BatchResponse): {
+  results: (BatchAnswer | NotFoundResult)[];
+  meta: BatchResponse["meta"];
+} {
+  return {
+    ...response,
+    results: response.results.map((r): BatchAnswer | NotFoundResult =>
+      r.found ? r : { name: r.name, found: false },
+    ),
+  };
+}
+
 export function registerBatchCommand(program: Command): void {
   program
     .command("batch <names...>")
@@ -72,11 +96,7 @@ export function registerBatchCommand(program: Command): void {
       "-t, --type <type>",
       `package type to apply to all packages (${packageTypeChoices()})`
     )
-    .option(
-      "--min-trust <level>",
-      "minimum trust level threshold (0-4)",
-      "2"
-    )
+    .addOption(minTrustOption())
     .action(
       async (
         names: string[],
@@ -140,7 +160,7 @@ export function registerBatchCommand(program: Command): void {
             : answered;
 
           if (globalOpts.json) {
-            console.log(formatJson(response));
+            console.log(formatJson(jsonBatch(response)));
           } else {
             console.log(
               formatBatchResults(response, minTrust, {
