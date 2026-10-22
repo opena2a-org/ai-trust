@@ -3209,6 +3209,38 @@ describe("formatScanResult", () => {
       }
     });
 
+    // A scan scored 1 with one high and 100 medium findings printed
+    // "1 -> 0 by fixing 1 high", and with two highs and 99 mediums
+    // "1 -> 1 by fixing 2 high" (#283).
+    it("prints no number when the projection is not above the scan's score", () => {
+      // One high and 100 mediums weigh 815 (0, within 1 point of 1); the
+      // mediums alone 800 (0). Two highs and 99 mediums weigh 822 (0); the
+      // mediums alone 792 (1). One high and 73 mediums weigh 599 (2); the
+      // mediums alone 584 (2).
+      const cases = [
+        { score: 1, counts: { high: 1, medium: 100 }, fix: "fix 1 high" },
+        { score: 1, counts: { high: 2, medium: 99 }, fix: "fix 2 high" },
+        { score: 2, counts: { high: 1, medium: 73 }, fix: "fix 1 high" },
+      ];
+      for (const { score, counts, fix } of cases) {
+        const lines = pathForward(scored(score, counts));
+        expect(lines).toEqual([`  Path forward: ${fix}, then rescan to measure`]);
+        expect(lines[0]).not.toContain("->");
+      }
+    });
+
+    it("projects a score one point above the scan's and no score equal to it", () => {
+      // One high, 42 mediums and one low weigh 354 (9); without the high
+      // 339 (10).
+      const counts = { high: 1, medium: 42, low: 1 };
+      expect(pathForward(scored(9, counts))).toEqual([
+        "  Path forward: 9 -> 10 by fixing 1 high",
+      ]);
+      expect(pathForward(scored(10, counts))).toEqual([
+        "  Path forward: fix 1 high, then rescan to measure",
+      ]);
+    });
+
     it("prints no number at a score of 0, which any large enough weighted sum gives", () => {
       const lines = pathForward(scored(0, { critical: 30, high: 50, medium: 25, low: 1 }));
       expect(lines).toEqual([

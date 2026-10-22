@@ -1466,7 +1466,10 @@ const PROJECTION_TOLERANCE = 1;
  * gives a score more than PROJECTION_TOLERANCE away from it (the scanner
  * weighs some findings below their severity), or the score is 0, which any
  * large enough weighted sum gives. A number projected from those findings
- * need not then be the score a rescan prints.
+ * need not then be the score a rescan prints. Undefined also when that
+ * number is not above the scan's score, as rounding and that tolerance can
+ * make it: a scan scored 1 whose failed findings are one high and 100
+ * medium projects 0, and one scored 2 with one high and 73 medium projects 2.
  */
 function scoreAfterFixingCriticalAndHigh(
   score: number,
@@ -1476,7 +1479,10 @@ function scoreAfterFixingCriticalAndHigh(
   if (!(score > 0) || !(Math.abs(decayScore(failed) - score) <= PROJECTION_TOLERANCE)) {
     return undefined;
   }
-  return decayScore(failed.filter((f) => f.severity !== "critical" && f.severity !== "high"));
+  const projected = decayScore(
+    failed.filter((f) => f.severity !== "critical" && f.severity !== "high"),
+  );
+  return projected > score ? projected : undefined;
 }
 
 export function formatScanResult(result: ScanResult, opts: FormatScanResultOptions = {}): string {
@@ -1735,8 +1741,8 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
     }
 
     // Path forward: the score once the critical and high findings are
-    // fixed, when the scan's score follows from its findings; otherwise
-    // what to fix, with no number.
+    // fixed, when the scan's score follows from its findings and the
+    // projection is above it; otherwise what to fix, with no number.
     if (critical > 0 || high > 0) {
       const recoveryParts: string[] = [];
       if (critical > 0) recoveryParts.push(`${critical} critical`);
