@@ -177,6 +177,20 @@ describe("audit command", () => {
     expect(RegistryClient).not.toHaveBeenCalled();
   });
 
+  // --min-trust=' 9' was refused as "not 9", with the space dropped (#282).
+  it("names a --min-trust value with whitespace before it as given", async () => {
+    await createProgram().parseAsync([
+      "node", "test", "audit", "package.json", "--min-trust= 9",
+    ]);
+
+    expect(consoleErrSpy).toHaveBeenCalledWith(
+      'Error: --min-trust must be a whole number between 0 and 4, not " 9"'
+    );
+    expect(consoleSpy).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+    expect(parseDependencyFile).not.toHaveBeenCalled();
+  });
+
   it("rejects more than 100 dependencies", async () => {
     const manyDeps = Array.from({ length: 101 }, (_, i) => ({
       name: `pkg-${i}`,

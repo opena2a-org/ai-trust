@@ -434,6 +434,21 @@ describe("batch command", () => {
     expect(process.exitCode).toBe(1);
   });
 
+  // A tab before 5 was refused as "not 5", with the tab dropped (#282).
+  it("names a --min-trust value with whitespace before it as given, with --json", async () => {
+    await createProgram().parseAsync([
+      "node", "test", "--json", "batch", "pkg-a", "--min-trust", "\t5",
+    ]);
+
+    expect(consoleSpy.mock.calls).toHaveLength(1);
+    expect(JSON.parse(String(consoleSpy.mock.calls[0][0]))).toEqual({
+      error: '--min-trust must be a whole number between 0 and 4, not "\\t5"',
+    });
+    expect(consoleErrSpy).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+    expect(RegistryClient).not.toHaveBeenCalled();
+  });
+
   // With --json a usage error is one JSON object on stdout and nothing on
   // stderr, as for a --registry-url usage error.
   describe("usage errors with --json (#191)", () => {

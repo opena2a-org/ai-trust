@@ -23,8 +23,10 @@ export function minTrustOption(): Option {
 /**
  * The trust level a `--min-trust` value names, or the usage error to print.
  * Only decimal digits name a level: `2.5` or `2abc` is refused rather than
- * read as 2, since a trust level has no fractions. Every value refused gets
- * the same usage error, which names the value.
+ * read as 2, since a trust level has no fractions. Whitespace around the
+ * digits is dropped before they are read, so ` 3 ` is level 3. Every value
+ * refused gets the same usage error, which names the value as given, with
+ * the whitespace around it: ` 9` is named as `" 9"`, not as `9`.
  */
 export function parseMinTrust(value: string): { level: number } | { problem: string } {
   const text = value.trim();
@@ -32,14 +34,14 @@ export function parseMinTrust(value: string): { level: number } | { problem: str
     const level = Number(text);
     if (level >= 0 && level <= 4) return { level };
   }
-  return { problem: `--min-trust must be a whole number between 0 and 4, not ${shownValue(text)}` };
+  return { problem: `--min-trust must be a whole number between 0 and 4, not ${shownValue(value)}` };
 }
 
 /**
  * A refused value as the usage error names it: as given when it is printable
  * ASCII without spaces, such as `2.5` or `abc`, otherwise as a JSON string,
- * which shows an empty value as `""` and writes a line break or an escape
- * character in it as a JSON escape.
+ * which shows an empty value as `""` and writes a tab, a line break or an
+ * escape character in it as a JSON escape.
  */
 function shownValue(text: string): string {
   return /^[!-~]+$/.test(text) ? text : JSON.stringify(text);
