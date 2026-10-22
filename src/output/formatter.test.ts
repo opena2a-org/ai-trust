@@ -2233,15 +2233,25 @@ describe("formatScanResult", () => {
       expect(output).toContain("Fix:     pass --scan-path a directory that holds the files to scan");
     });
 
-    it("quotes a directory with shell syntax in the Verify command and prints it without control characters", () => {
-      const output = formatScanResult(emptyDirResult(0), {
-        remote: false,
-        scanPath: "/tmp/my dir\u001b[31m;rm",
-      });
+    it("quotes a directory with shell syntax in the Verify command", () => {
+      const output = formatScanResult(emptyDirResult(0), { remote: false, scanPath: "/tmp/my dir;rm" });
 
-      expect(output).toContain("Nothing to scan in /tmp/my dir[31m;rm: 0 files read.");
-      expect(output).toContain("Verify:  ls -A '/tmp/my dir[31m;rm'");
-      expect(output).not.toContain("\u001b");
+      expect(output).toContain("Verify:  ls -A '/tmp/my dir;rm'\n");
+    });
+
+    // With the character removed, `ls -A` would list another directory (#286).
+    it("prints a directory without its control characters, and gives one that holds them no Verify command", () => {
+      const rlo = String.fromCodePoint(0x202e);
+      for (const scanPath of ["/tmp/my dir\u001b[31m;rm", `/tmp/my dir${rlo};rm`]) {
+        const output = formatScanResult(emptyDirResult(0), { remote: false, scanPath });
+
+        expect(output).toContain("Fix:     pass --scan-path a directory that holds the files to scan");
+        expect(output).not.toContain("Verify:");
+        expect(output).not.toContain("ls -A");
+      }
+      const escaped = formatScanResult(emptyDirResult(0), { remote: false, scanPath: "/tmp/my dir\u001b[31m;rm" });
+      expect(escaped).toContain("Nothing to scan in /tmp/my dir[31m;rm: 0 files read.");
+      expect(escaped).not.toContain("\u001b");
     });
 
     it("names the package when no directory is given", () => {
@@ -2635,7 +2645,7 @@ describe("formatScanResult", () => {
       expect(output).not.toContain("npx hackmyagent check.js");
     });
 
-    it("quotes a directory with shell syntax, makes one that starts with - an operand, and prints no control character", () => {
+    it("quotes a directory with shell syntax, and makes one that starts with - an operand", () => {
       const result = resultWith("warning", [finding("CRED-001", "high", "hackmyagent secure --fix")]);
 
       const spaced = formatScanResult(result, { remote: false, scanPath: "/tmp/my dir;rm" });
@@ -2646,10 +2656,101 @@ describe("formatScanResult", () => {
       const dashed = formatScanResult(result, { remote: false, scanPath: "-tree" });
       expect(dashed).toContain("│ Fix: npx hackmyagent secure ./-tree --fix\n");
       expect(dashed).toContain("Auto-fix:          npx hackmyagent secure ./-tree --fix\n");
+    });
 
-      const escaped = formatScanResult(result, { remote: false, scanPath: "/tmp/my dir\u001b[31m;rm" });
-      expect(escaped).toContain("Auto-fix:          npx hackmyagent secure '/tmp/my dir[31m;rm' --fix\n");
-      expect(escaped).not.toContain("\u001b");
+    // With the character removed the command named another directory, and
+    // printed as it is the terminal would act on it or hide it (#286). The
+    // commands are left out, as the Verify commands are.
+    describe("names no directory whose name holds a character the terminal would act on or hide", () => {
+      // ESC, a CSI sequence, a C1 control, DEL, a carriage return and line
+      // feed, the line and paragraph separators and a right-to-left override.
+      const [ls, ps, rlo] = [0x2028, 0x2029, 0x202e].map((c) => String.fromCodePoint(c));
+      const scanPaths = [
+        "/tmp/ctl\u001bdir",
+        "/tmp/my dir\u001b[31m;rm",
+        "/tmp/ctl\u009bdir",
+        "/tmp/ctl\u007fdir",
+        "/tmp/ctl\r\ndir",
+        `/tmp/ctl${ls}dir`,
+        `/tmp/ctl${ps}dir`,
+        `/tmp/ctl${rlo}dir`,
+      ];
+
+      it("in the verdict, the Fix line or the Auto-fix step of a scan with a high finding", () => {
+        for (const scanPath of scanPaths) {
+          const output = formatScanResult(
+            resultWith("warning", [finding("CRED-001", "high", "hackmyagent secure --fix")]),
+            { remote: false, scanPath },
+          );
+
+          expect(output).toContain("Usable with caveats. CRED-001. Fix the findings, then rescan.");
+          expect(output).toContain(
+            "│ Fix: not printed: the scanned directory's name holds a character the terminal would act on or hide; background: npx hackmyagent explain CRED-001\n",
+          );
+          expect(output).not.toContain("Auto-fix:");
+          expect(output).not.toContain("hackmyagent secure");
+          for (const c of ["\u001b", "\u007f", "\u009b", "\r", ls, ps, rlo]) expect(output).not.toContain(c);
+        }
+      });
+
+      it("in the verdict of a scan with minor findings", () => {
+        for (const scanPath of scanPaths) {
+          const output = formatScanResult(resultWith("safe", [finding("GIT-001", "low")]), {
+            remote: false,
+            scanPath,
+          });
+
+          expect(output).toContain("Looks safe to use. GIT-001. Minor findings — fix them where needed.");
+          expect(output).not.toContain("hackmyagent secure");
+        }
+      });
+
+      // Whichever command a fix is, and whichever of them runnableFix writes
+      // for the directory scanned, a Fix line names such a directory neither
+      // as it is nor with the character removed.
+      it("in any finding's Fix line, whatever command the fix is", () => {
+        const findings = [
+          finding("CRED-001", "low", "hackmyagent secure --fix"),
+          finding("SKILL-001", "low", "hackmyagent fix-all --with-aim — signs skills with AIM keys"),
+          { ...finding("SUPPLY-001", "low", "hackmyagent check SKILL.md"), file: "SKILL.md" },
+          finding("CRED-002", "low", "opena2a protect ."),
+        ];
+        for (const scanPath of scanPaths) {
+          const output = formatScanResult(resultWith("safe", findings), { remote: false, scanPath });
+          const fixes = output.split("\n").filter((line) => line.includes("│ Fix: "));
+
+          expect(fixes).toHaveLength(findings.length);
+          for (const line of fixes) expect(line).not.toContain("/tmp/");
+          for (const c of ["\u001b", "\u007f", "\u009b", "\r", ls, ps, rlo]) expect(output).not.toContain(c);
+        }
+      });
+
+      it("and keeps a fix that names no directory, and the Fix line of a finding with no fix", () => {
+        const output = formatScanResult(
+          resultWith("safe", [
+            finding("DEP-002", "low", "Pin the version in package.json"),
+            finding("DEP-001", "low"),
+          ]),
+          { remote: false, scanPath: "/tmp/ctl\u001bdir" },
+        );
+
+        expect(output).toContain("│ Fix: Pin the version in package.json\n");
+        expect(output).toContain(
+          "│ Fix: none supplied by the scanner for DEP-001; background: npx hackmyagent explain DEP-001\n",
+        );
+      });
+
+      it("and names no explain command for a finding with no check id", () => {
+        const output = formatScanResult(resultWith("safe", [finding("", "low", "hackmyagent secure --fix")]), {
+          remote: false,
+          scanPath: "/tmp/ctl\u001bdir",
+        });
+
+        expect(output).toContain(
+          "│ Fix: not printed: the scanned directory's name holds a character the terminal would act on or hide\n",
+        );
+        expect(output).not.toContain("explain");
+      });
     });
   });
 
@@ -3524,6 +3625,20 @@ describe("Full project audit next step after a --scan-path scan", () => {
     expect(output).not.toContain("Full project audit");
     expect(output).not.toContain("ai-trust audit");
     expect(output).not.toContain("Next Steps");
+  });
+
+  // With the character removed the command named a file in another
+  // directory (#286).
+  it("is omitted for a scanned directory whose name holds a character the terminal would act on or hide", () => {
+    const rlo = String.fromCodePoint(0x202e);
+    for (const name of ["ctl\u001bdir", `ctl${rlo}dir`]) {
+      const dir = scannedDir(name, "package.json");
+      const output = formatScanResult(cleanScan(), { remote: false, scanPath: dir });
+
+      expect(output).not.toContain("Full project audit");
+      expect(output).not.toContain("ai-trust audit");
+      expect(output).not.toContain("Next Steps");
+    }
   });
 
   it("still reads the current directory for a downloaded package", () => {

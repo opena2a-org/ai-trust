@@ -40,7 +40,10 @@ export interface CheckJsonFinding {
    * --scan-path` it is the text output's Fix line: a command of another
    * OpenA2A CLI is in the `npx <package>` form, and a fix that is only
    * `secure --fix` names the scanned directory
-   * (`npx hackmyagent secure <directory> --fix`).
+   * (`npx hackmyagent secure <directory> --fix`). It also names a directory
+   * whose name holds a character the terminal would act on or hide, for
+   * which the Fix line prints no command: formatJson writes a control
+   * character in it as an escape (`\u001b`).
    */
   fix?: string;
   /**

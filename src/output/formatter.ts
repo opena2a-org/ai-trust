@@ -33,7 +33,7 @@ import {
   type NotFoundTone,
 } from "@opena2a/cli-ui";
 import { buildScoreAwareVerdict, type LeadFinding } from "./score-aware-verdict.js";
-import { pathArg, runnableFix, secureFixCommand, verifyCommand } from "./finding-location.js";
+import { hasDisplayHazard, pathArg, runnableFix, secureFixCommand, verifyCommand } from "./finding-location.js";
 import {
   hasRecordedIssues,
   readSecurityProfile,
@@ -287,6 +287,17 @@ function fixLines(
   while (text.length > 1 && text[0].trim() === "") text.shift();
   while (text.length > 1 && text[text.length - 1].trim() === "") text.pop();
   const label = `  ${gutter} ${chalk.cyan("Fix:")}`;
+  // runnableFix names the scanned directory in a command as one quoted
+  // shell word when its name holds a character the terminal would act on or
+  // hide. A fix that names it so is not printed: printed as it is, the line
+  // would not show the command that runs, and with the character removed,
+  // the command would name another directory. The directory is looked for in
+  // the fix as split into lines above, so it is split the same way: a name
+  // that holds a carriage return and line feed is found too.
+  if (scanPath !== undefined && hasDisplayHazard(scanPath)) {
+    const directory = pathArg(scanPath).split(/\r?\n/).join("\n");
+    if (text.join("\n").includes(directory)) return [`${label} ${fixNotPrinted(finding.checkId)}`];
+  }
   if (text.length === 1) return [`${label} ${text[0]}`];
 
   const key = text.join("\n");
@@ -312,6 +323,19 @@ function noFixSupplied(checkId: string): string {
   const id = stripControlCharacters(checkId).trim();
   if (id === "") return "none supplied by the scanner";
   return `none supplied by the scanner for ${id}; background: npx hackmyagent explain ${shellArg(id)}`;
+}
+
+/**
+ * The Fix line of a finding whose fix names the scanned directory, such as
+ * `npx hackmyagent secure <directory> --fix`, after a scan of a directory
+ * whose name holds a character the terminal would act on or hide: the fix is
+ * not printed, and the line names the scanner command that describes the
+ * check.
+ */
+function fixNotPrinted(checkId: string): string {
+  const reason = "not printed: the scanned directory's name holds a character the terminal would act on or hide";
+  const id = stripControlCharacters(checkId).trim();
+  return id === "" ? reason : `${reason}; background: npx hackmyagent explain ${shellArg(id)}`;
 }
 
 // ── Formatters ────────────────────────────────────────────────────────
@@ -576,12 +600,15 @@ function hasNoAnalyzableSurfaces(result: ScanResult): boolean {
  * file `audit` reads: a command that would fail is not a next step. The
  * directory is the current one, or `scanPath`, the one `check --scan-path`
  * scanned, as the user gave it. Its file is then named by its path from the
- * current directory, as a Verify command names a finding's file.
+ * current directory, as a Verify command names a finding's file. A directory
+ * whose name holds a character the terminal would act on or hide gets no
+ * step, as it gets no Verify command.
  */
 function auditCta(scanPath?: string): NextStepsCta | null {
+  if (scanPath !== undefined && hasDisplayHazard(scanPath)) return null;
   const file = findAuditFile(scanPath);
   if (!file) return null;
-  const target = scanPath === undefined ? file : pathArg(join(stripControlCharacters(scanPath), file));
+  const target = scanPath === undefined ? file : pathArg(join(scanPath, file));
   return { label: "Full project audit", command: `ai-trust audit ${target}` };
 }
 
@@ -1405,7 +1432,9 @@ export interface FormatScanResultOptions {
    * the notice for a scan that read 0 files, with a command that lists it,
    * in the Verify command of each finding with a file and a line, and in the
    * commands that act on the scanned tree: `npx hackmyagent secure <dir>
-   * --fix` and the `ai-trust audit` of its dependency file.
+   * --fix` and the `ai-trust audit` of its dependency file. A directory whose
+   * name holds a character the terminal would act on or hide is named in
+   * none of these commands: each is left out.
    */
   scanPath?: string;
   /**
@@ -1506,7 +1535,12 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
     lines.push(`  ${chalk.bold(`Nothing to scan in ${target}: 0 files read.`)}`);
     if (opts.scanPath !== undefined) {
       lines.push("");
-      lines.push(`  ${chalk.cyan("Verify:")}  ls -A ${shellArg(target)}`);
+      // A directory whose name holds a character the terminal would act on
+      // or hide gets no Verify command: with its control characters removed,
+      // `ls -A` would list another directory.
+      if (!hasDisplayHazard(opts.scanPath)) {
+        lines.push(`  ${chalk.cyan("Verify:")}  ls -A ${shellArg(target)}`);
+      }
       lines.push(`  ${chalk.cyan("Fix:")}     pass --scan-path a directory that holds the files to scan`);
     }
     lines.push("");
@@ -1547,16 +1581,17 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
   // the batch table give the registry's mcp_server.
   const projectLabel = rawKind && rawKind !== "unknown" ? scanKindName(rawKind) : "package";
   // The fix commands name the scanned directory, so they act on it and not
-  // on the directory check ran in. Control characters are removed, as in
-  // the Verify command of a scan that read 0 files.
-  const fixDirectory = opts.scanPath === undefined ? undefined : stripControlCharacters(opts.scanPath);
+  // on the directory check ran in. A directory whose name holds a character
+  // the terminal would act on or hide is named in none of them, as in no
+  // Verify command: with the character removed, a command would name another
+  // directory.
   const scoreAwareVerdict = noAnalyzableSurfaces
     ? null
     : buildScoreAwareVerdict(
         result.verdict,
         { critical, high, medium, low, total },
         verdictFindings,
-        { kind: projectLabel, remote, scanPath: fixDirectory },
+        { kind: projectLabel, remote, scanPath: opts.scanPath },
       );
   const verdictText = scoreAwareVerdict
     ? scoreAwareVerdict.headline
@@ -1721,7 +1756,7 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
         if (verify) lines.push(`  ${sevColor("\u2502")} ${chalk.cyan("Verify:")} ${verify}`);
       }
       if (f.fix) {
-        lines.push(...fixLines({ ...f, fix: f.fix }, sevColor("\u2502"), fixesShown, fixDirectory));
+        lines.push(...fixLines({ ...f, fix: f.fix }, sevColor("\u2502"), fixesShown, opts.scanPath));
       } else if (opts.scanPath !== undefined) {
         lines.push(`  ${sevColor("\u2502")} ${chalk.cyan("Fix:")} ${noFixSupplied(f.checkId)}`);
       }
@@ -1845,13 +1880,16 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
     // For a downloaded third-party package the findings live in code the user
     // does not own, so `secure --fix` is the wrong action — the action is to
     // pin a vetted version or pick an alternative. Keep `secure --fix` only
-    // for local scans (the user's own tree), naming the scanned directory.
+    // for local scans (the user's own tree), naming the scanned directory,
+    // and leave it out for a directory no command can name.
     // Stays consistent with the cli-ui remote-aware Verdict line above.
-    nextSteps.push(
-      remote
-        ? `  ${chalk.cyan("Next:")}              Pin a vetted version or choose an alternative — these findings are in the package's own code`
-        : `  ${chalk.cyan("Auto-fix:")}          ${secureFixCommand(fixDirectory)}`
-    );
+    if (remote) {
+      nextSteps.push(
+        `  ${chalk.cyan("Next:")}              Pin a vetted version or choose an alternative — these findings are in the package's own code`
+      );
+    } else if (opts.scanPath === undefined || !hasDisplayHazard(opts.scanPath)) {
+      nextSteps.push(`  ${chalk.cyan("Auto-fix:")}          ${secureFixCommand(opts.scanPath)}`);
+    }
   }
   // After --scan-path the step audits the scanned directory, not the current one.
   const audit = auditCta(opts.scanPath);

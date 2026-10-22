@@ -210,4 +210,27 @@ describe("local remediation names a command the user can run", () => {
       "Minor findings — run `npx hackmyagent secure '/tmp/my dir' --fix` to auto-remediate where possible.",
     );
   });
+
+  // With the character removed the command would name another directory,
+  // and printed as it is the terminal would act on it or hide it (#286).
+  it("gives no command for a directory whose name holds a character the terminal would act on or hide", () => {
+    // ESC, a CSI sequence, a C1 control and a right-to-left override.
+    const rlo = String.fromCodePoint(0x202e);
+    for (const scanPath of ["/tmp/ctl\u001bdir", "/tmp/my dir\u001b[31m;rm", "/tmp/ctl\u009bdir", `/tmp/ctl${rlo}dir`]) {
+      const warning = buildScoreAwareVerdict("warning", counts({ high: 1 }), [finding()], {
+        kind: "repo",
+        remote: false,
+        scanPath,
+      });
+      expect(warning.message).toBe("Usable with caveats. Some Finding in file.ts:12. Fix the findings, then rescan.");
+
+      const safe = buildScoreAwareVerdict(
+        "safe",
+        counts({ low: 1 }),
+        [finding({ severity: "low", name: "Missing .gitignore", file: ".gitignore" })],
+        { kind: "library", remote: false, scanPath },
+      );
+      expect(safe.message).toBe("Looks safe to use. Missing .gitignore in .gitignore:12. Minor findings — fix them where needed.");
+    }
+  });
 });

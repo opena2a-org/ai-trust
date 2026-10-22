@@ -441,6 +441,15 @@ describe("buildCheckJsonFromScan (scan path)", () => {
     it("is the scanner's text for a downloaded package, which has no directory to name", () => {
       expect(fixOf(buildCheckJsonFromScan(withFix("hackmyagent secure --fix")))).toBe("hackmyagent secure --fix");
     });
+
+    // The text output's Fix line names no such directory (#286); a JSON
+    // string escapes the character, so the fix names the directory as given.
+    it("names a directory whose name holds a control character as given", () => {
+      const scanned = { scanPath: "/tmp/ctl\u001bdir", absentFiles: new Set([".gitignore"]) };
+      expect(fixOf(buildCheckJsonFromScan(withFix("hackmyagent secure --fix"), undefined, scanned))).toBe(
+        "npx hackmyagent secure '/tmp/ctl\u001bdir' --fix",
+      );
+    });
   });
 
   it("records the number of files the scanner read", () => {
