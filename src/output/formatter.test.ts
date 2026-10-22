@@ -2625,6 +2625,16 @@ describe("formatScanResult", () => {
       expect(output).not.toContain("secure --fix");
     });
 
+    it("keeps a quoted file name that holds a CLI name in a Fix line as the scanner wrote it (#287)", () => {
+      const output = formatScanResult(
+        resultWith("safe", [finding("UNICODE-STEGO-001", "low", "xxd 'hackmyagent check.js' | grep -iE \"efbb\"")]),
+        { remote: false, scanPath: "./kitchen-sink" },
+      );
+
+      expect(output).toContain("│ Fix: xxd 'hackmyagent check.js' | grep -iE \"efbb\"\n");
+      expect(output).not.toContain("npx hackmyagent check.js");
+    });
+
     it("quotes a directory with shell syntax, makes one that starts with - an operand, and prints no control character", () => {
       const result = resultWith("warning", [finding("CRED-001", "high", "hackmyagent secure --fix")]);
 
