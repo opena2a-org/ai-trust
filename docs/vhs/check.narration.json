@@ -1,0 +1,17 @@
+{
+  "schema": "demo-narration/1",
+  "tool": "ai-trust",
+  "version": "0.7.6",
+  "language": "en",
+  "wordsPerMinute": 150,
+  "steps": [
+    {
+      "id": "s1",
+      "text": "Look a package up in the registry before you install it."
+    },
+    {
+      "id": "s2",
+      "text": "Audit a project's dependency file, with libraries listed as out of scope."
+    }
+  ]
+}

@@ -10,15 +10,20 @@
 # The container (docs/vhs/docker/Dockerfile) carries VHS 0.12.0 with its encode regression patched,
 # ffmpeg, ttyd, Chromium, JetBrains Mono, gifsicle, Node 22, procps and ai-trust installed globally,
 # so the typed `npx ai-trust ...` runs that build with no download on screen. Which build: when npm
-# has the version in package.json, that published version (the sidecar records npmIntegrity);
-# otherwise the tarball `npm pack` makes from this checkout (the sidecar records packedFromCommit).
+# has the version in package.json, that published version (the sidecar records npmIntegrity and
+# prerelease false: a release render, the one the README embeds); otherwise the tarball `npm pack`
+# makes from this checkout (the sidecar records packedFromCommit and prerelease true).
 # AI_TRUST_RECORD_SOURCE=pack forces the tarball.
 #
 # The `check` step shows the public registry's live answer; nothing is replayed. The `audit` step
 # reads a copy of docs/demo, the sample project. The hostname is `laptop` and HOME is fresh.
-# After the tape, the same container runs the tape's commands once more with NO_COLOR=1 into
-# check-capture.txt (the text version of the recording), optimises the GIF, and writes check.json.
-# The MP4 stays in docs/vhs/out/, which is not committed; the sidecar carries its size and sha256.
+# Each step of the tape writes its anchor frame, docs/vhs/check-s<N>.png. After the tape, the same
+# container runs the tape's commands once more with NO_COLOR=1 into check-capture.txt (the text
+# version of the recording), optimises the GIF, remuxes the MP4 with its index first (faststart),
+# and writes check.json (schema demo-sidecar/2). The MP4 stays in docs/vhs/out/, which is not
+# committed; the sidecar carries its size and sha256. Last, the README block between
+# <!-- demo:check:start --> and <!-- demo:check:end --> is rewritten from the sidecar, so its
+# caption names the version and the date of this render.
 set -euo pipefail
 for key in ANTHROPIC_API_KEY OPENAI_API_KEY; do
   if [ -n "${!key+set}" ]; then
@@ -71,12 +76,17 @@ if [ "$VERSION" != "$EXPECTED_VERSION" ]; then
   exit 1
 fi
 # A render that fails part way leaves no sidecar: the old one would describe outputs that are gone.
-rm -f docs/vhs/check.json
+# The anchor frames go too, so every frame the sidecar names comes from this render.
+rm -f docs/vhs/check.json docs/vhs/check-s[0-9]*.png
 RAN_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 STARTED_NS="$(date +%s%N)"
 vhs docs/vhs/check.tape
 WALL_MS="$(( ($(date +%s%N) - STARTED_NS) / 1000000 ))"
 gifsicle -O3 --lossy=40 --batch docs/vhs/check.gif
+# VHS writes the MP4 index (moov) after the media data (mdat). The remux moves the index to the
+# front (faststart), so a browser starts playing the file before all of it has arrived.
+ffmpeg -v error -y -i docs/vhs/out/check.mp4 -c copy -movflags +faststart -f mp4 docs/vhs/out/check.faststart.mp4
+mv docs/vhs/out/check.faststart.mp4 docs/vhs/out/check.mp4
 # Frame census: the full-screen frames are a report streaming into the terminal; how many ticks
 # that spans varies with container load, so the sidecar records it per render.
 FRAMES_DIR="$(mktemp -d)"
@@ -114,44 +124,107 @@ const size = (f) => fs.statSync(f).size;
 const [width, height] = gifPx.split(",").map(Number);
 const tape = "docs/vhs/check.tape";
 const patch = "docs/vhs/docker/vhs-0.12.0-render-context.patch";
+const narration = "docs/vhs/check.narration.json";
+const capture = "docs/vhs/check-capture.txt";
+const gif = "docs/vhs/check.gif";
+const mp4 = "docs/vhs/out/check.mp4";
+// What the tape sets, and what it does on screen (outside Hide..Show): the Sleep before each Enter,
+// and its steps, each a "# step: <id> <title>" comment and the Screenshot that step takes.
+const settings = {};
+const steps = [];
+const preEnterMs = [];
+let hidden = false;
+let previous = "";
+for (const line of fs.readFileSync(tape, "utf8").split("\n").map((l) => l.trim())) {
+  if (line === "" || (line.startsWith("#") && !line.startsWith("# step: "))) continue;
+  const set = line.match(/^Set (\w+) (\d+)(?:ms)?$/);
+  const step = line.match(/^# step: (\S+)\s*(.*)$/);
+  const screenshot = line.match(/^Screenshot (\S+)$/);
+  if (set) settings[set[1]] = Number(set[2]);
+  else if (line === "Hide") hidden = true;
+  else if (line === "Show") hidden = false;
+  else if (!hidden && step) steps.push({ id: step[1], title: step[2], anchorFrame: null });
+  else if (!hidden && screenshot && steps.length) steps[steps.length - 1].anchorFrame = screenshot[1];
+  else if (!hidden && line === "Enter") {
+    const sleep = previous.match(/^Sleep ([0-9.]+)(ms|s)?$/);
+    preEnterMs.push(sleep ? Number(sleep[1]) * (sleep[2] === "ms" ? 1 : 1000) : 0);
+  }
+  previous = line;
+}
+for (const name of ["TypingSpeed", "Columns", "Rows", "Framerate"]) {
+  if (!(name in settings)) throw new Error(tape + " sets no " + name);
+}
+if (new Set(preEnterMs).size !== 1) throw new Error(tape + " holds " + preEnterMs.join(", ") + " ms before its Enters; the sidecar records one hold");
+for (const step of steps) {
+  if (!step.anchorFrame || !fs.existsSync(step.anchorFrame)) throw new Error("step " + step.id + " wrote no anchor frame in this render");
+}
+const spoken = JSON.parse(fs.readFileSync(narration, "utf8")).steps.map((s) => s.id).join(",");
+if (spoken !== steps.map((s) => s.id).join(",")) throw new Error(narration + " names the steps " + spoken + ", the tape " + steps.map((s) => s.id).join(","));
+// The top-level boxes of the MP4 in file order. Faststart puts moov, the index, before mdat.
+const boxes = [];
+const movie = fs.readFileSync(mp4);
+for (let at = 0; at + 8 <= movie.length; ) {
+  let length = movie.readUInt32BE(at);
+  if (length === 1) length = Number(movie.readBigUInt64BE(at + 8));
+  else if (length === 0) length = movie.length - at;
+  if (length < 8) throw new Error(mp4 + " has a box of " + length + " bytes at offset " + at);
+  boxes.push(movie.toString("latin1", at + 4, at + 8));
+  at += length;
+}
+const faststart = boxes.includes("moov") && boxes.includes("mdat") && boxes.indexOf("moov") < boxes.indexOf("mdat");
+if (!faststart) throw new Error(mp4 + " is not faststart: its boxes are " + boxes.join(" "));
 // The registry the recorded build asks by default, read from its own help text.
 const registryUrl = /--registry-url[\s\S]*?default:\s*"(https?:\/\/[^"]+)"/.exec(execFileSync(process.env.TOOL, ["--help"], { encoding: "utf8" }));
 if (!registryUrl) throw new Error("no default registry URL in the --help output");
 const build = process.env.NPM_INTEGRITY
   ? { npmIntegrity: process.env.NPM_INTEGRITY }
   : { packedFromCommit: process.env.PACKED_FROM, packedTreeUncommittedChanges: Number(process.env.PACKED_DIRTY) };
+// The demo-sidecar/2 keys come first, in the order of that schema; the keys this script wrote
+// before it follow.
 const out = {
-  tape,
-  tapeSha256: sha(tape),
-  scriptSha256: sha(tape),
-  commands: JSON.parse(commands),
+  schema: "demo-sidecar/2",
+  surfaceClass: "terminal",
   tool: process.env.TOOL,
   version,
-  ...build,
-  ranAtUtc,
-  registryHost: new URL(registryUrl[1]).host,
+  // A render of the published package is a release render; a tarball packed from a checkout is not.
+  prerelease: !process.env.NPM_INTEGRITY,
+  script: tape,
+  scriptSha256: sha(tape),
+  recorder: { name: "vhs", version: vhsVersion, container: "docs/vhs/docker/Dockerfile" },
+  commands: JSON.parse(commands),
+  steps,
   fixture: "docs/demo, the sample project",
   fixtureSha: sha("/work/demo/package.json"),
   fixtureUncommittedChanges: Number(process.env.FIXTURE_DIRTY),
+  ranAtUtc,
+  durationSeconds: Number(Number(duration).toFixed(1)),
+  outputs: {
+    gif: { path: gif, bytes: size(gif), sha256: sha(gif), width, height, frames: census.frames },
+    mp4: { path: mp4, bytes: size(mp4), sha256: sha(mp4), committed: false, faststart },
+    frames: steps.map((s) => s.anchorFrame),
+    capture
+  },
+  capture,
+  narration,
+  // minHoldSeconds and maxLineChars are the pace rule: the shortest hold on a step and the longest
+  // typed line it allows.
+  pace: { typingSpeedMs: settings.TypingSpeed, preEnterHoldMs: preEnterMs[0], minHoldSeconds: 3, maxLineChars: 72 },
+  exitCodes: exitCodes.trim().split(/\s+/).map(Number),
+  meteredCostUsd: 0,
+  tape,
+  tapeSha256: sha(tape),
+  ...build,
+  registryHost: new URL(registryUrl[1]).host,
   fixturePath: "/work/demo",
   hostname: fs.readFileSync("/etc/hostname", "utf8").trim(),
-  columns: 120,
-  rows: 40,
-  framerate: 10,
+  columns: settings.Columns,
+  rows: settings.Rows,
+  framerate: settings.Framerate,
   gifsicle: "-O3 --lossy=40 --batch",
   gifFrames: census.frames,
   gifFullScreenFrames: census.fullScreenFrames,
   renderedPixelSize: { width, height },
-  outputs: {
-    gif: { path: "docs/vhs/check.gif", bytes: size("docs/vhs/check.gif"), sha256: sha("docs/vhs/check.gif") },
-    mp4: { path: "docs/vhs/out/check.mp4", bytes: size("docs/vhs/out/check.mp4"), sha256: sha("docs/vhs/out/check.mp4"), committed: false },
-    frames: [],
-    capture: "docs/vhs/check-capture.txt"
-  },
-  durationSeconds: Number(Number(duration).toFixed(1)),
   wallClockSeconds: Number((Number(wallMs) / 1000).toFixed(1)),
-  meteredCostUsd: 0,
-  exitCodes: exitCodes.trim().split(/\s+/).map(Number),
   vhsPatchSha256: sha(patch),
   edits: ["setup not shown"],
   environment: {
@@ -164,4 +237,22 @@ console.log(JSON.stringify(out, null, 2));
 NODE
 cp "$SIDECAR" docs/vhs/check.json
 '
-echo "rendered: $(cd "$REPO_ROOT" && ls -l docs/vhs/check.gif docs/vhs/out/check.mp4 docs/vhs/check.json docs/vhs/check-capture.txt | awk '{print $5, $NF}' | tr '\n' ';')"
+# The README embed is rebuilt from the sidecar this render wrote: the GIF, the caption with this
+# render's version and date, and the links to the capture and the sidecar.
+node - "$REPO_ROOT/README.md" "$REPO_ROOT/docs/vhs/check.json" <<"NODE"
+const fs = require("fs");
+const [readme, sidecarPath] = process.argv.slice(2);
+const sidecar = JSON.parse(fs.readFileSync(sidecarPath, "utf8"));
+const lines = fs.readFileSync(readme, "utf8").split("\n");
+const start = lines.indexOf("<!-- demo:check:start -->");
+const end = lines.indexOf("<!-- demo:check:end -->");
+if (start === -1 || end < start) throw new Error("README.md has no <!-- demo:check:start --> ... <!-- demo:check:end --> block");
+lines.splice(start + 1, end - start - 1,
+  `![ai-trust check on an MCP server, then audit package.json](${sidecar.outputs.gif.path})`,
+  "",
+  `Recorded with ${sidecar.tool} ${sidecar.version} on ${sidecar.ranAtUtc.slice(0, 10)}`,
+  "",
+  `[capture](${sidecar.capture}), [provenance](docs/vhs/check.json)`);
+fs.writeFileSync(readme, lines.join("\n"));
+NODE
+echo "rendered: $(cd "$REPO_ROOT" && ls -l docs/vhs/check.gif docs/vhs/out/check.mp4 docs/vhs/check.json docs/vhs/check-capture.txt docs/vhs/check-s[0-9]*.png | awk '{print $5, $NF}' | tr '\n' ';')"
