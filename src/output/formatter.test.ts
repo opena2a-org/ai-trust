@@ -16,6 +16,7 @@ import {
 } from "./formatter.js";
 import type { TrustAnswer, BatchResponse } from "@opena2a/registry-client";
 import type { HmaFinding, ScanResult } from "../scanner/index.js";
+import { shellArg } from "../utils/shell-arg.js";
 
 // Disable chalk colors for predictable test output.
 // Uses a Proxy so any chained access (chalk.bold.white, chalk.red.bold, etc.) works.
@@ -2240,7 +2241,7 @@ describe("formatScanResult", () => {
     });
 
     // With the character removed, `ls -A` would list another directory (#286).
-    it("prints a directory without its control characters, and gives one that holds them no Verify command", () => {
+    it("gives a directory whose name holds a control or format character no Verify command", () => {
       const rlo = String.fromCodePoint(0x202e);
       for (const scanPath of ["/tmp/my dir\u001b[31m;rm", `/tmp/my dir${rlo};rm`]) {
         const output = formatScanResult(emptyDirResult(0), { remote: false, scanPath });
@@ -2250,8 +2251,33 @@ describe("formatScanResult", () => {
         expect(output).not.toContain("ls -A");
       }
       const escaped = formatScanResult(emptyDirResult(0), { remote: false, scanPath: "/tmp/my dir\u001b[31m;rm" });
-      expect(escaped).toContain("Nothing to scan in /tmp/my dir[31m;rm: 0 files read.");
+      expect(escaped).toContain('Nothing to scan in "/tmp/my dir\\u001b[31m;rm": 0 files read.');
       expect(escaped).not.toContain("\u001b");
+    });
+
+    // Printed as it is, the terminal acted on the character or hid it, and
+    // with a control character removed, the line named another directory
+    // (#296).
+    it("names a directory whose name holds a control or format character with each such character escaped", () => {
+      // A C0 control (ESC), DEL, a C1 control (CSI), the line and paragraph
+      // separators, a format character (RIGHT-TO-LEFT OVERRIDE) and one above
+      // U+FFFF (TAG LATIN CAPITAL LETTER A), each as the line writes it.
+      const characters: [string, string][] = [
+        ["\u001b", "\\u001b"],
+        ["\u007f", "\\u007f"],
+        ["\u009b", "\\u009b"],
+        [" ", "\\u2028"],
+        [" ", "\\u2029"],
+        ["‮", "\\u202e"],
+        ["\u{e0041}", "\\udb40\\udc41"],
+      ];
+      for (const [character, escape] of characters) {
+        const output = formatScanResult(emptyDirResult(0), { remote: false, scanPath: `/tmp/ctl${character}dir` });
+        const notice = output.split("\n").find((line) => line.includes("Nothing to scan in"));
+
+        expect(notice).toBe(`  Nothing to scan in "/tmp/ctl${escape}dir": 0 files read.`);
+        expect(output).not.toContain(character);
+      }
     });
 
     it("names the package when no directory is given", () => {
@@ -3241,6 +3267,60 @@ describe("formatScanResult", () => {
       expect(formatScanResult(twelveFindings())).toContain(
         "+ 2 more findings (show all: opena2a registry test-pkg --all)",
       );
+    });
+
+    // A C0 control (ESC), a carriage return and line feed, DEL, a C1 control
+    // (CSI), the line and paragraph separators and a format character
+    // (RIGHT-TO-LEFT OVERRIDE).
+    const HAZARDS = ["\u001b", "\r\n", "\u007f", "\u009b", " ", " ", "‮"];
+
+    // Printed as it is, the terminal acted on the character or hid it, so the
+    // line did not show the command that runs (#296).
+    it("names no command that holds a control or format character of the --scan-path directory or the label", () => {
+      for (const character of HAZARDS) {
+        const commands = [
+          // As check builds them: each value is one shell word.
+          ["ai-trust check fx --scan-path", shellArg(`/tmp/ctl${character}dir`), "--no-deep"].join(" "),
+          ["ai-trust check", shellArg(`fx${character}`), "--scan-path /tmp/fx --no-deep"].join(" "),
+        ];
+        for (const rerunCommand of commands) {
+          const output = formatScanResult(twelveFindings(), { remote: false, scanPath: "/tmp/fx", rerunCommand });
+
+          expect(output).toContain("+ 2 more findings (show all: run the command again with --all)\n");
+          expect(output).not.toContain("ai-trust check");
+          expect(output).not.toContain(character);
+        }
+      }
+    });
+
+    it("names no command when the name it would cite holds a control or format character", () => {
+      for (const character of HAZARDS) {
+        const result = { ...twelveFindings(), packageName: `fx${character}` };
+        const line = formatScanResult(result, { remote: false })
+          .split("\n")
+          .find((l) => l.includes("more findings"));
+
+        expect(line).toBe("  + 2 more findings (show all: run the command again with --all)");
+      }
+    });
+
+    // The label is the first line of the result (#296).
+    it("names a label that holds a control or format character with each such character escaped", () => {
+      const labels: [string, string][] = [
+        ["fx\u001b[2J", '"fx\\u001b[2J"'],
+        ["fx\r\n", '"fx\\r\\n"'],
+        ["fx\u007f", '"fx\\u007f"'],
+        ["fx\u009b", '"fx\\u009b"'],
+        ["fx ", '"fx\\u2028"'],
+        ["fx ", '"fx\\u2029"'],
+        ["fx‮", '"fx\\u202e"'],
+      ];
+      for (const [packageName, shown] of labels) {
+        const output = formatScanResult({ ...twelveFindings(), packageName }, { remote: false, scanPath: "/tmp/fx", all: true });
+
+        expect(output.split("\n")[1]).toBe(`  ${shown}  local scan`);
+        expect(output).not.toContain(packageName);
+      }
     });
 
     it("prints every finding with its Fix when all is set", () => {

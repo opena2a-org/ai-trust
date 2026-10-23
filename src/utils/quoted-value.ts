@@ -1,5 +1,6 @@
 /**
- * A value a usage error names, as a JSON string the terminal shows as it is.
+ * A value a usage error names, as a JSON string the terminal shows as it is,
+ * and a directory or a label as a line of text output names it.
  */
 
 import { hasDisplayHazard } from "../output/finding-location.js";
@@ -21,6 +22,16 @@ export function quotedValue(text: string): string {
     quoted += hasDisplayHazard(char) ? unicodeEscapes(char) : char;
   }
   return quoted;
+}
+
+/**
+ * A directory or a label as a line of text output names it: as given, or,
+ * when it holds a character the terminal would act on or hide, as the JSON
+ * string quotedValue writes, so the line shows each such character as an
+ * escape: `/tmp/ctl<ESC>dir` is named `"/tmp/ctl\u001bdir"`.
+ */
+export function shownName(name: string): string {
+  return hasDisplayHazard(name) ? quotedValue(name) : name;
 }
 
 /**

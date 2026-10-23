@@ -2,7 +2,8 @@
  * `check --scan-path` when the pinned scanner exits without writing a
  * report: the fix names the scanner and its reinstall, not the directory,
  * which exists and is readable (#226). The directory fix stays for a
- * directory that does not exist.
+ * directory that does not exist, and the error names a target whose name
+ * holds a control or format character with that character escaped (#296).
  *
  * Exercises the built `dist/index.js` end-to-end, from a copy of the package
  * whose node_modules links every dependency except hackmyagent. In its place
@@ -139,4 +140,36 @@ describe.skipIf(process.platform === "win32")("check --scan-path when the scanne
     expect(stderr).not.toContain("the scanner produced no readable report");
     expect(status).toBe(2);
   });
+
+  // Printed as it is after "error: ", the terminal acted on such a character
+  // or hid it (#296).
+  it("names a target whose name holds a control or format character with each such character escaped", () => {
+    if (!existsSync(CLI_PATH)) return;
+    // A C0 control (ESC), DEL, a C1 control (CSI), the line and paragraph
+    // separators and a format character (RIGHT-TO-LEFT OVERRIDE), each as the
+    // error line writes it.
+    const characters: [string, string][] = [
+      ["\u001b", "\\u001b"],
+      ["\u007f", "\\u007f"],
+      ["\u009b", "\\u009b"],
+      [" ", "\\u2028"],
+      [" ", "\\u2029"],
+      ["‮", "\\u202e"],
+    ];
+    for (const [character, escape] of characters) {
+      const file = join(scratch, `file${character}.txt`);
+      writeFileSync(file, "x");
+
+      const missing = checkScanPath(join(scratch, `ctl${character}dir`));
+      const notDirectory = checkScanPath(file);
+
+      expect(missing.stderr).toContain(`error: "${join(scratch, `ctl${escape}dir`)}" could not be read (ENOENT).\n`);
+      expect(notDirectory.stderr).toContain(`error: "${join(scratch, `file${escape}.txt`)}" is not a directory.\n`);
+      for (const { stderr, status } of [missing, notDirectory]) {
+        expect(stderr).toContain("Fix: pass --scan-path to a directory that exists and is readable.\n");
+        expect(stderr).not.toContain(character);
+        expect(status).toBe(2);
+      }
+    }
+  }, 120_000);
 });
