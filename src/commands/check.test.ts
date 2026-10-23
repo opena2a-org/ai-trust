@@ -3819,7 +3819,7 @@ describe("check --scan-path prints the fix for the failure it hit", () => {
     // A C0 control (ESC), a carriage return and line feed, DEL, a C1 control
     // (CSI), the line and paragraph separators and a format character
     // (RIGHT-TO-LEFT OVERRIDE).
-    for (const character of ["\u001b", "\r\n", "\u007f", "\u009b", " ", " ", "‮"]) {
+    for (const character of ["\u001b", "\r\n", "\u007f", "\u009b", "\u{2028}", "\u{2029}", "\u{202e}"]) {
       consoleErrSpy.mockClear();
       vi.mocked(scanLocalPath).mockRejectedValue(new HmaScanError("HMA scan failed: No JSON output found from HMA scan"));
 

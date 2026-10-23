@@ -152,9 +152,9 @@ describe.skipIf(process.platform === "win32")("check --scan-path when the scanne
       ["\u001b", "\\u001b"],
       ["\u007f", "\\u007f"],
       ["\u009b", "\\u009b"],
-      [" ", "\\u2028"],
-      [" ", "\\u2029"],
-      ["‮", "\\u202e"],
+      ["\u{2028}", "\\u2028"],
+      ["\u{2029}", "\\u2029"],
+      ["\u{202e}", "\\u202e"],
     ];
     for (const [character, escape] of characters) {
       const file = join(scratch, `file${character}.txt`);
