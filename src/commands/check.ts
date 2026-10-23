@@ -263,10 +263,12 @@ export function registerCheckCommand(program: Command): void {
             );
           } else if (e instanceof HmaScanError) {
             // A directory whose name holds a character the terminal would act
-            // on or hide is named in no command, as in the scan output, so the
-            // line gives the scanner command for the directory it runs in.
+            // on or hide is named in no command, as in the scan output, and a
+            // run from inside the scanned directory is not suggested either:
+            // there, npx would run a hackmyagent found in that directory's
+            // node_modules. The line says the command is not printed.
             const direct = hasDisplayHazard(opts.scanPath)
-              ? "Run it directly from inside the --scan-path directory: npx hackmyagent secure"
+              ? "The direct scanner command is not printed: the scanned directory's name holds a character the terminal would act on or hide."
               : `Run it directly: npx hackmyagent secure ${shellArg(opts.scanPath)}`;
             console.error(chalk.dim(`Fix: the scanner produced no readable report. ${direct}`));
             console.error(
