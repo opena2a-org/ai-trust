@@ -191,6 +191,21 @@ describe("audit command", () => {
     expect(parseDependencyFile).not.toHaveBeenCalled();
   });
 
+  // A U+200B ZERO WIDTH SPACE after 2 was written as it was, between the 2
+  // and the closing quote (#292).
+  it("writes a format character in a refused --min-trust value as a \\u escape", async () => {
+    await createProgram().parseAsync([
+      "node", "test", "audit", "package.json", "--min-trust=2\u{200b}",
+    ]);
+
+    expect(consoleErrSpy).toHaveBeenCalledWith(
+      'Error: --min-trust must be a whole number between 0 and 4, not "2\\u200b"'
+    );
+    expect(consoleSpy).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+    expect(parseDependencyFile).not.toHaveBeenCalled();
+  });
+
   it("rejects more than 100 dependencies", async () => {
     const manyDeps = Array.from({ length: 101 }, (_, i) => ({
       name: `pkg-${i}`,
