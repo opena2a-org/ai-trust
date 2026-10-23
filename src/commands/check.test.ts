@@ -3814,8 +3814,10 @@ describe("check --scan-path prints the fix for the failure it hit", () => {
   });
 
   // Printed as it is, the terminal acted on the character or hid it, so the
-  // line did not show the command that runs (#296).
-  it("names no directory whose name holds a control or format character in the scanner command it prints", async () => {
+  // line did not show the command that runs (#296); and a run from inside
+  // the scanned directory would let npx run a hackmyagent found in that
+  // directory's node_modules, so no scanner command is printed at all.
+  it("prints no scanner command for a directory whose name holds a control or format character", async () => {
     // A C0 control (ESC), a carriage return and line feed, DEL, a C1 control
     // (CSI), the line and paragraph separators and a format character
     // (RIGHT-TO-LEFT OVERRIDE).
@@ -3827,9 +3829,10 @@ describe("check --scan-path prints the fix for the failure it hit", () => {
 
       expect(stderrLines()).toEqual([
         "error: HMA scan failed: No JSON output found from HMA scan",
-        "Fix: the scanner produced no readable report. Run it directly from inside the --scan-path directory: npx hackmyagent secure",
+        "Fix: the scanner produced no readable report. The direct scanner command is not printed: the scanned directory's name holds a character the terminal would act on or hide.",
         "Or reinstall the hackmyagent copy ai-trust runs: cd /work/project && npm install",
       ]);
+      expect(stderrLines().join("\n")).not.toContain("npx hackmyagent secure");
       expect(exitCode).toBe(2);
     }
   });
