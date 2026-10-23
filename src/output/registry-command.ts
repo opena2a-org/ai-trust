@@ -95,12 +95,18 @@ function quotedSpans(text: string): Array<[number, number]> {
  */
 export function citeCommandsInText(text: string): string {
   const quoted = quotedSpans(text);
-  return text.replace(OTHER_CLI_IN_TEXT, (command: string, argument: string, offset: number) =>
-    quoted.some(([start, end]) => offset > start && offset < end) ||
-    (!command.startsWith("npx") && SENTENCE_WORDS.has(argument.toLowerCase()))
+  // The spans are in order and do not overlap, and replace meets the matches
+  // in order of offset, so one index walks the spans beside the matches and
+  // passes each span at most once: a span that ends at or before a match holds
+  // neither that match nor a later one.
+  let span = 0;
+  return text.replace(OTHER_CLI_IN_TEXT, (command: string, argument: string, offset: number) => {
+    while (span < quoted.length && quoted[span][1] <= offset) span++;
+    const inQuotedString = span < quoted.length && quoted[span][0] < offset;
+    return inQuotedString || (!command.startsWith("npx") && SENTENCE_WORDS.has(argument.toLowerCase()))
       ? command
-      : citeRegistryCommand(command),
-  );
+      : citeRegistryCommand(command);
+  });
 }
 
 /**
