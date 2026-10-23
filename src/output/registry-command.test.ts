@@ -65,6 +65,18 @@ describe("citeCommandsInText", () => {
     ["Rotate the project's key, then run opena2a protect .", "Rotate the project's key, then run npx opena2a-cli protect ."],
     ["grep -n \"x\" a.js && opena2a protect .", "grep -n \"x\" a.js && npx opena2a-cli protect ."],
     ["Run 'hackmyagent secure . to fix", "Run 'npx hackmyagent secure . to fix"],
+    [
+      "Zoë's notes: run hackmyagent secure . for the user's project",
+      "Zoë's notes: run npx hackmyagent secure . for the user's project",
+    ],
+    [
+      "Zoë's notes: run hackmyagent secure . for the user's project",
+      "Zoë's notes: run npx hackmyagent secure . for the user's project",
+    ],
+    [
+      "\u{20bb7}'s notes: run hackmyagent secure . for the user's project",
+      "\u{20bb7}'s notes: run npx hackmyagent secure . for the user's project",
+    ],
   ];
   for (const [sent, printed] of rewritten) {
     it(`prints "${sent}" as "${printed}"`, () => {
@@ -72,6 +84,26 @@ describe("citeCommandsInText", () => {
       expect(foreignVoice(citeCommandsInText(sent))).toEqual([]);
     });
   }
+
+  // A fix of several lines whose first line names the file, with an apostrophe in its
+  // directory, and whose last line is the Verify command, with the directory shell-quoted.
+  const verifyAfterApostrophe: Array<[string, string]> = [
+    ["José's agent/mcp.json", "'José'\\''s agent'"],
+    ["José's agent/mcp.json", "'José'\\''s agent'"],
+    ["skills/ops-'team/SKILL.md", "'skills/ops-'\\''team'"],
+  ];
+  for (const [file, dir] of verifyAfterApostrophe) {
+    it(`prints the Verify line of a fix for ${file} as "Verify: npx hackmyagent secure ${dir}"`, () => {
+      const sentence = `In ${file}, remove remote code execution patterns (curl|sh, wget|sh, eval).`;
+      const printed = citeCommandsInText(`${sentence}\n\nVerify: hackmyagent secure ${dir}`);
+      expect(printed).toBe(`${sentence}\n\nVerify: npx hackmyagent secure ${dir}`);
+      expect(foreignVoice(printed)).toEqual([]);
+    });
+  }
+
+  it("ends a quoted string at the end of its line, also after a \\ inside \"...\"", () => {
+    expect(citeCommandsInText('cat "a \\\nhackmyagent secure . "')).toBe('cat "a \\\nnpx hackmyagent secure . "');
+  });
 
   const kept = [
     "Run npx hackmyagent secure --fix, or add the patterns by hand",

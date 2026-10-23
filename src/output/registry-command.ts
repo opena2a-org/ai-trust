@@ -49,12 +49,17 @@ const SENTENCE_WORDS: ReadonlySet<string> = new Set([
 const OTHER_CLI_IN_TEXT =
   /(?<![\w./@-])(?:npx\s+(?:(?:-y|--yes)\s+)?)?(?:hackmyagent|opena2a|secretless-ai)(?![\w-])(?=[ \t]+([a-z.<-][^\s`"')]*))/g;
 
+// A letter, combining mark or digit of any script, or `_`.
+const WORD_CHARACTER = /[\p{L}\p{M}\p{N}_]/u;
+
 /**
  * The `[start, end)` offsets of each shell-quoted string in `text`: `'...'`,
  * and `"..."` with `\` escapes inside it. A `\` outside a string escapes the
  * character after it, so `'it'\''s'` is two strings. A quote right after a
- * letter, digit or `_` is an apostrophe of prose (`the project's key`), and a
- * quote that is never closed starts no string.
+ * letter, combining mark or digit of any script, or after `_`, is an
+ * apostrophe of prose (`the project's key`, `José's agent`). A string ends on
+ * the line it starts: a quote that is not closed on its own line, such as the
+ * one in a path `ops-'team/SKILL.md` named in a sentence, starts no string.
  */
 function quotedSpans(text: string): Array<[number, number]> {
   const spans: Array<[number, number]> = [];
@@ -64,10 +69,14 @@ function quotedSpans(text: string): Array<[number, number]> {
       i++;
       continue;
     }
-    if ((quote !== "'" && quote !== '"') || /\w/.test(text[i - 1] ?? "")) continue;
+    if (quote !== "'" && quote !== '"') continue;
+    // The code point before the quote, also one outside the BMP, which takes two code units.
+    if (WORD_CHARACTER.test([...text.slice(Math.max(0, i - 2), i)].pop() ?? "")) continue;
     let end = i + 1;
-    while (end < text.length && text[end] !== quote) end += quote === '"' && text[end] === "\\" ? 2 : 1;
-    if (end >= text.length) continue;
+    while (end < text.length && text[end] !== quote && text[end] !== "\n") {
+      end += quote === '"' && text[end] === "\\" && text[end + 1] !== "\n" ? 2 : 1;
+    }
+    if (text[end] !== quote) continue;
     spans.push([i, end + 1]);
     i = end;
   }
