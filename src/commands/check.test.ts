@@ -2881,6 +2881,36 @@ describe("check command", () => {
       });
     }
 
+    // A U+200B ZERO WIDTH SPACE or a U+2028 LINE SEPARATOR in the value was
+    // written as it was, on stderr and in the "error" of --json (#295).
+    it("writes a format character in a refused --type value as a \\u escape", async () => {
+      await runCheck(["server-filesystem", "--type", "mcp\u{200b}"]);
+
+      expect(consoleErrSpy.mock.calls.map((c) => c.join(" "))).toEqual([
+        'Error: --type must be one of mcp_server, a2a_agent, skill, ai_tool, llm, library; got "mcp\\u200b"',
+      ]);
+      expect(consoleSpy).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(1);
+      expect(RegistryClient).not.toHaveBeenCalled();
+      expect(isHmaAvailable).not.toHaveBeenCalled();
+      expect(scanPackage).not.toHaveBeenCalled();
+    });
+
+    it("writes U+2028 in a refused --type value as a \\u escape, with --json", async () => {
+      await runCheck(["server-filesystem", "--type", "mcp\u{2028}", "--json"]);
+
+      expect(consoleSpy.mock.calls).toHaveLength(1);
+      const line = String(consoleSpy.mock.calls[0][0]);
+      expect(line).not.toContain("\u{2028}");
+      expect(JSON.parse(line)).toEqual({
+        error: '--type must be one of mcp_server, a2a_agent, skill, ai_tool, llm, library; got "mcp\\u2028"',
+      });
+      expect(consoleErrSpy).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(1);
+      expect(RegistryClient).not.toHaveBeenCalled();
+      expect(isHmaAvailable).not.toHaveBeenCalled();
+    });
+
     function mockTypedMiss(): ReturnType<typeof vi.fn> {
       const checkTrust = vi.fn().mockRejectedValue(new PackageNotFoundError(FILESYSTEM));
       vi.mocked(RegistryClient).mockImplementation(function () {
