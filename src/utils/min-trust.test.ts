@@ -68,4 +68,42 @@ describe("parseMinTrust", () => {
     }
     expect(parseMinTrust(" 9")).toEqual({ problem: `${REFUSAL} " 9"` });
   });
+
+  // JSON.stringify also leaves U+2028, U+2029 and the format characters
+  // (category Cf) as they are, so the refusal wrote them, U+200B ZERO WIDTH
+  // SPACE and U+202E RIGHT-TO-LEFT OVERRIDE among them, as they were (#292).
+  it("writes U+2028, U+2029 and the format characters in a refused value as \\u escapes", () => {
+    expect(parseMinTrust("2\u{200b}")).toEqual({ problem: `${REFUSAL} "2\\u200b"` });
+    expect(parseMinTrust("\u{202e}9")).toEqual({ problem: `${REFUSAL} "\\u202e9"` });
+    expect(parseMinTrust("2\u{2028}3")).toEqual({ problem: `${REFUSAL} "2\\u20283"` });
+    expect(parseMinTrust("2\u{2029}3")).toEqual({ problem: `${REFUSAL} "2\\u20293"` });
+    expect(parseMinTrust("\u{feff}9")).toEqual({ problem: `${REFUSAL} "\\ufeff9"` });
+    // Above U+FFFF, the escapes of the UTF-16 surrogate pair.
+    expect(parseMinTrust("2\u{e0041}")).toEqual({ problem: `${REFUSAL} "2\\udb40\\udc41"` });
+  });
+
+  // The characters hasDisplayHazard names: the C0 and C1 controls, DEL,
+  // U+2028, U+2029 and the format characters.
+  it("writes each control, separator and format character as escapes that read back as the value", () => {
+    const hazard = /[\u{0}-\u{1f}\u{7f}-\u{9f}\u{2028}\u{2029}\p{Cf}]/u;
+    const chars: string[] = [];
+    for (let code = 0; code <= 0x10ffff; code++) {
+      if (code >= 0xd800 && code <= 0xdfff) continue;
+      const char = String.fromCodePoint(code);
+      if (hazard.test(char)) chars.push(char);
+    }
+    expect(chars).toContain("\u{200b}");
+    expect(chars).toContain("\u{2029}");
+    expect(chars).toContain("\u{e007f}");
+    for (const char of chars) {
+      const value = `${char}9`;
+      const label = `U+${char.codePointAt(0)!.toString(16).padStart(4, "0")}`;
+      const result = parseMinTrust(value);
+      expect("problem" in result, label).toBe(true);
+      if (!("problem" in result)) continue;
+      expect(result.problem.startsWith(`${REFUSAL} "`), label).toBe(true);
+      expect(hazard.test(result.problem), label).toBe(false);
+      expect(JSON.parse(result.problem.slice(REFUSAL.length + 1)), label).toBe(value);
+    }
+  });
 });

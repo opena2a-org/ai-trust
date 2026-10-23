@@ -4,6 +4,7 @@
  */
 
 import { Option } from "commander";
+import { hasDisplayHazard } from "../output/finding-location.js";
 
 /** The level `--min-trust` has when it is not given: 2, Listed. */
 const DEFAULT_MIN_TRUST = "2";
@@ -37,21 +38,36 @@ export function parseMinTrust(value: string): { level: number } | { problem: str
   return { problem: `--min-trust must be a whole number between 0 and 4, not ${shownValue(value)}` };
 }
 
-/** DEL and the C1 controls, which JSON.stringify writes as they are. */
-const DEL_AND_C1_CONTROLS = /[\u007f-\u009f]/g;
-
 /**
  * A refused value as the usage error names it: as given when it is printable
  * ASCII without spaces, such as `2.5` or `abc`, otherwise as a JSON string,
  * which shows an empty value as `""` and writes a tab, a line break or an
- * escape character in it as a JSON escape. JSON.stringify leaves DEL and the
- * C1 controls (U+007F to U+009F, among them the one-character CSI U+009B) as
- * they are, so those are written as `\u007f` to `\u009f` escapes here.
+ * escape character in it as a JSON escape. JSON.stringify escapes the C0
+ * controls but leaves DEL, the C1 controls (U+007F to U+009F, among them the
+ * one-character CSI U+009B), the line and paragraph separators U+2028 and
+ * U+2029 and the format characters, such as U+200B ZERO WIDTH SPACE and
+ * U+202E RIGHT-TO-LEFT OVERRIDE, as they are. Those are the other characters
+ * hasDisplayHazard names, and each is written here as `\u` escapes, which
+ * JSON reads back as that character.
  */
 function shownValue(text: string): string {
   if (/^[!-~]+$/.test(text)) return text;
-  return JSON.stringify(text).replace(
-    DEL_AND_C1_CONTROLS,
-    (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
-  );
+  let shown = "";
+  for (const char of JSON.stringify(text)) {
+    shown += hasDisplayHazard(char) ? unicodeEscapes(char) : char;
+  }
+  return shown;
+}
+
+/**
+ * `char` as `\u` escapes, one for each of its UTF-16 code units: one for
+ * U+200B, and for a character above U+FFFF, such as U+E0041, the two of its
+ * surrogate pair.
+ */
+function unicodeEscapes(char: string): string {
+  let escapes = "";
+  for (let i = 0; i < char.length; i++) {
+    escapes += `\\u${char.charCodeAt(i).toString(16).padStart(4, "0")}`;
+  }
+  return escapes;
 }

@@ -449,6 +449,24 @@ describe("batch command", () => {
     expect(RegistryClient).not.toHaveBeenCalled();
   });
 
+  // A U+202E RIGHT-TO-LEFT OVERRIDE in the value was written as it was in
+  // the "error" of --json (#292).
+  it("writes a format character in a refused --min-trust value as a \\u escape, with --json", async () => {
+    await createProgram().parseAsync([
+      "node", "test", "--json", "batch", "pkg-a", "--min-trust", "\u{202e}9",
+    ]);
+
+    expect(consoleSpy.mock.calls).toHaveLength(1);
+    const line = String(consoleSpy.mock.calls[0][0]);
+    expect(line).not.toContain("\u{202e}");
+    expect(JSON.parse(line)).toEqual({
+      error: '--min-trust must be a whole number between 0 and 4, not "\\u202e9"',
+    });
+    expect(consoleErrSpy).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+    expect(RegistryClient).not.toHaveBeenCalled();
+  });
+
   // With --json a usage error is one JSON object on stdout and nothing on
   // stderr, as for a --registry-url usage error.
   describe("usage errors with --json (#191)", () => {
