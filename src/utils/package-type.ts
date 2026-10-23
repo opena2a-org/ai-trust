@@ -10,6 +10,7 @@
  */
 
 import { AI_NATIVE_PACKAGE_TYPES, LIBRARY_PACKAGE_TYPE } from "@opena2a/ai-classifier";
+import { quotedValue } from "./quoted-value.js";
 
 /** The package types `--type` accepts, as the classifier names them. */
 export const PACKAGE_TYPES: readonly string[] = [...AI_NATIVE_PACKAGE_TYPES, LIBRARY_PACKAGE_TYPE];
@@ -21,11 +22,13 @@ export function packageTypeChoices(): string {
 
 /**
  * The error message for a `--type` value that is not a package type, or
- * undefined when no type was given or the type is one of PACKAGE_TYPES.
+ * undefined when no type was given or the type is one of PACKAGE_TYPES. The
+ * message names the value as the JSON string quotedValue writes, in which a
+ * control, separator or format character of the value is an escape.
  */
 export function packageTypeProblem(value: string | undefined): string | undefined {
   if (value === undefined || PACKAGE_TYPES.includes(value)) return undefined;
-  return `--type must be ${packageTypeChoices()}; got ${JSON.stringify(value)}`;
+  return `--type must be ${packageTypeChoices()}; got ${quotedValue(value)}`;
 }
 
 /**

@@ -185,6 +185,51 @@ describe("batch command", () => {
       expect(RegistryClient).not.toHaveBeenCalled();
     });
 
+    // The one-character CSI U+009B and a U+202E RIGHT-TO-LEFT OVERRIDE in the
+    // value were written as they were, on stderr and in the "error" of
+    // --json (#295).
+    it("writes a C1 control in a refused --type value as a \\u escape", async () => {
+      await createProgram().parseAsync([
+        "node", "test", "batch", "pkg-a", "--type", "mcp\u{9b}31m",
+      ]);
+
+      expect(consoleErrSpy.mock.calls.map((c) => c.join(" "))).toEqual([
+        'Error: --type must be one of mcp_server, a2a_agent, skill, ai_tool, llm, library; got "mcp\\u009b31m"',
+      ]);
+      expect(consoleSpy).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(1);
+      expect(RegistryClient).not.toHaveBeenCalled();
+    });
+
+    it("writes a format character in a refused --type value as a \\u escape", async () => {
+      await createProgram().parseAsync([
+        "node", "test", "batch", "pkg-a", "--type", "mcp\u{202e}",
+      ]);
+
+      expect(consoleErrSpy.mock.calls.map((c) => c.join(" "))).toEqual([
+        'Error: --type must be one of mcp_server, a2a_agent, skill, ai_tool, llm, library; got "mcp\\u202e"',
+      ]);
+      expect(consoleSpy).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(1);
+      expect(RegistryClient).not.toHaveBeenCalled();
+    });
+
+    it("writes a format character in a refused --type value as a \\u escape, with --json", async () => {
+      await createProgram().parseAsync([
+        "node", "test", "--json", "batch", "pkg-a", "--type", "mcp\u{202e}",
+      ]);
+
+      expect(consoleSpy.mock.calls).toHaveLength(1);
+      const line = String(consoleSpy.mock.calls[0][0]);
+      expect(line).not.toContain("\u{202e}");
+      expect(JSON.parse(line)).toEqual({
+        error: '--type must be one of mcp_server, a2a_agent, skill, ai_tool, llm, library; got "mcp\\u202e"',
+      });
+      expect(consoleErrSpy).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(1);
+      expect(RegistryClient).not.toHaveBeenCalled();
+    });
+
     it("lists the accepted values in its help", () => {
       const batch = createProgram().commands.find((c) => c.name() === "batch")!;
       const help = batch.helpInformation().replace(/\s+/g, " ");
