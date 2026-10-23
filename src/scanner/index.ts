@@ -25,6 +25,7 @@ export type {
 
 import { lstat, readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { shownName } from "../utils/quoted-value.js";
 import { decayScore } from "./decay-score.js";
 import { downloadPackage } from "./downloader.js";
 import { runHmaScan } from "./hma.js";
@@ -193,7 +194,9 @@ export async function scanPackage(
  * The refusal of a scanLocalPath target that could not be read or is not a
  * directory. It is thrown before the scanner runs. `check --scan-path`
  * prints its message after "error: ", so the message names the directory
- * and not this function.
+ * and not this function, as shownName writes it: a name that holds a
+ * character the terminal would act on or hide is a JSON string with each
+ * such character escaped.
  */
 export class ScanPathError extends Error {
   constructor(message: string) {
@@ -217,10 +220,10 @@ export async function scanLocalPath(
     st = await stat(targetDir);
   } catch (e) {
     const code = (e as NodeJS.ErrnoException).code ?? "unknown";
-    throw new ScanPathError(`${targetDir} could not be read (${code}).`);
+    throw new ScanPathError(`${shownName(targetDir)} could not be read (${code}).`);
   }
   if (!st.isDirectory()) {
-    throw new ScanPathError(`${targetDir} is not a directory.`);
+    throw new ScanPathError(`${shownName(targetDir)} is not a directory.`);
   }
   const scan = await runHmaScan(targetDir, options);
   const trustScore = scan.maxScore > 0 ? scan.score / scan.maxScore : 0;

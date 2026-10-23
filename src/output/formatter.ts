@@ -51,6 +51,7 @@ import { nothingToScan } from "../scanner/hma.js";
 import { findAuditFile } from "../utils/audit-file.js";
 import { checkCitation } from "../utils/cli-prefix.js";
 import { packageTypeName, scanKindName } from "../utils/package-type.js";
+import { shownName } from "../utils/quoted-value.js";
 import { shellArg } from "../utils/shell-arg.js";
 
 // ── Visual helpers ─────────────────────────────────────────────���──────
@@ -1434,7 +1435,8 @@ export interface FormatScanResultOptions {
    * commands that act on the scanned tree: `npx hackmyagent secure <dir>
    * --fix` and the `ai-trust audit` of its dependency file. A directory whose
    * name holds a character the terminal would act on or hide is named in
-   * none of these commands: each is left out.
+   * none of these commands: each is left out. The notice names it with each
+   * such character escaped (shownName).
    */
   scanPath?: string;
   /**
@@ -1450,8 +1452,10 @@ export interface FormatScanResultOptions {
   all?: boolean;
   /**
    * The command that printed this result, without `--all`. The line that
-   * counts the findings not printed cites it with `--all` appended. Defaults
-   * to `<check citation> <packageName>`.
+   * counts the findings not printed cites it with `--all` appended, or, for
+   * a command that holds a character the terminal would act on or hide, says
+   * to run the command again with `--all`. Defaults to `<check citation>
+   * <packageName>`.
    */
   rerunCommand?: string;
   /**
@@ -1519,9 +1523,12 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
   const vc = verdictColor(result.verdict);
   const scoreVal = Math.round(result.trustScore * 100);
 
+  // After `check --scan-path` the name is the <name> label as given, which
+  // can hold a character the terminal would act on or hide: shownName writes
+  // each such character as an escape.
   const lines: string[] = [
     "",
-    `  ${chalk.bold.white(result.packageName)}${resolvedVersionSuffix(result)}${ecosystemSuffix(opts.ecosystem ?? "npm")}  ${chalk.dim(remote ? "downloaded package" : "local scan")}`,
+    `  ${chalk.bold.white(shownName(result.packageName))}${resolvedVersionSuffix(result)}${ecosystemSuffix(opts.ecosystem ?? "npm")}  ${chalk.dim(remote ? "downloaded package" : "local scan")}`,
   ];
 
   // The scanner read no file and found none it could not read. The checks
@@ -1531,15 +1538,18 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
   // to scan and print none of them. A directory whose files were found but
   // could not be read keeps its score and findings: they name those files.
   if (nothingToScan(result.scan)) {
-    const target = stripControlCharacters(opts.scanPath ?? result.packageName);
-    lines.push(`  ${chalk.bold(`Nothing to scan in ${target}: 0 files read.`)}`);
+    // A directory whose name holds a character the terminal would act on or
+    // hide is named with each such character escaped: printed as it is, the
+    // terminal would act on it or hide it, and with a control character
+    // removed, the line would name another directory.
+    const target = opts.scanPath ?? result.packageName;
+    lines.push(`  ${chalk.bold(`Nothing to scan in ${shownName(target)}: 0 files read.`)}`);
     if (opts.scanPath !== undefined) {
       lines.push("");
-      // A directory whose name holds a character the terminal would act on
-      // or hide gets no Verify command: with its control characters removed,
-      // `ls -A` would list another directory.
+      // Such a directory gets no Verify command: no command names it as it
+      // would run.
       if (!hasDisplayHazard(opts.scanPath)) {
-        lines.push(`  ${chalk.cyan("Verify:")}  ls -A ${shellArg(target)}`);
+        lines.push(`  ${chalk.cyan("Verify:")}  ls -A ${shellArg(opts.scanPath)}`);
       }
       lines.push(`  ${chalk.cyan("Fix:")}     pass --scan-path a directory that holds the files to scan`);
     }
@@ -1770,8 +1780,12 @@ export function formatScanResult(result: ScanResult, opts: FormatScanResultOptio
     if (failed.length > limit) {
       const rerun =
         opts.rerunCommand ?? `${checkCitation()} ${shellArg(result.packageName)}`;
+      // A command that holds a character the terminal would act on or hide,
+      // as the --scan-path directory or the label can, is not shown as it
+      // would run, so the line says what to add instead of citing it.
+      const showAll = hasDisplayHazard(rerun) ? "run the command again with --all" : `${rerun} --all`;
       lines.push(
-        `\n  ${chalk.dim(`+ ${failed.length - limit} more findings (show all: ${rerun} --all)`)}`
+        `\n  ${chalk.dim(`+ ${failed.length - limit} more findings (show all: ${showAll})`)}`
       );
     }
 

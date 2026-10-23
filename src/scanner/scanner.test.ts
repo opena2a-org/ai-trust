@@ -681,6 +681,34 @@ describe("scanLocalPath", () => {
     );
   });
 
+  // Printed as it is after "error: ", the terminal acted on such a character
+  // or hid it (#296).
+  it("names a target whose name holds a control or format character with each such character escaped", async () => {
+    // A C0 control (ESC), DEL, a C1 control (CSI), the line and paragraph
+    // separators, a format character (RIGHT-TO-LEFT OVERRIDE) and one above
+    // U+FFFF (TAG LATIN CAPITAL LETTER A), each as the message writes it.
+    const characters: [string, string][] = [
+      ["\u001b", "\\u001b"],
+      ["\u007f", "\\u007f"],
+      ["\u009b", "\\u009b"],
+      [" ", "\\u2028"],
+      [" ", "\\u2029"],
+      ["‮", "\\u202e"],
+      ["\u{e0041}", "\\udb40\\udc41"],
+    ];
+    for (const [character, escape] of characters) {
+      const filePath = join(tmpRoot, `file${character}.txt`);
+      writeFileSync(filePath, "hello");
+
+      await expect(scanLocalPath(join(tmpRoot, `ctl${character}dir`))).rejects.toThrow(
+        new ScanPathError(`"${join(tmpRoot, `ctl${escape}dir`)}" could not be read (ENOENT).`),
+      );
+      await expect(scanLocalPath(filePath)).rejects.toThrow(
+        new ScanPathError(`"${join(tmpRoot, `file${escape}.txt`)}" is not a directory.`),
+      );
+    }
+  });
+
   // check --scan-path prints its directory fix for a ScanPathError only (#226).
   it("refuses a target that does not exist or is a file with a ScanPathError, before the scanner runs", async () => {
     const filePath = join(tmpRoot, "file.txt");

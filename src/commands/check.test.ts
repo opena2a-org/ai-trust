@@ -3813,6 +3813,27 @@ describe("check --scan-path prints the fix for the failure it hit", () => {
     );
   });
 
+  // Printed as it is, the terminal acted on the character or hid it, so the
+  // line did not show the command that runs (#296).
+  it("names no directory whose name holds a control or format character in the scanner command it prints", async () => {
+    // A C0 control (ESC), a carriage return and line feed, DEL, a C1 control
+    // (CSI), the line and paragraph separators and a format character
+    // (RIGHT-TO-LEFT OVERRIDE).
+    for (const character of ["\u001b", "\r\n", "\u007f", "\u009b", " ", " ", "‮"]) {
+      consoleErrSpy.mockClear();
+      vi.mocked(scanLocalPath).mockRejectedValue(new HmaScanError("HMA scan failed: No JSON output found from HMA scan"));
+
+      const exitCode = await checkScanPath(`/tmp/ctl${character}dir`);
+
+      expect(stderrLines()).toEqual([
+        "error: HMA scan failed: No JSON output found from HMA scan",
+        "Fix: the scanner produced no readable report. Run it directly from inside the --scan-path directory: npx hackmyagent secure",
+        "Or reinstall the hackmyagent copy ai-trust runs: cd /work/project && npm install",
+      ]);
+      expect(exitCode).toBe(2);
+    }
+  });
+
   it.each([
     ["does not exist", "/nonexistent", "/nonexistent could not be read (ENOENT)."],
     ["is a file", "/tmp/fixture.txt", "/tmp/fixture.txt is not a directory."],

@@ -46,8 +46,8 @@ const SRC_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
 
 /**
  * The modules `scanPackage` loads, relative to src/: the scanner modules and
- * the ai-trust modules `hma.ts` imports, with the modules they import,
- * compiled into the fake install.
+ * the ai-trust modules `hma.ts` and `index.ts` import, with the modules they
+ * import, compiled into the fake install.
  */
 const SCANNER_SOURCES = [
   "scanner/index.ts",
@@ -56,8 +56,12 @@ const SCANNER_SOURCES = [
   "scanner/downloader.ts",
   "scanner/mask-secrets.ts",
   "scanner/signal-cleanup.ts",
+  "output/finding-location.ts",
+  "output/registry-command.ts",
   "telemetry/opt-in.ts",
   "utils/cli-prefix.ts",
+  "utils/quoted-value.ts",
+  "utils/shell-arg.ts",
 ];
 
 const FIXTURE_NAME = "fixture-mcp-server";
