@@ -2266,9 +2266,9 @@ describe("formatScanResult", () => {
         ["\u001b", "\\u001b"],
         ["\u007f", "\\u007f"],
         ["\u009b", "\\u009b"],
-        [" ", "\\u2028"],
-        [" ", "\\u2029"],
-        ["‮", "\\u202e"],
+        ["\u{2028}", "\\u2028"],
+        ["\u{2029}", "\\u2029"],
+        ["\u{202e}", "\\u202e"],
         ["\u{e0041}", "\\udb40\\udc41"],
       ];
       for (const [character, escape] of characters) {
@@ -3272,7 +3272,7 @@ describe("formatScanResult", () => {
     // A C0 control (ESC), a carriage return and line feed, DEL, a C1 control
     // (CSI), the line and paragraph separators and a format character
     // (RIGHT-TO-LEFT OVERRIDE).
-    const HAZARDS = ["\u001b", "\r\n", "\u007f", "\u009b", " ", " ", "‮"];
+    const HAZARDS = ["\u001b", "\r\n", "\u007f", "\u009b", "\u{2028}", "\u{2029}", "\u{202e}"];
 
     // Printed as it is, the terminal acted on the character or hid it, so the
     // line did not show the command that runs (#296).
@@ -3311,9 +3311,9 @@ describe("formatScanResult", () => {
         ["fx\r\n", '"fx\\r\\n"'],
         ["fx\u007f", '"fx\\u007f"'],
         ["fx\u009b", '"fx\\u009b"'],
-        ["fx ", '"fx\\u2028"'],
-        ["fx ", '"fx\\u2029"'],
-        ["fx‮", '"fx\\u202e"'],
+        ["fx\u{2028}", '"fx\\u2028"'],
+        ["fx\u{2029}", '"fx\\u2029"'],
+        ["fx\u{202e}", '"fx\\u202e"'],
       ];
       for (const [packageName, shown] of labels) {
         const output = formatScanResult({ ...twelveFindings(), packageName }, { remote: false, scanPath: "/tmp/fx", all: true });
