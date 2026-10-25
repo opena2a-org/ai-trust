@@ -2,8 +2,13 @@
 
 [![Status: stable](https://img.shields.io/badge/status-stable-green)](STATUS.md)
 [![npm version](https://img.shields.io/npm/v/ai-trust.svg)](https://github.com/opena2a-org/ai-trust/releases)
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![CI](https://github.com/opena2a-org/ai-trust/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/opena2a-org/ai-trust/actions/workflows/ci.yml)
+[![Security](https://github.com/opena2a-org/ai-trust/actions/workflows/dependency-audit.yml/badge.svg)](https://github.com/opena2a-org/ai-trust/actions/workflows/dependency-audit.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
+> **[OpenA2A](https://github.com/opena2a-org)**: [CLI](https://github.com/opena2a-org/opena2a) · [HackMyAgent](https://github.com/opena2a-org/hackmyagent) · [Secretless](https://github.com/opena2a-org/secretless-ai) · [AIM](https://github.com/opena2a-org/agent-identity-management) · [Browser Guard](https://github.com/opena2a-org/ai-browserguard) · [DVAA](https://github.com/opena2a-org/damn-vulnerable-ai-agent)
+
+[Website](https://opena2a.org/ai-trust) · [Discord](https://discord.gg/uRZa3KXgEn)
 
 Trust verification CLI for AI packages: MCP servers, A2A agents, skills, AI tools and LLMs. It prints the OpenA2A Registry's scans and known advisories for a package, or downloads and scans it locally with HackMyAgent. For general-purpose libraries such as `express`, use [HackMyAgent](https://github.com/opena2a-org/hackmyagent) instead.
 
