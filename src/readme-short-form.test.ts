@@ -24,6 +24,15 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
 const README = read("README.md");
 const LINES = README.split("\n");
+// The header's ecosystem line and link row are navigation, the same on every OpenA2A repository's
+// page: neither counts as a first use of a name nor toward this README's word budget.
+// Each matches a whole line made only of navigation items joined by " · ".
+const NAV_ITEM = String.raw`(?:\*\*[^*]+\*\*|\[[^\]]+\]\([^)\s]+\))`;
+const NAVIGATION = new RegExp(
+  String.raw`^> \*\*\[OpenA2A\]\([^)\s]+\)\*\*: ${NAV_ITEM}(?: · ${NAV_ITEM})*$` +
+    String.raw`|^\[Website\]\([^)\s]+\)(?: · \[[^\]]+\]\([^)\s]+\))*$`,
+);
+const PROSE = LINES.filter((l) => !NAVIGATION.test(l)).join("\n");
 
 const MAX_WORDS = 680;
 const MAX_SECTIONS = 6;
@@ -113,7 +122,7 @@ function section(markdown: string, heading: RegExp): string {
 
 describe("README: short form", () => {
   it(`has at most ${MAX_WORDS} words`, () => {
-    expect(words(README)).toBeLessThanOrEqual(MAX_WORDS);
+    expect(words(PROSE)).toBeLessThanOrEqual(MAX_WORDS);
   });
 
   it(`has at most ${MAX_SECTIONS} sections`, () => {
@@ -136,9 +145,9 @@ describe("README: short form", () => {
 
   it(`names AIM as "${AIM_FIRST_USE}" where it first mentions it`, () => {
     // -1 on both sides when the README does not mention AIM at all.
-    const first = README.search(/\bAIM\b/);
+    const first = PROSE.search(/\bAIM\b/);
     const expected = first === -1 ? -1 : first - "OpenA2A ".length;
-    expect(README.indexOf(AIM_FIRST_USE)).toBe(expected);
+    expect(PROSE.indexOf(AIM_FIRST_USE)).toBe(expected);
   });
 
   it(`shows the first command and the start of its output within the first ${FIRST_SCREEN_LINES} lines`, () => {
