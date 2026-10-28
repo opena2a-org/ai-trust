@@ -44,7 +44,7 @@ The OpenA2A Registry uses community-contributed scan data to calculate trust sco
 
 - **More scans = higher confidence.** A package scanned by 50 contributors has a more reliable trust score than one scanned by 1.
 - **Packages move up trust levels.** Contributions help packages move from "Listed" (level 2) to "Scanned" (level 3), reducing risk for everyone.
-- **Stale data gets refreshed.** When you re-scan a package, the registry receives updated findings, keeping trust data current.
+- **Re-scans are shared too.** When you re-scan a package with sharing on, the Registry receives your newer findings.
 
 ### 4. What data is shared (and what is not)
 
