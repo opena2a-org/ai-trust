@@ -141,47 +141,92 @@ describe("citeCommandsInText", () => {
   // 10,000 characters hold the same text. When the time is linear in the length
   // of a fix, the one fix takes about as long as the 100; when it is
   // proportional to the commands times the quoted strings, about 45 times as
-  // long. The bound of 6 sits between the two.
-  it("rewrites a fix of 1,000,000 characters in less than 6 times the time of 100 fixes of 10,000", () => {
-    const unit = "'hackmyagent check.js' hackmyagent scan ";
-    const cited = "'hackmyagent check.js' npx hackmyagent scan ";
-    const small = unit.repeat(250);
-    const large = unit.repeat(25_000);
-    expect([small.length, large.length]).toEqual([10_000, 1_000_000]);
-    expect(citeCommandsInText(small)).toBe(cited.repeat(250));
-    expect(citeCommandsInText(large)).toBe(cited.repeat(25_000));
+  // long (`rereadingRewrite` below: 14 times or more, measured on one fix of
+  // 40,000 characters and 100 of 400). The bound of 6 sits between the two.
+  const LINEAR_BOUND = 6;
+  const unit = "'hackmyagent check.js' hackmyagent scan ";
+  const cited = "'hackmyagent check.js' npx hackmyagent scan ";
 
-    // Both sides of the ratio rewrite the same 1,000,000 characters and take
-    // about as long, so a loaded machine that slows the process slows both
-    // alike. The clock is the CPU time of the process, which leaves out the
-    // time the process waits for a CPU; Windows counts that time in steps of
-    // its clock tick, about 15.6 ms, so there the clock is the elapsed time.
-    const now =
-      process.platform === "win32"
-        ? () => performance.now()
-        : () => {
-            const { user, system } = process.cpuUsage();
-            return (user + system) / 1000;
-          };
-    // The fastest of five runs of each, taken in turn, so that a pause of the
-    // process during one run does not decide the ratio. A slow spell of the
-    // machine over a whole measurement can, so the ratio is measured up to
-    // three times.
+  // Both sides of the ratio rewrite the same characters and take about as
+  // long, so a loaded machine that slows the process slows both alike. The
+  // clock is the CPU time of the process, which leaves out the time the
+  // process waits for a CPU; Windows counts that time in steps of its clock
+  // tick, about 15.6 ms, so there the clock is the elapsed time.
+  const now =
+    process.platform === "win32"
+      ? () => performance.now()
+      : () => {
+          const { user, system } = process.cpuUsage();
+          return (user + system) / 1000;
+        };
+
+  // The time `rewrite` takes on `large` over the time it takes on `small` 100
+  // times: the fastest of five runs of each, taken in turn, so that a pause of
+  // the process during one run does not decide the ratio. A slow spell of the
+  // machine over a whole measurement can, so the ratio is measured up to three
+  // times while it is at or over the bound.
+  const timeRatio = (rewrite: (text: string) => string, large: string, small: string): number => {
     const measure = (): number => {
       const fastest = { large: Infinity, small: Infinity };
       for (let run = 0; run < 5; run++) {
         let start = now();
-        citeCommandsInText(large);
+        rewrite(large);
         fastest.large = Math.min(fastest.large, now() - start);
         start = now();
-        for (let fix = 0; fix < 100; fix++) citeCommandsInText(small);
+        for (let fix = 0; fix < 100; fix++) rewrite(small);
         fastest.small = Math.min(fastest.small, now() - start);
       }
       return fastest.large / fastest.small;
     };
     let ratio = measure();
-    for (let attempt = 1; attempt < 3 && ratio >= 6; attempt++) ratio = Math.min(ratio, measure());
-    expect(ratio).toBeLessThan(6);
+    for (let attempt = 1; attempt < 3 && ratio >= LINEAR_BOUND; attempt++) {
+      ratio = Math.min(ratio, measure());
+    }
+    return ratio;
+  };
+
+  // A rewriter that reads every quoted string before a command again for each
+  // command, as one that checks each command against each quoted string does,
+  // before it rewrites as citeCommandsInText does: the same fix out, in time
+  // proportional to the commands times the quoted strings.
+  const rereadingRewrite = (fix: string): string => {
+    const quoted = /'[^']*'/g;
+    for (let at = fix.indexOf("hackmyagent scan"); at !== -1; at = fix.indexOf("hackmyagent scan", at + 1)) {
+      quoted.lastIndex = 0;
+      let match = quoted.exec(fix);
+      while (match !== null && quoted.lastIndex < at) match = quoted.exec(fix);
+    }
+    return citeCommandsInText(fix);
+  };
+
+  it(`rewrites a fix of 1,000,000 characters in less than ${LINEAR_BOUND} times the time of 100 fixes of 10,000`, ({
+    task,
+  }) => {
+    const small = unit.repeat(250);
+    const large = unit.repeat(25_000);
+    expect([small.length, large.length]).toEqual([10_000, 1_000_000]);
+    expect(citeCommandsInText(small)).toBe(cited.repeat(250));
+    expect(citeCommandsInText(large)).toBe(cited.repeat(25_000));
+    const ratio = timeRatio(citeCommandsInText, large, small);
+    // The measured ratio, for a report that reads the test's meta.
+    Object.assign(task.meta, { ratios: [ratio] });
+    expect(ratio).toBeLessThan(LINEAR_BOUND);
+  }, 120_000);
+
+  it(`holds a rewriter that reads every quoted string again for each command to ${LINEAR_BOUND} times or more, on fixes citeCommandsInText rewrites in less`, ({
+    task,
+  }) => {
+    const small = unit.repeat(10);
+    const large = unit.repeat(1_000);
+    expect([small.length, large.length]).toEqual([400, 40_000]);
+    expect(rereadingRewrite(large)).toBe(cited.repeat(1_000));
+    const ratios = {
+      citeCommandsInText: timeRatio(citeCommandsInText, large, small),
+      rereadingRewrite: timeRatio(rereadingRewrite, large, small),
+    };
+    Object.assign(task.meta, { ratios: [ratios] });
+    expect(ratios.citeCommandsInText).toBeLessThan(LINEAR_BOUND);
+    expect(ratios.rereadingRewrite).toBeGreaterThanOrEqual(LINEAR_BOUND);
   }, 120_000);
 });
 

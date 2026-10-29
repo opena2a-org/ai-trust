@@ -12,6 +12,9 @@
  * packed here from two files), and the trust registry (no trust data, so
  * `check` scans; the scan ping answered late or never).
  * Exercises the built `dist/index.js` end-to-end.
+ *
+ * When the process ended is read from inside it, against control timers that
+ * a probe preloaded with `--require` sets when the process sends the ping.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { spawn, execFileSync } from "node:child_process";
@@ -37,6 +40,65 @@ const EXIT_CAP_MS = 2000;
 const SCAN_PING_TIMEOUT_MS = 5000;
 // Later than the cap, earlier than the ping's timeout.
 const LATE_ANSWER_MS = EXIT_CAP_MS + 1000;
+
+// The controls: timers set in the process when it sends the scan ping, so they
+// run in the same event loop as the ping's own timeout and the exit cap, and a
+// loaded machine that delays one delays the others. Each sits between when the
+// process ends and when a defect would end it.
+const CONTROLS = {
+  // Past the cap: a process the cap ended with the ping in flight is gone
+  // before it fires.
+  pastCap: SCAN_PING_TIMEOUT_MS - 1500,
+  // Just before the ping's timeout: a process that waits out the timeout
+  // after the answer is still there when it fires.
+  beforeTimeout: SCAN_PING_TIMEOUT_MS - 250,
+  // Past the ping's timeout: a process the timeout does not end is still there
+  // when it fires.
+  afterTimeout: SCAN_PING_TIMEOUT_MS + 3000,
+};
+
+// Preloaded into the process. When it sends the scan ping, the probe sets the
+// controls, unref'd so that they hold nothing open; each writes its name when
+// it fires before the process ends.
+const PING_PROBE = `
+const fs = require("node:fs");
+const send = globalThis.fetch;
+let sent = false;
+globalThis.fetch = function (...args) {
+  const body = args[1] && args[1].body;
+  if (!sent && typeof body === "string" && body.includes('"scan_ping"')) {
+    sent = true;
+    for (const [name, ms] of ${JSON.stringify(Object.entries(CONTROLS))}) {
+      setTimeout(() => fs.writeSync(2, "[ping-probe] fired " + name + "\\n"), ms).unref();
+    }
+  }
+  return send.apply(this, args);
+};
+`;
+
+// Clients that send a scan ping to the registry named on their command line
+// and end as a defect of the exit would: one waits out the ping's timeout
+// though the registry answered, one is ended by the cap with the ping in
+// flight, and one sends the ping with no timeout.
+const pingClient = (ending: string): string => `
+const ping = (signal) =>
+  fetch(process.argv[2] + "/api/v1/contribute", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ events: [{ type: "scan_ping" }] }),
+    signal,
+  }).then((res) => res.text(), () => undefined);
+${ending}
+`;
+const PING_CLIENTS = {
+  waitsOutTheTimeout: pingClient(
+    `setTimeout(() => {}, ${SCAN_PING_TIMEOUT_MS});\nping(AbortSignal.timeout(${SCAN_PING_TIMEOUT_MS}));`,
+  ),
+  endedByTheCap: pingClient(
+    `ping(AbortSignal.timeout(${SCAN_PING_TIMEOUT_MS}));\nsetTimeout(() => process.exit(0), ${EXIT_CAP_MS});`,
+  ),
+  noTimeout: pingClient("ping(undefined);"),
+};
 
 interface PingRecord {
   receivedAt: number;
@@ -125,19 +187,58 @@ function startServer(): Promise<Server> {
   return new Promise((resolveServer) => srv.listen(0, "127.0.0.1", () => resolveServer(srv)));
 }
 
-function runCheck(): Promise<{ stdout: string; status: number | null; exitedAt: number }> {
+interface Run {
+  stdout: string;
+  status: number | null;
+  exitedAt: number;
+  /** The names of the controls that fired before the process ended. */
+  fired: string[];
+}
+
+/** Run `args` under the probe. */
+function runProbed(args: string[]): Promise<Run> {
   return new Promise((resolveRun, reject) => {
     // Async spawn, not spawnSync: the fixture server runs in this process.
-    const child = spawn(
-      process.execPath,
-      [CLI_PATH, "check", PACKAGE, "--no-deep", "--contribute", "--json", "--registry-url", baseUrl],
-      { cwd: scratch, env: isolatedEnv(), stdio: ["ignore", "pipe", "ignore"] },
-    );
+    const child = spawn(process.execPath, ["--require", join(scratch, "ping-probe.cjs"), ...args], {
+      cwd: scratch,
+      env: isolatedEnv(),
+      stdio: ["ignore", "pipe", "pipe"],
+    });
     let stdout = "";
+    let stderr = "";
     child.stdout.on("data", (chunk) => (stdout += chunk));
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+      // Past the last control there is nothing left to read: end the run.
+      if (stderr.includes("[ping-probe] fired afterTimeout")) child.kill();
+    });
     child.on("error", reject);
-    child.on("close", (status) => resolveRun({ stdout, status, exitedAt: Date.now() }));
+    child.on("close", (status) =>
+      resolveRun({
+        stdout,
+        status,
+        exitedAt: Date.now(),
+        fired: [...stderr.matchAll(/\[ping-probe\] fired (\w+)/g)].map(([, name]) => name),
+      }),
+    );
   });
+}
+
+function runCheck(): Promise<Run> {
+  return runProbed([
+    CLI_PATH,
+    "check",
+    PACKAGE,
+    "--no-deep",
+    "--contribute",
+    "--json",
+    "--registry-url",
+    baseUrl,
+  ]);
+}
+
+function runPingClient(client: keyof typeof PING_CLIENTS): Promise<Run> {
+  return runProbed([join(scratch, `${client}.cjs`), baseUrl]);
 }
 
 beforeAll(async () => {
@@ -158,6 +259,11 @@ beforeAll(async () => {
   });
   tarballName = readdirSync(scratch).find((f) => f.endsWith(".tgz")) ?? "";
   tarball = readFileSync(join(scratch, tarballName));
+
+  writeFileSync(join(scratch, "ping-probe.cjs"), PING_PROBE);
+  for (const [client, source] of Object.entries(PING_CLIENTS)) {
+    writeFileSync(join(scratch, `${client}.cjs`), source);
+  }
 }, 60000);
 
 afterAll(async () => {
@@ -177,7 +283,7 @@ describe("exit with a scan ping in flight", () => {
     if (!existsSync(CLI_PATH)) return;
     pings = [];
     pingAnswerDelayMs = LATE_ANSWER_MS;
-    const { stdout, status, exitedAt } = await runCheck();
+    const { stdout, status, exitedAt, fired } = await runCheck();
 
     expect(status).toBe(0);
     expect(JSON.parse(stdout).source).toBe("scan");
@@ -187,22 +293,44 @@ describe("exit with a scan ping in flight", () => {
     expect(ping.answeredAt).toBeDefined();
     expect(ping.clientClosedAt ?? Infinity).toBeGreaterThanOrEqual(ping.answeredAt as number);
     expect(exitedAt).toBeGreaterThanOrEqual(ping.answeredAt as number);
-    // Answered: the process does not go on waiting for the ping's timeout.
-    expect(exitedAt - ping.receivedAt).toBeLessThan(SCAN_PING_TIMEOUT_MS);
+    // Answered: the process does not go on waiting for the ping's timeout; it
+    // ended before the control just before that timeout fired.
+    expect(fired).not.toContain("beforeTimeout");
+  }, 60000);
+
+  it("holds a client that waits out the ping's timeout though answered to ending after the control before it", async () => {
+    pings = [];
+    pingAnswerDelayMs = LATE_ANSWER_MS;
+    const { fired } = await runPingClient("waitsOutTheTimeout");
+
+    expect(pings).toHaveLength(1);
+    expect(pings[0].answeredAt).toBeDefined();
+    expect(fired).toContain("beforeTimeout");
   }, 60000);
 
   it("gives up on a ping the registry never answers when the ping's timeout fires", async () => {
     if (!existsSync(CLI_PATH)) return;
     pings = [];
     pingAnswerDelayMs = "never";
-    const { stdout, status, exitedAt } = await runCheck();
+    const { stdout, status, fired } = await runCheck();
 
     expect(status).toBe(0);
     expect(JSON.parse(stdout).source).toBe("scan");
     expect(pings).toHaveLength(1);
-    const waitedMs = exitedAt - pings[0].receivedAt;
-    // Past the cap, since the ping was in flight; ended by the ping's timeout.
-    expect(waitedMs).toBeGreaterThan(SCAN_PING_TIMEOUT_MS - 1500);
-    expect(waitedMs).toBeLessThan(SCAN_PING_TIMEOUT_MS + 3000);
+    // Past the cap, since the ping was in flight: the control past the cap
+    // fired. Ended by the ping's timeout: the control past it did not.
+    expect(fired).toContain("pastCap");
+    expect(fired).not.toContain("afterTimeout");
+  }, 60000);
+
+  it("holds a client the cap ends, and one with no timeout, to the controls either side of the ping's timeout", async () => {
+    pings = [];
+    pingAnswerDelayMs = "never";
+    const endedByTheCap = await runPingClient("endedByTheCap");
+    const noTimeout = await runPingClient("noTimeout");
+
+    expect(pings).toHaveLength(2);
+    expect(endedByTheCap.fired).not.toContain("pastCap");
+    expect(noTimeout.fired).toContain("afterTimeout");
   }, 60000);
 });
