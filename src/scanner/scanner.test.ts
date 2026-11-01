@@ -5,6 +5,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -442,6 +443,90 @@ describe("scanPackage", () => {
   });
 });
 
+// The time of a read of a downloaded package's version is measured against a
+// linear read of the same file at the same moment: the file read, and each of
+// its lines read once. Both sides are mostly the reading of the file, so a
+// loaded machine that slows the process slows both alike. readPackageVersion
+// takes 1 to 4.3 times as long as that read on these files (measured); a reader
+// that reads the rest of the Version line again from each place in it takes
+// 330 times or more on a line of 16 KB, a ratio that grows with the line's
+// length. The bound of 20 sits between the two.
+const HEADER_BOUND = 20;
+
+/**
+ * The CPU time of the process, in milliseconds, which leaves out the time the
+ * process waits for a CPU. Windows counts that time in steps of its clock
+ * tick, about 15.6 ms, so there it is the elapsed time.
+ */
+const now =
+  process.platform === "win32"
+    ? () => performance.now()
+    : () => {
+        const { user, system } = process.cpuUsage();
+        return (user + system) / 1000;
+      };
+
+/** A package whose PKG-INFO has a Version header of `spaces` spaces, `a`, a lone CR and `b`. */
+function longVersionHeader(spaces: number): string {
+  const dir = setupDownloadRaw(null);
+  writeFileSync(
+    join(dir, "PKG-INFO"),
+    `Metadata-Version: 2.1\nName: demo\nVersion:${" ".repeat(spaces)}a\rb\n`,
+  );
+  return dir;
+}
+
+/** One pass over the package's PKG-INFO: the file read, and each of its lines read once. */
+async function readEachLineOnce(dir: string): Promise<string> {
+  return (await readFile(join(dir, "PKG-INFO"), "utf8")).replace(/[^\n]+/g, (line) => line);
+}
+
+/**
+ * A reader that reads the rest of the Version line again from each place in
+ * it, as a pattern whose parts overlap does on this line, before it reads the
+ * version as readPackageVersion does: the same answer, in time that grows with
+ * the square of the line's length.
+ */
+async function rereadingVersion(dir: string): Promise<string | undefined> {
+  const text = await readFile(join(dir, "PKG-INFO"), "utf8");
+  const restOfLine = /[^\n]*/y;
+  for (let at = text.indexOf("\nVersion:") + 1; text[at] !== "\n"; at++) {
+    restOfLine.lastIndex = at;
+    restOfLine.exec(text);
+  }
+  return readPackageVersion(dir, "pypi");
+}
+
+/**
+ * The time `read` takes on the package in `dir` over the time
+ * readEachLineOnce takes on it: the fastest of five runs of each, taken in
+ * turn, so that a pause of the process during one run does not decide the
+ * ratio. A slow spell of the machine over a whole measurement can, so the
+ * ratio is measured up to three times while it is at or over the bound.
+ */
+async function headerTimeRatio(
+  read: (dir: string) => Promise<unknown>,
+  dir: string,
+): Promise<number> {
+  const measure = async (): Promise<number> => {
+    const fastest = { read: Infinity, once: Infinity };
+    for (let run = 0; run < 5; run++) {
+      let start = now();
+      await read(dir);
+      fastest.read = Math.min(fastest.read, now() - start);
+      start = now();
+      await readEachLineOnce(dir);
+      fastest.once = Math.min(fastest.once, now() - start);
+    }
+    return fastest.read / fastest.once;
+  };
+  let ratio = await measure();
+  for (let attempt = 1; attempt < 3 && ratio >= HEADER_BOUND; attempt++) {
+    ratio = Math.min(ratio, await measure());
+  }
+  return ratio;
+}
+
 describe("readPackageVersion", () => {
   it("reads version from an npm package.json", async () => {
     const dir = setupDownloadRaw(JSON.stringify({ name: "a", version: "2.3.4-beta.1" }));
@@ -486,18 +571,32 @@ describe("readPackageVersion", () => {
     await expect(readPackageVersion(dir, "pypi")).resolves.toBeUndefined();
   });
 
-  it("reads a 200 KB Version header with a lone CR in it without stalling", async () => {
+  it(`reads a 200 KB Version header with a lone CR in it in less than ${HEADER_BOUND} times the time of one read of each line of the file`, async ({
+    task,
+  }) => {
     // The header comes from the downloaded package. A pattern whose parts
     // overlap backtracks quadratically on this line (seconds at 200 KB).
-    const dir = setupDownloadRaw(null);
-    writeFileSync(
-      join(dir, "PKG-INFO"),
-      `Metadata-Version: 2.1\nName: demo\nVersion:${" ".repeat(200_000)}a\rb\n`,
-    );
-    const started = performance.now();
+    const dir = longVersionHeader(200_000);
     await expect(readPackageVersion(dir, "pypi")).resolves.toBeUndefined();
-    expect(performance.now() - started).toBeLessThan(1000);
-  });
+    const ratio = await headerTimeRatio((packageDir) => readPackageVersion(packageDir, "pypi"), dir);
+    // The measured ratio, for a report that reads the test's meta.
+    Object.assign(task.meta, { ratios: [ratio] });
+    expect(ratio).toBeLessThan(HEADER_BOUND);
+  }, 120_000);
+
+  it(`holds a reader that reads the Version line again from each place in it to ${HEADER_BOUND} times or more, on a 16 KB header readPackageVersion reads in less`, async ({
+    task,
+  }) => {
+    const dir = longVersionHeader(16_384);
+    await expect(rereadingVersion(dir)).resolves.toBeUndefined();
+    const ratios = {
+      readPackageVersion: await headerTimeRatio((packageDir) => readPackageVersion(packageDir, "pypi"), dir),
+      rereadingVersion: await headerTimeRatio(rereadingVersion, dir),
+    };
+    Object.assign(task.meta, { ratios: [ratios] });
+    expect(ratios.readPackageVersion).toBeLessThan(HEADER_BOUND);
+    expect(ratios.rereadingVersion).toBeGreaterThanOrEqual(HEADER_BOUND);
+  }, 120_000);
 
   it("does not follow a manifest symlink out of the extracted package", async () => {
     const outside = join(tmpRoot, "outside");

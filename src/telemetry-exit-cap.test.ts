@@ -14,7 +14,9 @@
  * How the process ended is read from inside it, not from wall time: a probe
  * preloaded with `--require` reports whether the event loop emptied on its own
  * (`beforeExit`, which Node does not emit when `process.exit()` ends the
- * process) and how long the process lived after the command finished.
+ * process), how long the process lived after the command finished, and
+ * whether a control timer it set when the command finished fired before the
+ * process ended.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { spawn, spawnSync } from "node:child_process";
@@ -28,15 +30,19 @@ const CLI_PATH = resolve(__dirname, "../dist/index.js");
 const DROPPED_ENDPOINT = "http://192.0.2.1/never";
 // TELEMETRY_EXIT_CAP_MS in index.ts.
 const EXIT_CAP_MS = 2000;
-// Longest the process may live after the command finishes. The cap gives
-// about 2 s; a 5 s cap, or no cap (the connect timeout, about 10 s), is over.
+// Longest the process may live after the command finishes, as the control: a
+// timer of this length, set in the process when the command finishes, runs
+// in the same event loop as the cap, so a loaded machine that delays one
+// delays the other. The cap gives about 2 s; a 5 s cap, or no cap (the
+// connect timeout, about 10 s), is over.
 const MAX_AFTER_COMMAND_MS = 4000;
 // How long the slow reader leaves stdout unread: past the cap.
 const SLOW_READER_MS = EXIT_CAP_MS + 1500;
 
 // Preloaded into the CLI process. The telemetry debug line is written when
-// the command finishes, which starts the clock; `beforeExit` marks an event
-// loop that emptied on its own; `exit` reports the elapsed time.
+// the command finishes, which starts the clock and the control timer
+// (unref'd, so it holds nothing open); `beforeExit` marks an event loop that
+// emptied on its own; `exit` reports the elapsed time.
 const EXIT_PROBE = `
 const fs = require("node:fs");
 let commandDoneAt;
@@ -44,6 +50,7 @@ const write = process.stderr.write.bind(process.stderr);
 process.stderr.write = (chunk, ...rest) => {
   if (commandDoneAt === undefined && String(chunk).includes("[opena2a:telemetry]")) {
     commandDoneAt = Date.now();
+    setTimeout(() => fs.writeSync(2, "[exit-probe] control-fired\\n"), ${MAX_AFTER_COMMAND_MS}).unref();
   }
   return write(chunk, ...rest);
 };
@@ -56,8 +63,18 @@ process.on("exit", () => {
 });
 `;
 
+// A tracked command whose exit is capped at 5 s: it writes its telemetry line
+// when it finishes, a send to an endpoint that never answers holds it open (a
+// timer stands in for the stuck socket), and a 5 s cap ends it.
+const FIVE_SECOND_CAP_COMMAND = `
+process.stderr.write('[opena2a:telemetry] {"name":"audit"}\\n');
+setTimeout(() => {}, 10000);
+setTimeout(() => process.exit(0), 5000).unref();
+`;
+
 let workDir: string;
 let probePath: string;
+let fiveSecondCapPath: string;
 
 beforeAll(() => {
   workDir = mkdtempSync(join(tmpdir(), "ai-trust-exit-cap-"));
@@ -67,6 +84,8 @@ beforeAll(() => {
   );
   probePath = join(workDir, "exit-probe.cjs");
   writeFileSync(probePath, EXIT_PROBE);
+  fiveSecondCapPath = join(workDir, "five-second-cap.cjs");
+  writeFileSync(fiveSecondCapPath, FIVE_SECOND_CAP_COMMAND);
 });
 
 afterAll(() => {
@@ -94,10 +113,13 @@ interface AuditRun {
   loopEmptied: boolean;
   /** Time from the telemetry debug line to the exit; -1 when no line was written. */
   afterCommandMs: number;
+  /** The control timer of MAX_AFTER_COMMAND_MS fired before the process ended. */
+  controlFired: boolean;
 }
 
-function runAudit(file: string, telemetry: "on" | "off" = "on"): AuditRun {
-  const res = spawnSync(process.execPath, ["--require", probePath, CLI_PATH, "audit", file], {
+/** Run `script` with `args` under the probe. */
+function runProbed(script: string, args: string[], telemetry: "on" | "off"): AuditRun {
+  const res = spawnSync(process.execPath, ["--require", probePath, script, ...args], {
     encoding: "utf8",
     timeout: 30000,
     env: cliEnv(telemetry),
@@ -109,7 +131,12 @@ function runAudit(file: string, telemetry: "on" | "off" = "on"): AuditRun {
     status: res.status,
     loopEmptied: stderr.includes("[exit-probe] loop-empty"),
     afterCommandMs: after ? Number(after[1]) : Number.NaN,
+    controlFired: stderr.includes("[exit-probe] control-fired"),
   };
+}
+
+function runAudit(file: string, telemetry: "on" | "off" = "on"): AuditRun {
+  return runProbed(CLI_PATH, ["audit", file], telemetry);
 }
 
 /**
@@ -136,9 +163,10 @@ describe("exit with an unreachable telemetry endpoint", () => {
     expect(run.stderr).toMatch(/\[opena2a:telemetry\] .*"name":"audit"/);
     expect(run.status).toBe(0);
     if (stallNotExercised(run)) ctx.skip(NO_STALL_NOTE);
-    // The cap ended the process; the stuck socket did not get to.
+    // The cap ended the process, before the control timer fired; the stuck
+    // socket did not get to.
     expect(run.loopEmptied).toBe(false);
-    expect(run.afterCommandMs).toBeLessThan(MAX_AFTER_COMMAND_MS);
+    expect(run.controlFired).toBe(false);
   }, 40000);
 
   it("a tracked command that fails exits at the cap and keeps its exit code", (ctx) => {
@@ -149,7 +177,13 @@ describe("exit with an unreachable telemetry endpoint", () => {
     expect(run.status).toBe(1);
     if (stallNotExercised(run)) ctx.skip(NO_STALL_NOTE);
     expect(run.loopEmptied).toBe(false);
-    expect(run.afterCommandMs).toBeLessThan(MAX_AFTER_COMMAND_MS);
+    expect(run.controlFired).toBe(false);
+  }, 40000);
+
+  it("holds a command whose exit is capped at 5 s to ending after the control timer fired", () => {
+    const run = runProbed(fiveSecondCapPath, [], "on");
+    expect(run.loopEmptied).toBe(false);
+    expect(run.controlFired).toBe(true);
   }, 40000);
 });
 

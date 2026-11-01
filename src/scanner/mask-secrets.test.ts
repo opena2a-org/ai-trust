@@ -28,6 +28,91 @@ function fakeUnpatterned(length: number): string {
   ).join("");
 }
 
+/**
+ * Runs with no head of `length` characters and more, filler or with a value at
+ * the end, each with its masked form: a read that starts a run at more places
+ * than it must reads them in time that grows with the square of `length`.
+ */
+function runsWithNoHead(length: number): Array<[text: string, masked: string]> {
+  const filler = "_".repeat(length);
+  const pairs = "ab".repeat(length / 2);
+  // Every boundary in the first 38 characters starts a run that has no
+  // end boundary 40 or more characters on.
+  const noEnd = `${"+a".repeat(19)}${"+".repeat(length)}`;
+  return [
+    [filler, filler],
+    [pairs, pairs],
+    [`${filler}${fakeUnpatterned(40)}`, "*".repeat(16)],
+    [noEnd, noEnd],
+  ];
+}
+
+// The time of a read is measured against the same read of PIECES texts of the
+// same shape, each a PIECES-th of the length, run in turn at the same moment.
+// Both sides run the same code for about as long, so a loaded machine that
+// slows the process slows both alike. When the time is linear in the length,
+// the one text takes about as long as the PIECES (maskSecrets: 0.3 to 1.8
+// times, measured on these texts); when it grows with the square of the
+// length, up to PIECES times as long (`rereadingMask`: 7.5 times or more on the
+// 8 KB texts). The bound of 4 sits between the two.
+const PIECES = 64;
+const LINEAR_BOUND = 4;
+
+/**
+ * The CPU time of the process, in milliseconds, which leaves out the time the
+ * process waits for a CPU. Windows counts that time in steps of its clock
+ * tick, about 15.6 ms, so there it is the elapsed time.
+ */
+const now =
+  process.platform === "win32"
+    ? () => performance.now()
+    : () => {
+        const { user, system } = process.cpuUsage();
+        return (user + system) / 1000;
+      };
+
+/**
+ * The time `mask` takes on `text` over the time it takes on `piece` PIECES
+ * times: the fastest of five runs of each, taken in turn, so that a pause of
+ * the process during one run does not decide the ratio. A slow spell of the
+ * machine over a whole measurement can, so the ratio is measured up to three
+ * times while it is at or over the bound.
+ */
+function timeRatio(mask: (text: string) => string, text: string, piece: string): number {
+  const measure = (): number => {
+    const fastest = { text: Infinity, pieces: Infinity };
+    for (let run = 0; run < 5; run++) {
+      let start = now();
+      mask(text);
+      fastest.text = Math.min(fastest.text, now() - start);
+      start = now();
+      for (let count = 0; count < PIECES; count++) mask(piece);
+      fastest.pieces = Math.min(fastest.pieces, now() - start);
+    }
+    return fastest.text / fastest.pieces;
+  };
+  let ratio = measure();
+  for (let attempt = 1; attempt < 3 && ratio >= LINEAR_BOUND; attempt++) {
+    ratio = Math.min(ratio, measure());
+  }
+  return ratio;
+}
+
+/**
+ * A masker that reads the run of credential characters from each place in the
+ * text again before it masks as maskSecrets does, as a pattern that starts a
+ * run at every place in it would: the same text out, in time that grows with
+ * the square of the length.
+ */
+function rereadingMask(text: string): string {
+  const runFrom = /[A-Za-z0-9+=_-]*/y;
+  for (let at = 0; at < text.length; at++) {
+    runFrom.lastIndex = at;
+    runFrom.exec(text);
+  }
+  return maskSecrets(text);
+}
+
 describe("maskSecrets", () => {
   it.each([
     ["sk-ant-api0", fake(24)],
@@ -83,15 +168,21 @@ describe("maskSecrets", () => {
     expect(maskSecrets(`Bearer ${token}.`)).toBe(`Bearer eyJ${"*".repeat(16)}.`);
   });
 
-  it("reads 256 KB of `eyJ-` repeated, which holds no token, in under a second", () => {
+  it(`reads 256 KB of \`eyJ-\` repeated, which holds no token, in less than ${LINEAR_BOUND} times the time of ${PIECES} texts of 4 KB`, ({
+    task,
+  }) => {
     // Every `eyJ` after the first follows a `-`, so only the first is read as
     // a header; a header read from each would scan the rest of the text again
     // from each one.
     const text = "eyJ-".repeat(65_536);
-    const start = performance.now();
+    const piece = "eyJ-".repeat(65_536 / PIECES);
     expect(maskSecrets(text)).toBe(text);
-    expect(performance.now() - start).toBeLessThan(1000);
-  });
+    expect(maskSecrets(piece)).toBe(piece);
+    const ratio = timeRatio(maskSecrets, text, piece);
+    // The measured ratio, for a report that reads the test's meta.
+    Object.assign(task.meta, { ratios: [ratio] });
+    expect(ratio).toBeLessThan(LINEAR_BOUND);
+  }, 120_000);
 
   it("leaves a head that continues a word, and a body shorter than its shape's", () => {
     const text = `task-${fake(30)} risk-${fake(30)} sk-1234 ghp_${fake(19)} AKIA${fake(15)}`;
@@ -169,23 +260,43 @@ describe("maskSecrets", () => {
       expect(maskSecrets(`v ${"a".repeat(36)}bcde`)).toBe(`v ${"*".repeat(16)}`);
     });
 
-    it("reads a run of 1 MB, filler or with a value at its end, in under a second", () => {
-      const filler = "_".repeat(1 << 20);
-      const pairs = "ab".repeat(1 << 19);
-      const valueAfterFiller = `${filler}${fakeUnpatterned(40)}`;
-      // Every boundary in the first 38 characters starts a run that has no
-      // end boundary 40 or more characters on.
-      const noEnd = `${"+a".repeat(19)}${"+".repeat(1 << 20)}`;
-      for (const [text, expected] of [
-        [filler, filler],
-        [pairs, pairs],
-        [valueAfterFiller, "*".repeat(16)],
-        [noEnd, noEnd],
-      ]) {
-        const start = performance.now();
-        expect(maskSecrets(text)).toBe(expected);
-        expect(performance.now() - start).toBeLessThan(1000);
-      }
-    });
+    it(`reads a run of 1 MB, filler or with a value at its end, in less than ${LINEAR_BOUND} times the time of ${PIECES} runs of 16 KB`, ({
+      task,
+    }) => {
+      const ratios: number[] = [];
+      Object.assign(task.meta, { ratios });
+      const pieces = runsWithNoHead((1 << 20) / PIECES);
+      runsWithNoHead(1 << 20).forEach(([text, masked], shape) => {
+        const [piece, pieceMasked] = pieces[shape];
+        expect(maskSecrets(text)).toBe(masked);
+        expect(maskSecrets(piece)).toBe(pieceMasked);
+        ratios.push(timeRatio(maskSecrets, text, piece));
+        expect(ratios[shape]).toBeLessThan(LINEAR_BOUND);
+      });
+    }, 120_000);
   });
+
+  it(`holds a masker that reads the run again from each place in it to ${LINEAR_BOUND} times or more, on the 8 KB texts maskSecrets reads in less`, ({
+    task,
+  }) => {
+    const ratios: Array<{ maskSecrets: number; rereadingMask: number }> = [];
+    Object.assign(task.meta, { ratios });
+    // The texts of both reads above, at 8 KB: `eyJ-` repeated, and the runs
+    // with no head.
+    const texts = (length: number): Array<[text: string, masked: string]> => [
+      ["eyJ-".repeat(length / 4), "eyJ-".repeat(length / 4)],
+      ...runsWithNoHead(length),
+    ];
+    const pieces = texts(8192 / PIECES);
+    texts(8192).forEach(([text, masked], shape) => {
+      const [piece] = pieces[shape];
+      expect(rereadingMask(text)).toBe(masked);
+      ratios.push({
+        maskSecrets: timeRatio(maskSecrets, text, piece),
+        rereadingMask: timeRatio(rereadingMask, text, piece),
+      });
+      expect(ratios[shape].maskSecrets).toBeLessThan(LINEAR_BOUND);
+      expect(ratios[shape].rereadingMask).toBeGreaterThanOrEqual(LINEAR_BOUND);
+    });
+  }, 120_000);
 });

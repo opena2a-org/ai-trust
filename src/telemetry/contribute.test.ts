@@ -535,10 +535,27 @@ describe("scanPingsSettled (#129)", () => {
     await new Promise((done) => server.close(done));
   });
 
-  it("resolves at once when no ping was sent", async () => {
-    const startedAt = Date.now();
-    await scanPingsSettled();
-    expect(Date.now() - startedAt).toBeLessThan(ANSWER_DELAY_MS);
+  // Whether `settling` settles before a timer of the answer delay, set at the
+  // same moment, fires. The timer is the control: the same event loop runs
+  // both, so a loaded machine that delays one delays the other.
+  const settlesBeforeAnAnswer = (settling: Promise<unknown>): Promise<boolean> =>
+    new Promise((resolve) => {
+      const control = setTimeout(() => resolve(false), ANSWER_DELAY_MS);
+      const settled = () => {
+        clearTimeout(control);
+        resolve(true);
+      };
+      void settling.then(settled, settled);
+    });
+
+  it("resolves at once when no ping was sent, before a timer of the answer delay set with it", async () => {
+    await expect(settlesBeforeAnAnswer(scanPingsSettled())).resolves.toBe(true);
+  });
+
+  it("holds a wait of two answer delays with no ping sent to settling after that timer", async () => {
+    // A settle that waits though no ping is in flight.
+    const waitingSettle = new Promise<void>((done) => setTimeout(done, 2 * ANSWER_DELAY_MS));
+    await expect(settlesBeforeAnAnswer(waitingSettle)).resolves.toBe(false);
   });
 
   it("resolves only after the registry has answered the ping", async () => {

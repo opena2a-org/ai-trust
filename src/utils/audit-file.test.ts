@@ -157,6 +157,73 @@ describe("auditFileRefusal", () => {
   });
 });
 
+// The time of a decision on a long name is measured against the same decision
+// on PIECES names of the same shape, each a PIECES-th of the length, run in
+// turn at the same moment. Both sides run the same code for about as long, so
+// a loaded machine that slows the process slows both alike. When the time is
+// linear in the length, the one name takes about as long as the PIECES
+// (isRequirementsFile: 0.5 to 2.2 times, measured on these names); when it
+// grows with the square of the length, up to PIECES times as long
+// (`rereadingDecision`: 30 times or more on the name of 36,000 characters).
+// The bound of 6 sits between the two.
+const PIECES = 100;
+const LINEAR_BOUND = 6;
+
+/**
+ * The CPU time of the process, in milliseconds, which leaves out the time the
+ * process waits for a CPU. Windows counts that time in steps of its clock
+ * tick, about 15.6 ms, so there it is the elapsed time.
+ */
+const now =
+  process.platform === "win32"
+    ? () => performance.now()
+    : () => {
+        const { user, system } = process.cpuUsage();
+        return (user + system) / 1000;
+      };
+
+/**
+ * The time `decide` takes on `name` over the time it takes on `piece` PIECES
+ * times: the fastest of five runs of each, taken in turn, so that a pause of
+ * the process during one run does not decide the ratio. A slow spell of the
+ * machine over a whole measurement can, so the ratio is measured up to three
+ * times while it is at or over the bound.
+ */
+function timeRatio(decide: (path: string) => boolean, name: string, piece: string): number {
+  const measure = (): number => {
+    const fastest = { name: Infinity, pieces: Infinity };
+    for (let run = 0; run < 5; run++) {
+      let start = now();
+      decide(name);
+      fastest.name = Math.min(fastest.name, now() - start);
+      start = now();
+      for (let count = 0; count < PIECES; count++) decide(piece);
+      fastest.pieces = Math.min(fastest.pieces, now() - start);
+    }
+    return fastest.name / fastest.pieces;
+  };
+  let ratio = measure();
+  for (let attempt = 1; attempt < 3 && ratio >= LINEAR_BOUND; attempt++) {
+    ratio = Math.min(ratio, measure());
+  }
+  return ratio;
+}
+
+/**
+ * A decision that reads the rest of the name again from each `requirements`
+ * in it, as /requirements.*\.txt$/ does, before it decides as
+ * isRequirementsFile does: the same answer, in time that grows with the
+ * square of the length.
+ */
+function rereadingDecision(path: string): boolean {
+  const restOfLine = /[^\n\r\p{Zl}\p{Zp}]*/uy;
+  for (let at = path.indexOf("requirements"); at !== -1; at = path.indexOf("requirements", at + 1)) {
+    restOfLine.lastIndex = at;
+    restOfLine.exec(path);
+  }
+  return isRequirementsFile(path);
+}
+
 describe("isRequirementsFile", () => {
   const lineSeparator = String.fromCharCode(0x2028);
   const paragraphSeparator = String.fromCharCode(0x2029);
@@ -186,10 +253,31 @@ describe("isRequirementsFile", () => {
     expect(isRequirementsFile(`/deps/${name}`)).toBe(expected);
   });
 
-  it("decides a 300,000-character name of repeated requirements without stalling", () => {
+  it(`decides a 300,000-character name of repeated requirements in less than ${LINEAR_BOUND} times the time of ${PIECES} names of 3,000`, ({
+    task,
+  }) => {
     const name = "requirements".repeat(25_000) + ".tx";
-    const start = performance.now();
+    const piece = "requirements".repeat(25_000 / PIECES) + ".tx";
     expect(isRequirementsFile(name)).toBe(false);
-    expect(performance.now() - start).toBeLessThan(500);
-  });
+    expect(isRequirementsFile(piece)).toBe(false);
+    const ratio = timeRatio(isRequirementsFile, name, piece);
+    // The measured ratio, for a report that reads the test's meta.
+    Object.assign(task.meta, { ratios: [ratio] });
+    expect(ratio).toBeLessThan(LINEAR_BOUND);
+  }, 120_000);
+
+  it(`holds a decision that reads the rest of the name again from each requirements in it to ${LINEAR_BOUND} times or more, on a name isRequirementsFile decides in less`, ({
+    task,
+  }) => {
+    const name = "requirements".repeat(3_000) + ".tx";
+    const piece = "requirements".repeat(3_000 / PIECES) + ".tx";
+    expect(rereadingDecision(name)).toBe(false);
+    const ratios = {
+      isRequirementsFile: timeRatio(isRequirementsFile, name, piece),
+      rereadingDecision: timeRatio(rereadingDecision, name, piece),
+    };
+    Object.assign(task.meta, { ratios: [ratios] });
+    expect(ratios.isRequirementsFile).toBeLessThan(LINEAR_BOUND);
+    expect(ratios.rereadingDecision).toBeGreaterThanOrEqual(LINEAR_BOUND);
+  }, 120_000);
 });
