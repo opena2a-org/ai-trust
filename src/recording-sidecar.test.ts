@@ -9,9 +9,10 @@
  * agreement, so a change to any one of them without a new render fails here:
  * - the sidecar opens with the demo-sidecar/2 keys, in order; the keys the
  *   render wrote before that schema follow them;
- * - the sidecar's version is the version in package.json, and the build is
- *   that version as published on npm (prerelease false): only a release
- *   render is embedded;
+ * - the sidecar's version is the version in package.json, and the build is a
+ *   release build (prerelease false): that version as published on npm, or a
+ *   pack made while npm did not have it, which records the git object ids of
+ *   its build inputs (packedInputs); only a release render is embedded;
  * - the commands the tape types on screen are the sidecar's commands and the
  *   text capture's commands, in order;
  * - the tape, the GIF, the fixture and the VHS patch hash to what the sidecar
@@ -57,6 +58,8 @@ const EARLIER_KEYS = [
   "gifsicle", "gifFrames", "gifFullScreenFrames", "renderedPixelSize", "wallClockSeconds",
   "vhsPatchSha256", "edits", "environment",
 ];
+/** The build inputs a release-window pack records, each by its git object id. */
+const PACKED_INPUT_KEYS = ["src", "tsconfig", "packageJson", "packageLock"];
 /** The pace rule for a recorded front door. */
 const PACE = {
   typingSpeedMs: { min: 100, max: 140 },
@@ -109,6 +112,8 @@ interface Sidecar {
   tapeSha256: string;
   npmIntegrity?: string;
   packedFromCommit?: string;
+  /** A release-window pack: the git object ids of its build inputs. */
+  packedInputs?: unknown;
   registryHost: string;
   hostname: string;
   columns: number;
@@ -228,6 +233,27 @@ function nextNonBlank(lines: string[], from: number): number {
   return -1;
 }
 
+/** Whether the sidecar names a build published on npm, by its sha512 integrity. */
+function hasPublishedIntegrity(record: Sidecar): boolean {
+  return /^sha512-[A-Za-z0-9+/]+=*$/.test(record.npmIntegrity ?? "");
+}
+
+/**
+ * Whether the sidecar names the four build inputs of a release-window pack,
+ * each by a 40-hex git object id. Shape only: the ids are not compared with
+ * HEAD, because main moves on after the release tag and such a comparison
+ * would fail on the first change to src after the release.
+ */
+function hasPackedInputs(record: Sidecar): boolean {
+  const inputs = record.packedInputs;
+  if (typeof inputs !== "object" || inputs === null || Array.isArray(inputs)) return false;
+  const entries = Object.entries(inputs);
+  return (
+    entries.length === PACKED_INPUT_KEYS.length &&
+    entries.every(([key, id]) => PACKED_INPUT_KEYS.includes(key) && typeof id === "string" && /^[0-9a-f]{40}$/.test(id))
+  );
+}
+
 const sidecar = JSON.parse(read(SIDECAR_PATH)) as Sidecar;
 const manifest = JSON.parse(read("package.json")) as { name: string; version: string };
 const tape = read(TAPE);
@@ -243,16 +269,20 @@ describe(`${SIDECAR_PATH} pins the recording to the build`, () => {
     expect(sidecar.version).toBe(manifest.version);
   });
 
-  it("names the build it ran: a published integrity or the commit it was packed from", () => {
-    const published = /^sha512-[A-Za-z0-9+/]+=*$/.test(sidecar.npmIntegrity ?? "");
-    const packed = /^[0-9a-f]{40}$/.test(sidecar.packedFromCommit ?? "");
-    expect(published !== packed, "exactly one of npmIntegrity and packedFromCommit").toBe(true);
-    expect(sidecar.prerelease, "prerelease is true exactly when the build was packed from a checkout").toBe(packed);
+  it("is prerelease false exactly when it names a release build: a published integrity or the four packed inputs", () => {
+    const release = hasPublishedIntegrity(sidecar) || hasPackedInputs(sidecar);
+    expect(
+      sidecar.prerelease,
+      "prerelease is false exactly when the sidecar carries a published npmIntegrity or a packedInputs with four 40-hex ids",
+    ).toBe(!release);
   });
 
-  it("is a release render: the published package, prerelease false", () => {
+  it("is a release render, prerelease false: the published package or a release-window pack", () => {
     expect(sidecar.prerelease, "only a release render is embedded").toBe(false);
-    expect(sidecar.npmIntegrity).toMatch(/^sha512-/);
+    expect(
+      hasPublishedIntegrity(sidecar) || hasPackedInputs(sidecar),
+      "a published npmIntegrity or a packedInputs with four 40-hex ids",
+    ).toBe(true);
   });
 
   it("opens with the demo-sidecar/2 keys, in order, before any other key", () => {

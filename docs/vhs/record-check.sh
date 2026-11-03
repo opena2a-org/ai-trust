@@ -12,8 +12,14 @@
 # so the typed `npx ai-trust ...` runs that build with no download on screen. Which build: when npm
 # has the version in package.json, that published version (the sidecar records npmIntegrity and
 # prerelease false: a release render, the one the README embeds); otherwise the tarball `npm pack`
-# makes from this checkout (the sidecar records packedFromCommit and prerelease true).
-# AI_TRUST_RECORD_SOURCE=pack forces the tarball.
+# makes from this checkout (the sidecar records packedFromCommit). A pack made while npm does not
+# have the version is a release-window pack, also a release render: the sidecar records prerelease
+# false and packedInputs, the git object ids of the four inputs of the build (`tsc` compiles src
+# with tsconfig.json): HEAD:src, HEAD:tsconfig.json, and package.json and package-lock.json as they
+# are in the working tree. The script refuses (exit 1) such a pack when src/ or tsconfig.json has
+# uncommitted changes. AI_TRUST_RECORD_SOURCE=pack forces the tarball; a forced pack of a version
+# npm already has records prerelease true and no packedInputs, and so does a pack made when npm
+# does not answer.
 #
 # The `check` step shows the public registry's live answer; nothing is replayed. The `audit` step
 # reads a copy of docs/demo, the sample project. The hostname is `laptop` and HOME is fresh.
@@ -35,9 +41,39 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 DOCKER="${DOCKER:-docker}"
 TOOL="ai-trust"
 VERSION="$(node -p "require(process.argv[1]).version" "$REPO_ROOT/package.json")"
+# What npm says about this version decides which build is recorded. ON_NPM is yes when npm answers
+# with its integrity, no when npm answers that it does not have it (E404, or no integrity), and
+# unknown when npm does not answer. An unknown answer is never taken for a no.
+NPM_ERR="$(mktemp)"
+ON_NPM=no
+if PUBLISHED_INTEGRITY="$(npm view "$TOOL@$VERSION" dist.integrity 2>"$NPM_ERR")"; then
+  [ -z "$PUBLISHED_INTEGRITY" ] || ON_NPM=yes
+elif ! grep -q "code E404" "$NPM_ERR"; then
+  ON_NPM=unknown
+fi
+rm -f "$NPM_ERR"
 INTEGRITY=""
-if [ "${AI_TRUST_RECORD_SOURCE:-}" != "pack" ]; then
-  INTEGRITY="$(npm view "$TOOL@$VERSION" dist.integrity 2>/dev/null || true)"
+if [ "$ON_NPM" = yes ] && [ "${AI_TRUST_RECORD_SOURCE:-}" != "pack" ]; then
+  INTEGRITY="$PUBLISHED_INTEGRITY"
+fi
+# A pack made while npm does not have the version is a release-window pack: a release render of the
+# build that version will publish. Its sidecar records the git object ids of the build's inputs, so
+# src/ and tsconfig.json have to be the committed ones.
+PACKED_INPUTS=""
+if [ "$ON_NPM" = no ]; then
+  SOURCE_CHANGES="$(git -C "$REPO_ROOT" status --porcelain -- src tsconfig.json)"
+  if [ -n "$SOURCE_CHANGES" ]; then
+    echo "record-check: npm does not have $TOOL@$VERSION, so this pack is a release render, and src/ or tsconfig.json has uncommitted changes. Commit them and run again:" >&2
+    echo "$SOURCE_CHANGES" >&2
+    exit 1
+  fi
+  INPUT_SRC="$(git -C "$REPO_ROOT" rev-parse HEAD:src)"
+  INPUT_TSCONFIG="$(git -C "$REPO_ROOT" rev-parse HEAD:tsconfig.json)"
+  INPUT_PACKAGE_JSON="$(git -C "$REPO_ROOT" hash-object package.json)"
+  INPUT_PACKAGE_LOCK="$(git -C "$REPO_ROOT" hash-object package-lock.json)"
+  PACKED_INPUTS="{\"src\":\"$INPUT_SRC\",\"tsconfig\":\"$INPUT_TSCONFIG\",\"packageJson\":\"$INPUT_PACKAGE_JSON\",\"packageLock\":\"$INPUT_PACKAGE_LOCK\"}"
+elif [ "$ON_NPM" = unknown ]; then
+  echo "record-check: npm did not answer whether it has $TOOL@$VERSION, so this pack is recorded as a prerelease render." >&2
 fi
 # The build context is a scratch copy of docs/vhs/docker, so a packed tarball never lands in the tree.
 CONTEXT="$(mktemp -d)"
@@ -62,7 +98,8 @@ FIXTURE_DIRTY="$(git -C "$REPO_ROOT" status --porcelain -- docs/demo | wc -l | t
 mkdir -p "$REPO_ROOT/docs/vhs/out"
 "$DOCKER" run --rm --hostname laptop --shm-size=1g \
   -e TOOL="$TOOL" -e EXPECTED_VERSION="$VERSION" -e NPM_INTEGRITY="$INTEGRITY" \
-  -e PACKED_FROM="$PACKED_FROM" -e PACKED_DIRTY="$PACKED_DIRTY" -e FIXTURE_DIRTY="$FIXTURE_DIRTY" \
+  -e PACKED_FROM="$PACKED_FROM" -e PACKED_DIRTY="$PACKED_DIRTY" -e PACKED_INPUTS="$PACKED_INPUTS" \
+  -e FIXTURE_DIRTY="$FIXTURE_DIRTY" \
   -v "$REPO_ROOT/docs/vhs":/work/docs/vhs \
   -v "$REPO_ROOT/docs/demo":/work/fixture:ro \
   --entrypoint bash "$IMAGE" -c '
@@ -176,9 +213,10 @@ if (!faststart) throw new Error(mp4 + " is not faststart: its boxes are " + boxe
 // The registry the recorded build asks by default, read from its own help text.
 const registryUrl = /--registry-url[\s\S]*?default:\s*"(https?:\/\/[^"]+)"/.exec(execFileSync(process.env.TOOL, ["--help"], { encoding: "utf8" }));
 if (!registryUrl) throw new Error("no default registry URL in the --help output");
+const packedInputs = process.env.PACKED_INPUTS ? JSON.parse(process.env.PACKED_INPUTS) : null;
 const build = process.env.NPM_INTEGRITY
   ? { npmIntegrity: process.env.NPM_INTEGRITY }
-  : { packedFromCommit: process.env.PACKED_FROM, packedTreeUncommittedChanges: Number(process.env.PACKED_DIRTY) };
+  : { packedFromCommit: process.env.PACKED_FROM, packedTreeUncommittedChanges: Number(process.env.PACKED_DIRTY), ...(packedInputs ? { packedInputs } : {}) };
 // The demo-sidecar/2 keys come first, in the order of that schema; the keys this script wrote
 // before it follow.
 const out = {
@@ -186,8 +224,9 @@ const out = {
   surfaceClass: "terminal",
   tool: process.env.TOOL,
   version,
-  // A render of the published package is a release render; a tarball packed from a checkout is not.
-  prerelease: !process.env.NPM_INTEGRITY,
+  // A render of the published package is a release render, and so is a release-window pack, which
+  // records its build inputs. Any other tarball packed from a checkout is not.
+  prerelease: !process.env.NPM_INTEGRITY && !packedInputs,
   script: tape,
   scriptSha256: sha(tape),
   recorder: { name: "vhs", version: vhsVersion, container: "docs/vhs/docker/Dockerfile" },
