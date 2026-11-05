@@ -155,7 +155,8 @@ describe("scannerNodeVersionProblem", () => {
     expect(await isHmaAvailable()).toBe(false);
 
     const readme = readFileSync(join(__dirname, "..", "..", "README.md"), "utf8");
-    const named = /^It needs Node\.js (\S+(?: or \S+)*)/m.exec(readme)?.[1];
+    // The full stop that ends the sentence is not part of the last release.
+    const named = /^It needs Node\.js (\S+(?: or \S+)*)/m.exec(readme)?.[1]?.replace(/\.$/, "");
     expect(named, 'README.md has no "It needs Node.js ..." sentence').toBeDefined();
     const releases = named!.split(" or ").map((entry) => {
       const caret = /^\^(\d+)\.(\d+)$/.exec(entry);

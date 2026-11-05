@@ -7,7 +7,8 @@
  * version numbers or dates in the README (the capture sidecar records them),
  * but in the caption of an embedded recording, which its render writes from
  * the recording's sidecar and src/recording-sidecar.test.ts holds to it;
- * AIM named in full where it first appears; a Telemetry section that does not call the telemetry anonymous and whose
+ * AIM named in full where it first appears; requirements stated as what the
+ * CLI needs, never as an account or signup it does not need; a Telemetry section that does not call the telemetry anonymous and whose
  * commands run; use-case guides that do not call contributed scans anonymous; links and anchors that resolve, and no external link to a
  * host a link checker cannot fetch; each reference section at
  * its path under docs/; and a quick-start sample that is a verbatim slice of
@@ -38,6 +39,9 @@ const VERSION_OR_DATE = /v?[0-9]+\.[0-9]+\.[0-9]+|20[0-9]{2}-[0-9]{2}-[0-9]{2}/;
 const RECORDING_CAPTION = /^Recorded with \S+ [0-9]+\.[0-9]+\.[0-9]+ on 20[0-9]{2}-[0-9]{2}-[0-9]{2}$/;
 const ANONYMOUS_CLASS = /anonymi[sz]ed|anonymous|irreversible|no personal data|does not identify/i;
 const AIM_FIRST_USE = "OpenA2A AIM (Agent Identity Management)";
+// A README says what a command needs, never an account or signup it does not need.
+const NOT_NEEDED_CLAUSE =
+  /no account|no sign[- ]?up|without an? account|no registration|no credit card|account (required|needed)/i;
 // npmjs.com package pages answer 403 to any client without a browser session,
 // so a link checker can never confirm a link there resolves.
 const REFUSES_SCRIPTED_REQUESTS = /(^|\.)npmjs\.com$/;
@@ -139,6 +143,11 @@ describe("README: short form", () => {
     const first = README.search(/\bAIM\b/);
     const expected = first === -1 ? -1 : first - "OpenA2A ".length;
     expect(README.indexOf(AIM_FIRST_USE)).toBe(expected);
+  });
+
+  it("names what it needs, not an account or signup it does not need", () => {
+    const hits = LINES.map((l, i) => `${i + 1}: ${l}`).filter((l) => NOT_NEEDED_CLAUSE.test(l));
+    expect(hits).toEqual([]);
   });
 
   it(`shows the first command and the start of its output within the first ${FIRST_SCREEN_LINES} lines`, () => {
