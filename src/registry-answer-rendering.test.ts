@@ -406,8 +406,10 @@ describe("registry answers through the built CLI", () => {
     it("audit --scan-missing prints the name the registry returned for a missing package without them", async () => {
       const manifest = writeManifest("missing", { "missing-ctrl": "1.0.0" });
       // The answer's name is not one the dependency file lists, so audit
-      // reports it and downloads nothing. npm is pointed at the fixture
-      // server, which has no such package, in case a download is attempted.
+      // reports it and does not download it. The answer has no entry for
+      // missing-ctrl, so that is a package the registry does not have, and it
+      // is downloaded by the file's spelling. npm is pointed at the fixture
+      // server, which has no such package.
       const { stdout, stderr } = await runCli(
         ["audit", manifest, "--scan-missing", "--no-contribute"],
         {
@@ -422,7 +424,10 @@ describe("registry answers through the built CLI", () => {
       expect(stderr).toContain(
         "  Not scanning miss]0;x-ing SECOND LINE: the registry answered with a name the dependency file does not list.",
       );
-      expect(stderr).not.toContain("  Scanning miss");
+      // The only download is the file's own name, never the answer's.
+      expect(stderr.split("\n").filter((line) => line.startsWith("  Scanning "))).toEqual([
+        "  Scanning missing-ctrl...",
+      ]);
     }, 60000);
 
     it("check --no-scan, batch and audit print a registry error without them", async () => {
