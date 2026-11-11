@@ -18,6 +18,7 @@ import { formatBatchResults, formatJson } from "../output/formatter.js";
 import type { BatchAnswer } from "../output/formatter.js";
 import { redactUrlUserinfo, stripControlCharacters } from "../output/sanitize.js";
 import { trustGate } from "../output/trust-gate.js";
+import { withUnansweredNamesNotFound } from "./audit.js";
 import { packageTypeChoices, packageTypeProblem } from "../utils/package-type.js";
 import { minTrustOption, parseMinTrust } from "../utils/min-trust.js";
 import { resolveAndLog } from "../utils/resolve.js";
@@ -154,7 +155,12 @@ export function registerBatchCommand(program: Command): void {
         });
 
         try {
-          const answered = await client.batchQuery(packages);
+          // A name the answer carries no entry for is counted as one the
+          // registry does not have, as audit counts it.
+          const answered = withUnansweredNamesNotFound(
+            await client.batchQuery(packages),
+            lookupNames
+          );
           const response = opts.type
             ? await withTypeMismatches(client, answered, opts.type)
             : answered;

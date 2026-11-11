@@ -144,7 +144,14 @@ export function registerAuditCommand(program: Command): void {
           baseUrl: globalOpts.registryUrl,
           userAgent: `ai-trust/${AI_TRUST_VERSION}`,
         });
-        const response = await client.batchQuery(packages);
+        // A dependency the answer carries no entry for is counted as one the
+        // registry does not have: it is scanned with --scan-missing, listed
+        // and gated as one the registry answers as not found.
+        const response = withUnansweredNamesNotFound(
+          await client.batchQuery(packages),
+          packages.map((p) => p.name),
+          ecosystem
+        );
 
         // Scan every package the registry hasn't seen. Name-only heuristics
         // aren't safe here: an attacker publishing a squat named like a
@@ -307,6 +314,16 @@ function directoryNextCommand(dir: string): string {
 }
 
 /**
+ * The key a package name is compared under: the name in lower case for npm,
+ * and after PEP 503 normalization for PyPI.
+ */
+function nameKey(name: string, ecosystem: "npm" | "pypi"): string {
+  return ecosystem === "pypi"
+    ? name.toLowerCase().replace(/[-_.]+/g, "-")
+    : name.toLowerCase();
+}
+
+/**
  * The dependency-file name a registry answer refers to, or undefined when
  * the file lists no such package. Names are compared ignoring case for npm,
  * and after PEP 503 normalization for PyPI.
@@ -316,10 +333,48 @@ function manifestNameFor(
   manifestNames: readonly string[],
   ecosystem: "npm" | "pypi" = "npm"
 ): string | undefined {
-  const key = (s: string): string =>
-    ecosystem === "pypi" ? s.toLowerCase().replace(/[-_.]+/g, "-") : s.toLowerCase();
   if (manifestNames.includes(answerName)) return answerName;
-  return manifestNames.find((m) => key(m) === key(answerName));
+  return manifestNames.find((m) => nameKey(m, ecosystem) === nameKey(answerName, ecosystem));
+}
+
+/**
+ * The batch answer with a not-found entry, `found: false` and the verdict
+ * "unknown", for each name sent that the answer carries no entry for. Names
+ * are compared as manifestNameFor compares them, so an entry under the
+ * registry's spelling of a name (another case, or for PyPI another PEP 503
+ * spelling) answers it. A name the answer leaves out is then counted, listed
+ * and gated as one the registry answers as not found, instead of being
+ * skipped. An answer that carries every name is returned as it is.
+ */
+export function withUnansweredNamesNotFound(
+  response: BatchResponse,
+  sentNames: readonly string[],
+  ecosystem: "npm" | "pypi" = "npm"
+): BatchResponse {
+  // The registry's names are remote data: an entry whose name is not a
+  // string answers no name.
+  const answered = new Set(
+    response.results
+      .map((r) => r.name as unknown)
+      .filter((name): name is string => typeof name === "string")
+      .map((name) => nameKey(name, ecosystem))
+  );
+  const unanswered: TrustAnswer[] = [];
+  for (const name of sentNames) {
+    const key = nameKey(name, ecosystem);
+    if (answered.has(key)) continue;
+    // Two spellings of one name get one entry.
+    answered.add(key);
+    unanswered.push({ name, found: false, trustLevel: 0, trustScore: 0, verdict: "unknown" });
+  }
+  if (unanswered.length === 0) return response;
+  const results = [...response.results, ...unanswered];
+  const found = results.filter((r) => r.found).length;
+  return {
+    ...response,
+    results,
+    meta: { ...response.meta, total: results.length, found, notFound: results.length - found },
+  };
 }
 
 /** Say why the scanner cannot run, for an isHmaAvailable() that answered false. */

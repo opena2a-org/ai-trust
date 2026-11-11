@@ -2,8 +2,20 @@
  * Tests for the audit command logic.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeAll,
+  afterAll,
+  beforeEach,
+  afterEach,
+  type MockInstance,
+} from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Command } from "commander";
@@ -77,7 +89,7 @@ vi.mock("@opena2a/contribute", () => ({
 
 import { RegistryClient } from "@opena2a/registry-client";
 import { parseDependencyFile, detectEcosystem } from "../utils/parser.js";
-import { formatBatchResults } from "../output/formatter.js";
+import { formatBatchResults, formatJson } from "../output/formatter.js";
 import { isHmaAvailable, scanPackage, scannerNodeVersionProblem } from "../scanner/index.js";
 import { sendScanPing } from "../telemetry/contribute.js";
 import { readContributeChoice, saveContributeChoice } from "../telemetry/opt-in.js";
@@ -1449,7 +1461,10 @@ describe("audit command", () => {
       "node", "test", "audit", "package.json", "--scan-missing", "--no-contribute",
     ]);
 
-    expect(scanPackage).not.toHaveBeenCalled();
+    // The answer carries no entry for plain-dep, so plain-dep is a name the
+    // registry does not have and is scanned under the file's spelling; the
+    // name the registry answered with is never downloaded.
+    expect(vi.mocked(scanPackage).mock.calls.map((call) => call[0])).toEqual(["plain-dep"]);
     const stderr = consoleErrSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(stderr).toContain(
       "Not scanning git+file:///tmp/not-a-package: the registry answered with a name the dependency file does not list."
@@ -1701,6 +1716,260 @@ describe("audit command", () => {
       expect(stderr).toContain(`    ai-trust audit ${shown} --scan-missing --contribute`);
       expect(stderr.join("\n")).not.toContain("<file>");
       expect(sendScanPing).not.toHaveBeenCalled();
+    });
+  });
+
+  // The registry answers a batch query with one entry for each name sent. A
+  // registry, proxy or cache that leaves a name out must not make audit pass
+  // on the names it did answer for. The registry client, the dependency-file
+  // parser and the formatter are the real ones here, and the registry is a
+  // loopback server that answers only for the names it holds.
+  describe("a batch answer with no entry for a dependency (loopback registry)", () => {
+    const SDK = "@modelcontextprotocol/sdk";
+    const LEFT_PAD = "novel-left-pad-x3";
+
+    /** A registry entry at trust level 4: an MCP server unless overridden. */
+    function held(name: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+      return {
+        packageId: "11111111-1111-4111-8111-111111111111",
+        name,
+        packageType: "mcp_server",
+        trustLevel: 4,
+        trustScore: 0.92,
+        verdict: "verified",
+        scanStatus: "completed",
+        ...overrides,
+      };
+    }
+
+    let server: Server;
+    let registryUrl: string;
+    let scratch: string;
+    /** The method and path of each request the registry got. */
+    let requests: string[];
+    /** The names each batch query sent. */
+    let sentNames: string[][];
+    /** The entry the registry answers a name with, by the name sent. */
+    let holds: Map<string, Record<string, unknown>>;
+
+    beforeAll(async () => {
+      scratch = mkdtempSync(join(tmpdir(), "ai-trust-audit-unanswered-"));
+      server = createServer((req, res) => {
+        const url = new URL(req.url ?? "/", "http://127.0.0.1");
+        requests.push(`${req.method} ${url.pathname}`);
+        const send = (status: number, body: unknown): void => {
+          res.writeHead(status, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(body));
+        };
+        if (req.method !== "POST" || url.pathname !== "/api/v1/trust/batch") {
+          send(404, { error: "unexpected request" });
+          return;
+        }
+        let body = "";
+        req.on("data", (chunk) => (body += chunk));
+        req.on("end", () => {
+          const { packages } = JSON.parse(body) as { packages: Array<{ name: string }> };
+          sentNames.push(packages.map((p) => p.name));
+          // No entry at all for a name the registry does not hold.
+          const results = packages.flatMap((p) => {
+            const entry = holds.get(p.name);
+            return entry ? [entry] : [];
+          });
+          send(200, { results, total: results.length, queriedAt: new Date().toISOString() });
+        });
+      });
+      await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+      registryUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    });
+
+    afterAll(async () => {
+      await new Promise((done) => server.close(done));
+      rmSync(scratch, { recursive: true, force: true });
+    });
+
+    /** Each mock's implementation before the test, put back after it. */
+    const restores: Array<() => void> = [];
+    function useImplementation(
+      mock: {
+        getMockImplementation(): unknown;
+        mockImplementation(impl: never): unknown;
+        mockReset(): unknown;
+      },
+      impl: unknown
+    ): void {
+      const before = mock.getMockImplementation();
+      mock.mockImplementation(impl as never);
+      restores.push(() => {
+        if (before) mock.mockImplementation(before as never);
+        else mock.mockReset();
+      });
+    }
+
+    beforeEach(async () => {
+      requests = [];
+      sentNames = [];
+      holds = new Map();
+      const client = await vi.importActual<typeof import("@opena2a/registry-client")>(
+        "@opena2a/registry-client"
+      );
+      const parser = await vi.importActual<typeof import("../utils/parser.js")>(
+        "../utils/parser.js"
+      );
+      const formatter = await vi.importActual<typeof import("../output/formatter.js")>(
+        "../output/formatter.js"
+      );
+      useImplementation(
+        vi.mocked(RegistryClient),
+        function (options: ConstructorParameters<typeof client.RegistryClient>[0]) {
+          return new client.RegistryClient(options);
+        }
+      );
+      useImplementation(vi.mocked(parseDependencyFile), parser.parseDependencyFile);
+      useImplementation(vi.mocked(detectEcosystem), parser.detectEcosystem);
+      useImplementation(vi.mocked(formatBatchResults), formatter.formatBatchResults);
+      useImplementation(vi.mocked(formatJson), formatter.formatJson);
+    });
+
+    afterEach(() => {
+      while (restores.length > 0) restores.pop()!();
+    });
+
+    /** Writes `content` to a file named `name` in a new directory; returns its path. */
+    function dependencyFile(name: string, content: string): string {
+      const file = join(mkdtempSync(join(scratch, "deps-")), name);
+      writeFileSync(file, content);
+      return file;
+    }
+
+    function packageJson(names: string[]): string {
+      return dependencyFile(
+        "package.json",
+        JSON.stringify({
+          name: "fixture",
+          version: "1.0.0",
+          dependencies: Object.fromEntries(names.map((n) => [n, "^1.0.0"])),
+        })
+      );
+    }
+
+    /** Runs `audit <file> --min-trust 3` and returns its stdout. */
+    async function audit(file: string, flags: string[] = [], global: string[] = []): Promise<string> {
+      await createProgram().parseAsync([
+        "node", "test", "--registry-url", registryUrl, ...global,
+        "audit", file, "--min-trust", "3", ...flags,
+      ]);
+      return consoleSpy.mock.calls
+        .map((call) => String(call[0]))
+        .join("\n")
+        .replace(/\x1b\[[0-9;]*m/g, "");
+    }
+
+    it("exits 2 and names a dependency the answer has no entry for in the Audit failed line", async () => {
+      holds.set(SDK, held(SDK));
+
+      const lines = (await audit(packageJson([SDK, LEFT_PAD]))).split("\n");
+
+      expect(sentNames).toEqual([[SDK, LEFT_PAD]]);
+      expect(requests).toEqual(["POST /api/v1/trust/batch"]);
+      expect(process.exitCode).toBe(2);
+      expect(lines).toContain(
+        `  Audit failed: 1 dependency is not in the registry and was not scanned: ${LEFT_PAD}`
+      );
+      expect(lines.join("\n")).not.toContain("meets minimum trust level");
+    });
+
+    it("--json: carries that dependency as found: false with the verdict unknown, exit 2", async () => {
+      holds.set(SDK, held(SDK));
+
+      const out = JSON.parse(await audit(packageJson([SDK, LEFT_PAD]), [], ["--json"]));
+
+      expect(out.results.map((r: { name: string }) => r.name)).toEqual([SDK, LEFT_PAD]);
+      expect(out.results[1]).toMatchObject({
+        name: LEFT_PAD,
+        found: false,
+        verdict: "unknown",
+        ecosystem: "npm",
+      });
+      expect(out.meta).toEqual({ total: 2, found: 1, notFound: 1 });
+      expect(process.exitCode).toBe(2);
+    });
+
+    it("control: exits 0 and meets the level when the answer has an entry for each dependency", async () => {
+      holds.set(SDK, held(SDK));
+      holds.set(LEFT_PAD, held(LEFT_PAD, { packageType: "library" }));
+
+      const out = await audit(packageJson([SDK, LEFT_PAD]));
+
+      expect(requests).toEqual(["POST /api/v1/trust/batch"]);
+      expect(process.exitCode ?? 0).toBe(0);
+      expect(out.split("\n")).toContain("  The AI package meets minimum trust level 3.");
+      expect(out).not.toContain("Audit failed");
+    });
+
+    it("counts an entry under the registry's spelling of a scoped npm name in another case as found", async () => {
+      const declared = "@Novel-Scope-X3/MCP-Server";
+      holds.set(SDK, held(SDK));
+      holds.set(declared, held("@novel-scope-x3/mcp-server"));
+
+      const out = await audit(packageJson([SDK, declared]));
+
+      expect(sentNames).toEqual([[SDK, declared]]);
+      expect(process.exitCode ?? 0).toBe(0);
+      expect(out.split("\n")).toContain("  All 2 AI packages meet minimum trust level 3.");
+      expect(out).not.toContain("Audit failed");
+    });
+
+    it("counts an entry under the PEP 503 spelling of a PyPI name declared with _ and consecutive separators as found", async () => {
+      const declared = "Novel_MCP__Server_x3";
+      holds.set(declared, held("novel-mcp-server-x3"));
+
+      const out = await audit(dependencyFile("requirements.txt", `${declared}==1.0.0\n`));
+
+      expect(sentNames).toEqual([[declared]]);
+      expect(process.exitCode ?? 0).toBe(0);
+      expect(out.split("\n")).toContain("  The AI package meets minimum trust level 3.");
+      expect(out).not.toContain("Audit failed");
+    });
+
+    it("names a PyPI dependency the answer has no entry for by the file's spelling, exit 2", async () => {
+      holds.set("mcp-x3-held", held("mcp-x3-held"));
+
+      const out = await audit(
+        dependencyFile("requirements.txt", "mcp-x3-held==1.0.0\nNovel_Unheld_X3>=2\n")
+      );
+
+      expect(sentNames).toEqual([["mcp-x3-held", "Novel_Unheld_X3"]]);
+      expect(process.exitCode).toBe(2);
+      expect(out.split("\n")).toContain(
+        "  Audit failed: 1 dependency is not in the registry and was not scanned: Novel_Unheld_X3"
+      );
+    });
+
+    it("--scan-missing scans a dependency the answer has no entry for, by the file's spelling", async () => {
+      holds.set(SDK, held(SDK));
+      vi.mocked(isHmaAvailable).mockResolvedValueOnce(true);
+      vi.mocked(scanPackage).mockResolvedValueOnce({
+        packageName: LEFT_PAD,
+        scan: {
+          score: 90,
+          maxScore: 100,
+          findings: [],
+          projectType: "library",
+          timestamp: "2026-04-12T00:00:00Z",
+        },
+        trustScore: 0.9,
+        trustLevel: 3,
+        verdict: "safe",
+      });
+
+      const out = await audit(packageJson([SDK, LEFT_PAD]), ["--scan-missing", "--no-contribute"]);
+
+      expect(vi.mocked(scanPackage).mock.calls).toEqual([
+        [LEFT_PAD, { deep: true, ecosystem: "npm" }],
+      ]);
+      expect(requests).toEqual(["POST /api/v1/trust/batch"]);
+      expect(process.exitCode ?? 0).toBe(0);
+      expect(out).not.toContain("Audit failed");
     });
   });
 });
