@@ -4,11 +4,11 @@
  * of a protection, detection, signature, advisory or intelligence claim; the
  * opt-in channels are named by what they carry.
  *
- * The gate runs the R1 pattern (line 625 of the ruling that sets R1, copied
- * byte for byte) over the tracked *.md, *.mdx, *.tsx, *.ts, *.js and *.html
- * files, minus paths matching tests, fixtures and changelogs. A new hit fails
- * until it is reviewed: a line that is not a claim goes on ALLOWED with its
- * reason. This repository's baseline is 0 lines, so ALLOWED is empty.
+ * The gate runs one fixed pattern, pinned below by its sha256, over the
+ * tracked *.md, *.mdx, *.tsx, *.ts, *.js and *.html files, minus paths
+ * matching tests, fixtures and changelogs. A new hit fails until it is
+ * reviewed: a line that is not a claim goes on ALLOWED with its reason.
+ * This repository's baseline is 0 lines, so ALLOWED is empty.
  *
  * In a git work tree the files read are the tracked ones. A source archive has
  * no git metadata, so there the tree is walked instead, leaving out the
@@ -96,7 +96,7 @@ const allowKey = (hit: Hit) => `${hit.path}: ${hit.text}`;
 const shown = (hit: Hit) => `${hit.path}:${hit.number}: ${hit.text}`;
 
 describe("public text: no sentence says usage telemetry protects anyone", () => {
-  it("carries the R1 pattern byte for byte", () => {
+  it("carries the pinned pattern byte for byte", () => {
     expect(PATTERN.startsWith("(?i)")).toBe(true);
     expect(createHash("sha256").update(PATTERN).digest("hex")).toBe(PATTERN_SHA256);
   });
